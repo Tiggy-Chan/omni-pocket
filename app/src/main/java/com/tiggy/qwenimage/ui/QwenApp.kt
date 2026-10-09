@@ -117,7 +117,7 @@ fun QwenApp(viewModel: QwenViewModel) {
                         state.progress,
                         state.status,
                         state.resultPath,
-                        state.modelStatus?.manifest?.features?.contains("turbo") == true,
+                        state.modelStatus?.manifest?.features?.contains("official-turbo") == true,
                         state.modelStatus?.ready == true
                     )
                     WorkspaceTab.Queue -> QueueScreen(state.jobs, viewModel::cancelJob)
@@ -254,7 +254,7 @@ private fun GenerateScreen(
     progress: Int,
     status: String,
     resultPath: String?,
-    turboAvailable: Boolean,
+    officialTurboAvailable: Boolean,
     modelReady: Boolean
 ) {
     val inputPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) viewModel.setInput(uri) }
@@ -281,7 +281,7 @@ private fun GenerateScreen(
                     Text("描述你想看到的画面", color = Ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text("Prompt studio", color = Dim, style = MaterialTheme.typography.labelSmall)
                 }
-                Text("Q4_K_M", color = Mint, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Text(if (settings.officialTurbo) "官方 Turbo" else "Q4_K_M", color = Mint, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             }
             Spacer(Modifier.height(10.dp))
             GlassTextField(
@@ -333,7 +333,7 @@ private fun GenerateScreen(
         GlassCard {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MetricChip("画幅", "${settings.width}×${settings.height}", Modifier.weight(1f))
-                MetricChip("步数", if (settings.turbo) "6" else settings.steps.toString(), Modifier.weight(1f))
+                MetricChip("步数", when { settings.officialTurbo -> "8"; settings.turbo -> "6"; else -> settings.steps.toString() }, Modifier.weight(1f))
                 MetricChip("种子", settings.seed.toString(), Modifier.weight(1f))
             }
             Spacer(Modifier.height(10.dp))
@@ -343,8 +343,8 @@ private fun GenerateScreen(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                Checkbox(settings.turbo, viewModel::setTurbo, enabled = turboAvailable)
-                Text(if (turboAvailable) "Turbo" else "Turbo 未安装", color = if (turboAvailable) Ink else Muted)
+                Checkbox(settings.officialTurbo, viewModel::setOfficialTurbo, enabled = officialTurboAvailable)
+                Text(if (officialTurboAvailable) "官方 Turbo · 8 步" else "官方 Turbo 未安装", color = if (officialTurboAvailable) Ink else Muted)
                 Spacer(Modifier.width(8.dp))
                 Checkbox(settings.useTinyVae, viewModel::setTinyVae)
                 Text("Tiny VAE", color = Ink)
@@ -409,8 +409,8 @@ private fun ModelsScreen(viewModel: QwenViewModel, status: ModelStatus?, repo: S
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> if (uri != null) viewModel.importModels(uri) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         GlassCard {
-            Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Outlined.Memory, null, tint = Violet); Spacer(Modifier.width(8.dp)); Text("模型中心", color = Ink, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold); Spacer(Modifier.weight(1f)); Text("Q4_K_M", color = Mint, style = MaterialTheme.typography.labelSmall) }
-            Spacer(Modifier.height(8.dp)); Text("目标包：UC DiT + Qwen3-VL + Tiny VAE。原始 GGUF 需在电脑转换。", color = Muted, style = MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Outlined.Memory, null, tint = Violet); Spacer(Modifier.width(8.dp)); Text("模型中心", color = Ink, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold); Spacer(Modifier.weight(1f)); Text(if (status?.manifest?.features?.contains("official-turbo") == true) "UC · Turbo" else "Q4_K_M", color = Mint, style = MaterialTheme.typography.labelSmall) }
+            Spacer(Modifier.height(8.dp)); Text("UC Q4_K_M 与官方 Turbo 共用文本编码器 / Tiny VAE；官方 Turbo 使用 8 步 DiT。", color = Muted, style = MaterialTheme.typography.bodySmall)
             Spacer(Modifier.height(10.dp)); Text(status?.message ?: "等待模型", color = if (status?.ready == true) Mint else Muted, style = MaterialTheme.typography.labelMedium)
             if (busy) LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp).clip(CircleShape), color = Violet, trackColor = Color.White.copy(.12f))
             Text(message, color = Muted, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 6.dp))

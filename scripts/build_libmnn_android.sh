@@ -5,6 +5,19 @@ set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MNN="$ROOT/third_party/MNN"
 : "${ANDROID_NDK:?set ANDROID_NDK}"
+
+# The pinned MNN branch contains the complete Android Qwen runtime.  Apply the
+# small official-Turbo extension before building; keeping it as a parent-repo
+# patch makes a fresh clone reproducible without inventing a private MNN fork.
+TURBO_PATCH="$ROOT/patches/mnn-qwen-image-official-turbo.patch"
+if [ -f "$TURBO_PATCH" ]; then
+    if git -C "$MNN" apply --check "$TURBO_PATCH" >/dev/null 2>&1; then
+        git -C "$MNN" apply "$TURBO_PATCH"
+    elif ! git -C "$MNN" apply --reverse --check "$TURBO_PATCH" >/dev/null 2>&1; then
+        echo "MNN checkout is neither clean nor already patched for official Turbo" >&2
+        exit 1
+    fi
+fi
 COMMON=(-DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake -DCMAKE_BUILD_TYPE=Release
         -DANDROID_ABI=arm64-v8a -DANDROID_NATIVE_API_LEVEL=android-26 -DMNN_USE_SSE=OFF
         -DMNN_BUILD_FOR_ANDROID_COMMAND=true -DMNN_LOW_MEMORY=ON -DMNN_BUILD_DIFFUSION=ON -DMNN_BUILD_LLM=ON

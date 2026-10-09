@@ -1,0 +1,118 @@
+diff --git a/transformers/diffusion/engine/include/diffusion/qwen_image21_diffusion.hpp b/transformers/diffusion/engine/include/diffusion/qwen_image21_diffusion.hpp
+index d270a0d..97d11dc 100644
+--- a/transformers/diffusion/engine/include/diffusion/qwen_image21_diffusion.hpp
++++ b/transformers/diffusion/engine/include/diffusion/qwen_image21_diffusion.hpp
+@@ -63,6 +63,10 @@ public:
+     // LoRALinear). Takes effect on the next run()/runEdit(); forces the step count to 6 either way, since the
+     // LoRA was distilled against that exact sigma schedule (see sigmas()).
+     void setTurbo(bool on) override;
++    // Switches to the official Qwen/Qwen-Image-2.1-Turbo checkpoint converted
++    // to MNN int4 (dit_official_turbo.mnn). It uses the official fixed 8-step
++    // schedule from model_index.json and is mutually exclusive with Viggle Turbo.
++    void setOfficialTurbo(bool on);
+     // Switches between the int4 DiT (GGUF Q4_K, dit.mnn / dit_turbo.mnn) and the int2 one (GGUF Q2_K,
+     // dit_2bit.mnn / dit_2bit_turbo.mnn) -- smaller and faster, lossier. Combines with setTurbo() independently
+     // (4 files total). Takes effect on the next run()/runEdit().
+@@ -86,9 +90,10 @@ public:
+ 
+     // turbo=true ignores `steps` (always 6) and uses the Viggle-turbo LoRA's fixed raw sigma nodes
+     // [1, 0.9375, 0.875, 0.75, 0.5, 0.25] with no shift_terminal rescale, instead of computing linspace(1,
+-    // 1/steps, steps) and rescaling the last step to `terminal`. Both still go through the same resolution
+-    // dependent exponential mu-shift.
+-    static std::vector<float> sigmas(int steps, int imageSeqLen, bool turbo = false);
++    // 1/steps, steps) and rescaling the last step to `terminal`. officialTurbo=true ignores `steps` (always 8)
++    // and uses Qwen's sample_sigmas [1, .978453, .95418, .926626, .89508, .845148, .704534, .414568]
++    // without an additional shift. Base mode still uses the resolution-dependent exponential mu-shift.
++    static std::vector<float> sigmas(int steps, int imageSeqLen, bool turbo = false, bool officialTurbo = false);
+     static void ropeTables(int textLen, int hTokens, int wTokens, std::vector<float>& cosTab, std::vector<float>& sinTab);
+     static void ropeFromPositions(const std::vector<int>& frame, const std::vector<int>& hpos,
+                                   const std::vector<int>& wpos, std::vector<float>& cosTab, std::vector<float>& sinTab);
+@@ -122,6 +127,7 @@ private:
+     int mLatentH = 32;
+     int mLatentW = 32;
+     bool mTurbo = false;
++    bool mOfficialTurbo = false;
+     bool mDit2Bit = false;
+     std::string mDitFile = "dit.mnn";
+     double mRefAreaScale = 1.0;
+diff --git a/transformers/diffusion/engine/src/qwen_image21_diffusion.cpp b/transformers/diffusion/engine/src/qwen_image21_diffusion.cpp
+index 8da99e0..5919564 100644
+--- a/transformers/diffusion/engine/src/qwen_image21_diffusion.cpp
++++ b/transformers/diffusion/engine/src/qwen_image21_diffusion.cpp
+@@ -9,6 +9,7 @@
+ //    3. Each Euler step runs only the image tokens: img_in + dit (step pass) against the cached text K/V.
+ //    4. The VAE decodes the 64-channel latents to RGBA.
+ //
++#include <algorithm>
+ #include <cmath>
+ #include <cstring>
+ #include <fstream>
+@@ -282,7 +283,19 @@ void QwenImage21Diffusion::ropeTables(int textLen, int hTokens, int wTokens, std
+     ropeFromPositions(f, hp, wp, cosTab, sinTab);
+ }
+ 
+-std::vector<float> QwenImage21Diffusion::sigmas(int steps, int imageSeqLen, bool turbo) {
++std::vector<float> QwenImage21Diffusion::sigmas(int steps, int imageSeqLen, bool turbo, bool officialTurbo) {
++    // Qwen/Qwen-Image-2.1-Turbo ships these eight values in model_index.json
++    // as sample_sigmas. Its scheduler has shift=1 and no dynamic/terminal
++    // shift, so these values are passed through unchanged and terminated by 0.
++    static const float kOfficialTurbo[] = {1.0f, 0.978453f, 0.95418f, 0.926626f,
++                                           0.89508f, 0.845148f, 0.704534f, 0.414568f};
++    if (officialTurbo) {
++        steps = 8;
++        std::vector<float> out(steps + 1);
++        std::copy(std::begin(kOfficialTurbo), std::end(kOfficialTurbo), out.begin());
++        out[steps] = 0.0f;
++        return out;
++    }
+     // FlowMatchEulerDiscreteScheduler: exponential time shift (mu from image_seq_len) + shift_terminal 0.02.
+     // Viggle-turbo ships the same base_shift/max_shift/base_seq/max_seq, but with shift_terminal disabled and
+     // hand-picked raw nodes for its 6-step schedule instead of linspace(1, 1/steps, steps); see
+@@ -399,7 +412,7 @@ VARP QwenImage21Diffusion::denoise(const std::vector<VARP>& prefixKV, int prefix
+ 
+     std::vector<float> latents((size_t)N * kLatentC);
+     generateLatentNoise(latents.data(), (int)latents.size(), seed);
+-    auto sig = sigmas(steps, N, mTurbo);
++    auto sig = sigmas(steps, N, mTurbo, mOfficialTurbo);
+     auto latVar = _Input({1, N, kLatentC}, NCHW, halide_type_of<float>());
+     auto tVar = _Input({1}, NCHW, halide_type_of<float>());
+ 
+@@ -573,16 +586,25 @@ std::string ditFileFor(bool dit2Bit, bool turbo) {
+ }  // namespace
+ 
+ void QwenImage21Diffusion::setTurbo(bool on) {
+-    if (on == mTurbo) return;
++    if (on == mTurbo && !mOfficialTurbo) return;
+     mTurbo = on;
+-    mDitFile = ditFileFor(mDit2Bit, mTurbo);
++    if (on) mOfficialTurbo = false;
++    mDitFile = on ? "dit_turbo.mnn" : (mOfficialTurbo ? "dit_official_turbo.mnn" : ditFileFor(mDit2Bit, false));
++    mDitStep.reset();  // force a reload from the new file on the next denoise()
++}
++
++void QwenImage21Diffusion::setOfficialTurbo(bool on) {
++    if (on == mOfficialTurbo && !mTurbo) return;
++    mOfficialTurbo = on;
++    if (on) mTurbo = false;
++    mDitFile = on ? "dit_official_turbo.mnn" : ditFileFor(mDit2Bit, mTurbo);
+     mDitStep.reset();  // force a reload from the new file on the next denoise()
+ }
+ 
+ void QwenImage21Diffusion::setDit2Bit(bool on) {
+     if (on == mDit2Bit) return;
+     mDit2Bit = on;
+-    mDitFile = ditFileFor(mDit2Bit, mTurbo);
++    mDitFile = mOfficialTurbo ? "dit_official_turbo.mnn" : ditFileFor(mDit2Bit, mTurbo);
+     mDitStep.reset();  // force a reload from the new file on the next denoise()
+ }
+ 
+@@ -961,7 +983,8 @@ bool QwenImage21Diffusion::run(const std::string prompt, const std::string outpu
+     try {
+         if (iterNum < 1) iterNum = 20;
+         if (iterNum > 100) iterNum = 100;
+-        if (mTurbo) iterNum = 6;  // the LoRA was distilled against exactly this 6-step schedule
++        if (mOfficialTurbo) iterNum = 8;
++        else if (mTurbo) iterNum = 6;  // the LoRA was distilled against exactly this 6-step schedule
+         int seed = randomSeed < 0 ? (int)(nowUs() & 0x7fffffff) : randomSeed;
+         if (!inputImagePath.empty()) {
+             return runEdit(prompt, std::vector<std::string>{inputImagePath}, outputPath, iterNum, seed, progressCallback);

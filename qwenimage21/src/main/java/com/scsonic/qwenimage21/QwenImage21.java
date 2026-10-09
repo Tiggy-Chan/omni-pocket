@@ -45,6 +45,8 @@ public final class QwenImage21 implements AutoCloseable {
      * schedule, {@link Options#turbo} = true, {@link Options#dit2Bit} = false. ~5.2 GB — mostly the same base
      * weights again, plus the LoRA's own ~0.7 GB. */
     public static final String[] TURBO_DIT_FILES = {"dit_turbo.mnn", "dit_turbo.mnn.weight"};
+    /** Official Qwen/Qwen-Image-2.1-Turbo checkpoint, quantized to MNN int4 for this phone runtime. */
+    public static final String[] OFFICIAL_TURBO_DIT_FILES = {"dit_official_turbo.mnn", "dit_official_turbo.mnn.weight"};
     /** The base model, int2 (GGUF Q2_K): same 20–40 step schedule as {@link #STANDARD_DIT_FILES}, smaller and
      * faster but lossier. {@link Options#dit2Bit} = true, {@link Options#turbo} = false. ~3.6 GB. */
     public static final String[] DIT_2BIT_FILES = {"dit_2bit.mnn", "dit_2bit.mnn.weight"};
@@ -76,6 +78,11 @@ public final class QwenImage21 implements AutoCloseable {
     private static String[] ditFiles(boolean dit2Bit, boolean turbo) {
         if (dit2Bit) return turbo ? DIT_2BIT_TURBO_FILES : DIT_2BIT_FILES;
         return turbo ? TURBO_DIT_FILES : STANDARD_DIT_FILES;
+    }
+
+    private static String[] ditFiles(boolean dit2Bit, boolean turbo, boolean officialTurbo) {
+        if (officialTurbo) return OFFICIAL_TURBO_DIT_FILES;
+        return ditFiles(dit2Bit, turbo);
     }
 
     /** Additional files needed for {@link #edit} (the vision tower; the VAE encoder is part of
@@ -223,6 +230,8 @@ public final class QwenImage21 implements AutoCloseable {
          * passed to {@link #generate} / {@link #edit} -- the LoRA was distilled against exactly that schedule.
          */
         public boolean turbo = false;
+        /** Use the official Qwen/Qwen-Image-2.1-Turbo checkpoint (fixed 8-step schedule). */
+        public boolean officialTurbo = false;
         /**
          * Use the int2 (GGUF Q2_K) DiT ({@link #DIT_2BIT_FILES} / {@link #DIT_2BIT_TURBO_FILES}) instead of the
          * int4 one ({@link #STANDARD_DIT_FILES} / {@link #TURBO_DIT_FILES}). Smaller and faster, lossier — a 20-step
@@ -279,7 +288,7 @@ public final class QwenImage21 implements AutoCloseable {
     /** Loads the runtime; the heavy stages are loaded lazily during generation. */
     public QwenImage21(File modelDir, Options options) {
         Options o = options != null ? options : new Options();
-        String missing = missing(modelDir, concat(concat(SHARED_FILES, ditFiles(o.dit2Bit, o.turbo)),
+        String missing = missing(modelDir, concat(concat(SHARED_FILES, ditFiles(o.dit2Bit, o.turbo, o.officialTurbo)),
                 o.tinyVae ? TINY_VAE_FILES : REAL_VAE_FILES));
         if (missing != null) {
             throw new IllegalArgumentException("Qwen-Image-2.1 model files missing in " + modelDir + ": " + missing);
@@ -299,7 +308,7 @@ public final class QwenImage21 implements AutoCloseable {
     }
 
     /** Text-to-image at an explicit size (multiples of 32; keep it near 512x512 pixels). {@code steps} is ignored
-     * (forced to 6) when {@link Options#turbo} is set. */
+     * (forced to 6 or 8) when a Turbo option is set. */
     public Bitmap generate(String prompt, int width, int height, int steps, int seed, File outputPng,
                            ProgressListener listener) {
         String settings = "text-to-image " + width + "x" + height + ", " + actualSteps(steps) + " steps";
@@ -357,7 +366,8 @@ public final class QwenImage21 implements AutoCloseable {
         int code;
         try {
             code = nativeGenerate(handle, prompt, input, input2, outputPng.getAbsolutePath(), steps, seed, width,
-                    height, options.turbo, options.refSize.scale, options.tinyVae, options.dit2Bit, wrapped);
+                    height, options.turbo, options.officialTurbo, options.refSize.scale, options.tinyVae,
+                    options.dit2Bit, wrapped);
         } finally {
             marker.clear();
         }
@@ -384,6 +394,11 @@ public final class QwenImage21 implements AutoCloseable {
         return missing(modelDir, concat(SHARED_FILES, TURBO_DIT_FILES));
     }
 
+    /** Null if the official Qwen Turbo DiT and all shared files exist. */
+    public static String missingOfficialTurboDitFiles(File modelDir) {
+        return missing(modelDir, concat(SHARED_FILES, OFFICIAL_TURBO_DIT_FILES));
+    }
+
     /** Null if {@link #SHARED_FILES} + {@link #DIT_2BIT_FILES} all exist, else the missing ones. */
     public static String missing2BitDitFiles(File modelDir) {
         return missing(modelDir, concat(SHARED_FILES, DIT_2BIT_FILES));
@@ -405,7 +420,7 @@ public final class QwenImage21 implements AutoCloseable {
     }
 
     private int actualSteps(int requested) {
-        return options.turbo ? 6 : requested;
+        return options.officialTurbo ? 8 : (options.turbo ? 6 : requested);
     }
 
     /** MemAvailable of the device in MB (or -1). */
@@ -430,7 +445,7 @@ public final class QwenImage21 implements AutoCloseable {
     }
 
     private static String describe(Options o) {
-        return (o.dit2Bit ? "2bit, " : "") + (o.turbo ? "turbo, " : "") + (o.refSize == RefSize.HALF ? "ref@half, " : "")
+        return (o.dit2Bit ? "2bit, " : "") + (o.officialTurbo ? "official-turbo, " : (o.turbo ? "turbo, " : "")) + (o.refSize == RefSize.HALF ? "ref@half, " : "")
                 + (o.tinyVae ? "" : "real-vae, ") + "DiT " + (o.useGpu ? "GPU" : "CPU") + ", text encoder "
                 + (o.textEncoderOnCpu ? "CPU" : "GPU") + ", VAE " + (o.vaeOnCpu ? "CPU" : "GPU")
                 + (o.keepModelsLoaded ? ", keep models loaded" : "");
@@ -449,7 +464,8 @@ public final class QwenImage21 implements AutoCloseable {
 
     private static native int nativeGenerate(long handle, String prompt, String inputImage, String inputImage2,
                                              String outputPng, int steps, int seed, int width, int height,
-                                             boolean turbo, float refAreaScale, boolean tinyVae, boolean dit2Bit,
+                                             boolean turbo, boolean officialTurbo, float refAreaScale, boolean tinyVae,
+                                             boolean dit2Bit,
                                              ProgressListener listener);
 
     private static native String nativeLastError(long handle);

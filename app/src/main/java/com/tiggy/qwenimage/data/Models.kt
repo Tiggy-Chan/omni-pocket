@@ -18,6 +18,7 @@ data class GenerationSettings(
     val width: Int = 512,
     val height: Int = 512,
     val turbo: Boolean = false,
+    val officialTurbo: Boolean = false,
     val useTinyVae: Boolean = true,
     val secondReference: Boolean = false,
     val transparent: Boolean = false,
@@ -33,7 +34,7 @@ data class GenerationSettings(
     }
     fun toJson() = JSONObject().apply {
         put("mode", mode.name); put("prompt", prompt); put("negativePrompt", negativePrompt); put("steps", steps); put("seed", seed)
-        put("width", width); put("height", height); put("turbo", turbo); put("tinyVae", useTinyVae)
+        put("width", width); put("height", height); put("turbo", turbo); put("officialTurbo", officialTurbo); put("tinyVae", useTinyVae)
         put("halfReferences", secondReference); put("transparent", transparent)
         put("input", inputUri?.toString()); put("input2", inputUri2?.toString())
     }
@@ -43,7 +44,7 @@ data class GenerationSettings(
             prompt = o.optString("prompt"), negativePrompt = o.optString("negativePrompt", DEFAULT_NEGATIVE_PROMPT),
             steps = o.optInt("steps", 20), seed = o.optInt("seed", 42),
             width = o.optInt("width", 512), height = o.optInt("height", 512),
-            turbo = o.optBoolean("turbo"), useTinyVae = o.optBoolean("tinyVae", true),
+            turbo = o.optBoolean("turbo"), officialTurbo = o.optBoolean("officialTurbo"), useTinyVae = o.optBoolean("tinyVae", true),
             secondReference = o.optBoolean("halfReferences"), transparent = o.optBoolean("transparent"),
             inputUri = o.optString("input").takeIf { it.isNotBlank() && it != "null" }?.let(Uri::parse),
             inputUri2 = o.optString("input2").takeIf { it.isNotBlank() && it != "null" }?.let(Uri::parse)
@@ -129,6 +130,12 @@ data class ModelManifest(
             if ("turbo" in features) {
                 require(json.optBoolean("turboValidated", false)) { "Turbo 尚未通过回归验证" }
                 require(paths.containsAll(listOf("dit_turbo.mnn", "dit_turbo.mnn.weight"))) { "缺少 Turbo 模型" }
+            }
+            if ("official-turbo" in features) {
+                require(json.optBoolean("officialTurboValidated", false)) { "官方 Turbo 尚未通过回归验证" }
+                require(paths.containsAll(listOf("dit_official_turbo.mnn", "dit_official_turbo.mnn.weight"))) { "缺少官方 Turbo 模型" }
+                val schedule = json.optJSONArray("officialTurboSchedule")
+                require(schedule != null && schedule.length() == 8) { "官方 Turbo 需要 8 步采样 schedule" }
             }
             require("text-to-image" in features) { "模型包未声明文生图能力" }
             return ModelManifest(json.getString("modelId"), json.getString("sourceRepo"), json.getString("revision"), artifacts, features)

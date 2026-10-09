@@ -18,7 +18,7 @@
 - 当前源码版本为 `0.1.2`：重做了 Compose 首页的材质层、渐变光晕、半透明高光卡片、悬浮玻璃导航和透明系统栏。新版真机界面截图：[qwen-pocket-0.1.2-pjx110-ui.png](docs/device-evidence/qwen-pocket-0.1.2-pjx110-ui.png)。
 - `0.1.2` 已在同一台手机完成第二轮 512×512、20 步文生图，原生日志记录总耗时 382.0 秒，输出为 [qwen-pocket-0.1.2-pjx110-redapple-512.png](docs/device-evidence/qwen-pocket-0.1.2-pjx110-redapple-512.png)；详细参数、路径和 SHA-256 见 [真机记录](docs/device-evidence/qwen-pocket-0.1.2-pjx110-redapple.txt)。
 - 负向提示词目前转换为 `Avoid` 文本指令。它不是独立负向条件，不等价于 Mac WebUI 的 CFG 双条件采样。
-- Turbo 未安装、未完成本项目回归验证，因此关闭对应选项。
+- 代码已接入官方 Qwen-Image-2.1-Turbo 的独立 8 步运行路径；手机端只有在模型清单同时包含经过回归验证的 dit_official_turbo.mnn 后才启用开关。
 
 ## 使用与构建
 
@@ -57,8 +57,16 @@ App 从含 `manifest.json` 的 Hugging Face MNN 仓库下载，或通过系统�
 
 App 发现完整文件后进行 SHA-256 校验；只有校验通过才启用生成。权重不包含在 APK 或 Git 仓库中。
 
+官方 Turbo 使用同一套共享文本编码器和 VAE，另行转换官方 checkpoint 派生的 Q4_K_M GGUF：
+
+```bash
+scripts/convert_official_turbo.sh
+```
+
+转换结果为 `dit_official_turbo.mnn` / `.weight`，MNN 使用 int4 主权重、int8 辅助投影，运行时固定采用官方 `sample_sigmas` 的 8 步 schedule；它与 UC 基础 DiT 共存，不覆盖 `dit.mnn`。
+
 ## 上游与许可
 
 - Android MNN 库、转换工具和参考 demo 基于 [scsonic/libQwenImage21](https://github.com/scsonic/libQwenImage21)，引入提交 `2f30bc9019dfc423a9ff496d1103881443d61390`。
-- MNN 源码位于 `third_party/MNN`；当前 Git 子模块提交与预编译 `libMNN.so` 的接口差异仍需对齐验证。
+- MNN 源码位于 `third_party/MNN`，当前子模块提交为 `24c6cb2`；官方 Turbo 的最小运行时扩展保存在 `patches/mnn-qwen-image-official-turbo.patch`，构建脚本会自动应用。
 - 代码采用 Apache-2.0；模型依 Qwen Research License，Tiny VAE 及其他组件保留各自许可。

@@ -14,3 +14,17 @@ scripts/convert_models.sh
 blocks and uses the configured auxiliary precision for the remaining layers;
 `make_manifest.py` records the resulting file hashes. Import the complete
 directory in the app or publish it to a public Hugging Face model repository.
+
+The app also supports the official Qwen-Image-2.1-Turbo checkpoint as a
+second DiT variant. For a phone-sized package, use the Q4_K_M GGUF derived
+from that official checkpoint and convert it beside the base DiT:
+
+```bash
+scripts/convert_official_turbo.sh
+```
+
+This produces `dit_official_turbo.mnn` with MNN int4 weights, int8 auxiliary
+projections, and the official eight-value `sample_sigmas` schedule. The
+shared Qwen3-VL text encoder and Tiny VAE are reused, so the package does not
+duplicate them. The manifest records `official-turbo` only after the converted
+file and its validation flag are present.

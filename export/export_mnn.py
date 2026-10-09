@@ -102,6 +102,46 @@ class GGUFWeights:
         return self._load(name)
 
 
+class SafeTensorsWeights:
+    """Lazy reader for an official Qwen-Image transformer checkpoint.
+
+    The official Turbo release stores the same Qwen-Image-2.1 graph in two
+    BF16 Safetensors shards.  Keeping the shard handles open and loading one
+    tensor at a time lets the existing MNN rebuilder quantize the checkpoint
+    without materialising the 14 GB transformer in RAM.
+    """
+
+    def __init__(self, directory):
+        from safetensors import safe_open
+
+        directory = os.path.abspath(directory)
+        index_path = os.path.join(directory, "diffusion_pytorch_model.safetensors.index.json")
+        with open(index_path, encoding="utf-8") as stream:
+            index = json.load(stream)
+        self._key_to_shard = index["weight_map"]
+        self._handles = {}
+        for shard in sorted(set(self._key_to_shard.values())):
+            path = os.path.join(directory, shard)
+            if not os.path.isfile(path):
+                raise FileNotFoundError(path)
+            self._handles[shard] = safe_open(path, framework="pt", device="cpu")
+
+    def _load(self, name):
+        try:
+            shard = self._key_to_shard[name]
+        except KeyError as exc:
+            raise KeyError(f"official checkpoint is missing tensor {name}") from exc
+        # MNN's rebuilder expects float32 tensors and consumes them one layer
+        # at a time.  The source is BF16, so the conversion is explicit here.
+        return self._handles[shard].get_tensor(name).float().contiguous()
+
+    def __call__(self, name):
+        return self._load(name + ".weight")
+
+    def param(self, name):
+        return self._load(name)
+
+
 class LoRAWeights:
     """Weight provider for an unmerged LoRA branch's two small matrices per targeted Linear (see
     Q.LoRALinear). Loads the whole adapter (diffusers key format, e.g. Viggle's turbo LoRA) once; a name is
@@ -344,7 +384,9 @@ def linears(module):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--gguf")
+    weights_group = ap.add_mutually_exclusive_group(required=False)
+    weights_group.add_argument("--gguf", help="GGUF source checkpoint")
+    weights_group.add_argument("--safetensors-dir", help="official Qwen transformer directory with an index and shards")
     ap.add_argument("--random_layers", type=int, default=0, help="test export with random weights")
     ap.add_argument("--out", required=True)
     ap.add_argument("--bits", type=int, default=4)
@@ -380,7 +422,13 @@ def main():
         torch.save(sd, os.path.join(a.out, "random_sd.pt"))
         wp = lambda n: sd[n + ".weight"]
         params = lambda n: sd[n]
+    elif a.safetensors_dir:
+        W = SafeTensorsWeights(a.safetensors_dir)
+        wp, params = W, W.param
+        layers = a.layers
     else:
+        if not a.gguf:
+            ap.error("one of --gguf, --safetensors-dir, or --random_layers is required")
         W = GGUFWeights(a.gguf, gate_first=bool(a.gate_first))
         wp, params = W, W.param
         layers = a.layers

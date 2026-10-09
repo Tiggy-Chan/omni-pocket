@@ -27,6 +27,10 @@ def main() -> None:
     parser.add_argument("--source-repo", required=True)
     parser.add_argument("--revision", default="main")
     parser.add_argument("--features", default="text-to-image,image-edit,tiny-vae")
+    parser.add_argument("--official-turbo-source-repo")
+    parser.add_argument("--official-turbo-revision")
+    parser.add_argument("--official-turbo-schedule")
+    parser.add_argument("--official-turbo-validated", action="store_true")
     args = parser.parse_args()
 
     files = []
@@ -46,6 +50,14 @@ def main() -> None:
         "features": [item for item in args.features.split(",") if item],
         "files": files,
     }
+    if args.official_turbo_source_repo:
+        manifest["officialTurboSourceRepo"] = args.official_turbo_source_repo
+    if args.official_turbo_revision:
+        manifest["officialTurboRevision"] = args.official_turbo_revision
+    if args.official_turbo_schedule:
+        manifest["officialTurboSchedule"] = [float(item) for item in args.official_turbo_schedule.split(",")]
+    if args.official_turbo_validated:
+        manifest["officialTurboValidated"] = True
     (args.root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {args.root / 'manifest.json'} ({len(files)} files)")
 

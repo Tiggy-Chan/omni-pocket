@@ -87,7 +87,11 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     fun setSize(width: Int, height: Int) = _state.update { it.copy(settings = it.settings.copy(width = width, height = height)) }
     fun setTurbo(value: Boolean) = _state.update { state ->
         val enabled = value && (state.modelStatus?.manifest?.features?.contains("turbo") == true)
-        state.copy(settings = state.settings.copy(turbo = enabled, steps = if (enabled) 6 else state.settings.steps.coerceAtLeast(20)))
+        state.copy(settings = state.settings.copy(turbo = enabled, officialTurbo = false, steps = if (enabled) 6 else state.settings.steps.coerceAtLeast(20)))
+    }
+    fun setOfficialTurbo(value: Boolean) = _state.update { state ->
+        val enabled = value && (state.modelStatus?.manifest?.features?.contains("official-turbo") == true)
+        state.copy(settings = state.settings.copy(officialTurbo = enabled, turbo = false, steps = if (enabled) 8 else state.settings.steps.coerceAtLeast(20)))
     }
     fun setTinyVae(value: Boolean) = _state.update { it.copy(settings = it.settings.copy(useTinyVae = value)) }
     fun setSecondReference(value: Boolean) = _state.update { it.copy(settings = it.settings.copy(secondReference = value)) }
@@ -116,7 +120,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
                     check(repository.status().ready) { "请先完成模型校验" }
-                    QwenEngine(repository.modelDir, EngineSettings(false, true, false, false,
+                    QwenEngine(repository.modelDir, EngineSettings(false, false, true, false, false,
                         _state.value.cpuThreads, File(getApplication<Application>().filesDir, "diagnostic.marker"))).use { }
                     QwenEngine.availableMemoryMb()
                 }
@@ -208,6 +212,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                     check(status.ready) { "模型尚未准备好：${status.message}" }
                     val engineSettings = EngineSettings(
                         turbo = settings.turbo,
+                        officialTurbo = settings.officialTurbo,
                         tinyVae = settings.useTinyVae,
                         keepModelsLoaded = _state.value.keepModelsLoaded,
                         halfReference = settings.secondReference,

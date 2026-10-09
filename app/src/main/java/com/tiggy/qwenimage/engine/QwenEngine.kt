@@ -15,6 +15,7 @@ class QwenEngine(private val modelDir: File, private val settings: EngineSetting
             keepModelsLoaded = settings.keepModelsLoaded
             threads = settings.cpuThreads
             turbo = settings.turbo
+            officialTurbo = settings.officialTurbo
             dit2Bit = false
             tinyVae = settings.tinyVae
             refSize = if (settings.halfReference) QwenImage21.RefSize.HALF else QwenImage21.RefSize.FULL
@@ -58,6 +59,7 @@ class QwenEngine(private val modelDir: File, private val settings: EngineSetting
 
 data class EngineSettings(
     val turbo: Boolean,
+    val officialTurbo: Boolean,
     val tinyVae: Boolean,
     val keepModelsLoaded: Boolean,
     val halfReference: Boolean,
@@ -65,5 +67,5 @@ data class EngineSettings(
     val crashMarker: File
 ) {
     val key: String
-        get() = "$turbo:$tinyVae:$keepModelsLoaded:$halfReference:$cpuThreads"
+        get() = "$turbo:$officialTurbo:$tinyVae:$keepModelsLoaded:$halfReference:$cpuThreads"
 }

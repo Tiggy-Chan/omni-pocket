@@ -63,6 +63,10 @@ public:
     // LoRALinear). Takes effect on the next run()/runEdit(); forces the step count to 6 either way, since the
     // LoRA was distilled against that exact sigma schedule (see sigmas()).
     void setTurbo(bool on) override;
+    // Switches to the official Qwen/Qwen-Image-2.1-Turbo checkpoint converted
+    // to MNN int4 (dit_official_turbo.mnn). It uses the official fixed 8-step
+    // schedule from model_index.json and is mutually exclusive with Viggle Turbo.
+    void setOfficialTurbo(bool on);
     // Switches between the int4 DiT (GGUF Q4_K, dit.mnn / dit_turbo.mnn) and the int2 one (GGUF Q2_K,
     // dit_2bit.mnn / dit_2bit_turbo.mnn) -- smaller and faster, lossier. Combines with setTurbo() independently
     // (4 files total). Takes effect on the next run()/runEdit().
@@ -86,9 +90,10 @@ public:
 
     // turbo=true ignores `steps` (always 6) and uses the Viggle-turbo LoRA's fixed raw sigma nodes
     // [1, 0.9375, 0.875, 0.75, 0.5, 0.25] with no shift_terminal rescale, instead of computing linspace(1,
-    // 1/steps, steps) and rescaling the last step to `terminal`. Both still go through the same resolution
-    // dependent exponential mu-shift.
-    static std::vector<float> sigmas(int steps, int imageSeqLen, bool turbo = false);
+    // 1/steps, steps) and rescaling the last step to `terminal`. officialTurbo=true ignores `steps` (always 8)
+    // and uses Qwen's sample_sigmas [1, .978453, .95418, .926626, .89508, .845148, .704534, .414568]
+    // without an additional shift. Base mode still uses the resolution-dependent exponential mu-shift.
+    static std::vector<float> sigmas(int steps, int imageSeqLen, bool turbo = false, bool officialTurbo = false);
     static void ropeTables(int textLen, int hTokens, int wTokens, std::vector<float>& cosTab, std::vector<float>& sinTab);
     static void ropeFromPositions(const std::vector<int>& frame, const std::vector<int>& hpos,
                                   const std::vector<int>& wpos, std::vector<float>& cosTab, std::vector<float>& sinTab);
@@ -122,6 +127,7 @@ private:
     int mLatentH = 32;
     int mLatentW = 32;
     bool mTurbo = false;
+    bool mOfficialTurbo = false;
     bool mDit2Bit = false;
     std::string mDitFile = "dit.mnn";
     double mRefAreaScale = 1.0;
