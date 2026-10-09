@@ -1,3 +1,5 @@
+> **上游资料，非 Qwen Pocket 实测。** 本文及其中图片继承自 [scsonic/libQwenImage21](https://github.com/scsonic/libQwenImage21/tree/2f30bc9019dfc423a9ff496d1103881443d61390)。设备、速度、样例和截图均为上游作者记录，不代表当前 Compose App 或用户手机的验证结果。
+
 # More image-editing examples
 
 20 edits of the same starting photo — the AI-generated woman from the main README (`sample_woman_448x576.png`),

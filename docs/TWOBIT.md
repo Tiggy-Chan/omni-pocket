@@ -1,3 +1,5 @@
+> **上游资料，非 Qwen Pocket 实测。** 本文及其中图片继承自 [scsonic/libQwenImage21](https://github.com/scsonic/libQwenImage21/tree/2f30bc9019dfc423a9ff496d1103881443d61390)。设备、速度、样例和截图均为上游作者记录，不代表当前 Compose App 或用户手机的验证结果。
+
 # 2-bit DiT (experimental, not recommended): smaller download, unreliable quality
 
 [leejet/Qwen-Image-2.1-GGUF](https://huggingface.co/leejet/Qwen-Image-2.1-GGUF) also publishes a **Q2_K**
