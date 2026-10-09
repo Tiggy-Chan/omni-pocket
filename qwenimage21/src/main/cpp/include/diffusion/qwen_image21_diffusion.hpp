@@ -1,0 +1,140 @@
+//
+//  qwen_image21_diffusion.hpp
+//  Qwen-Image-2.1 text-to-image (FlowMatch Euler, prefix KV cache)
+//
+#ifndef MNN_QWEN_IMAGE21_DIFFUSION_HPP
+#define MNN_QWEN_IMAGE21_DIFFUSION_HPP
+
+#include "diffusion.hpp"
+#include <memory>
+#include <vector>
+
+namespace MNN {
+namespace Transformer {
+class Llm;
+}
+namespace DIFFUSION {
+
+// Model directory layout (see export/ in the Android project):
+//   text_encoder/te_config.json   Qwen3-VL-8B (MNN LLM) returning the last decoder layer's pre-norm hidden state
+//   txt_in.mnn  img_in.mnn  dit.mnn  vae_decoder.mnn   (+ .weight files)
+class MNN_PUBLIC QwenImage21Diffusion : public Diffusion {
+public:
+    QwenImage21Diffusion(std::string modelPath, DiffusionModelType modelType, MNNForwardType backendType, int memoryMode,
+                         int imageWidth, int imageHeight, bool textEncoderOnCPU, bool vaeOnCPU,
+                         DiffusionGpuMemoryMode gpuMemoryMode, DiffusionPrecisionMode precisionMode,
+                         DiffusionCFGMode cfgMode, int numThreads = 4);
+    virtual ~QwenImage21Diffusion();
+
+    virtual bool load() override;
+    virtual bool run(const std::string prompt, const std::string imagePath, int iterNum, int randomSeed,
+                     std::function<void(int)> progressCallback) override;
+    virtual bool run(const std::string prompt, const std::string outputPath, int iterNum, int randomSeed, float cfgScale,
+                     std::function<void(int)> progressCallback, const std::string inputImagePath = "") override;
+    virtual bool run(const VARP input_embeds, const std::string& mode, const std::string& inputImagePath,
+                     const std::string& outputImagePath, int width, int height, int iterNum, int randomSeed,
+                     bool use_cfg, float cfg_scale, std::function<void(int)> progressCallback) override;
+
+    // Step-by-step pieces, public so tools can validate each stage.
+    // Text encoder hidden states after dropping the system prompt: [1, L, 4096].
+    VARP encodePrompt(const std::string& prompt);
+    // Text KV cache for all blocks: [32, 2, L, 32, 128].
+    std::vector<VARP> buildPrefixCache(VARP textHidden);
+    // Denoise from seeded noise against a prefix K/V of length prefixLen; returns packed latents [1, N, 64].
+    VARP denoise(const std::vector<VARP>& prefixKV, int prefixLen, const float* cosTarget, const float* sinTarget, int steps, int seed,
+                 std::function<void(int)> progressCallback);
+    // Image editing: 1-2 condition images (run(..., inputImagePath) always passes exactly one; the second is
+    // opt-in, see runEdit()/setRefAreaScale() below). Output keeps the *last* image's aspect ratio at the
+    // configured pixel area, matching how Qwen-Image-2.1 itself picks the output shape when none is given.
+    bool runEdit(const std::string& prompt, const std::vector<std::string>& inputImagePaths,
+                 const std::string& outputPath, int steps, int seed, std::function<void(int)> progressCallback);
+    // Packed latents -> RGBA [1, 4, H, W] in [-1, 1].
+    VARP decode(VARP packedLatents);
+    static bool saveRGBA(VARP image, const std::string& path);
+
+    // Error reporting for the last run()/runEdit().
+    enum ErrorCode { kOk = 0, kOutOfMemory = 1, kModelError = 2, kRuntimeError = 3 };
+    int lastErrorCode() const { return mErrorCode; }
+    const std::string& lastError() const { return mError; }
+    // Output size for the next text-to-image run (multiples of 32); edit derives it from the input image.
+    void setImageSize(int width, int height);
+    // Switches between dit.mnn (20-40 step base model) and dit_turbo.mnn (6-step Viggle-turbo LoRA, baked in
+    // as an unmerged fp16 branch alongside the unchanged int4 base weights -- see export/qwen_image21_mnn.py
+    // LoRALinear). Takes effect on the next run()/runEdit(); forces the step count to 6 either way, since the
+    // LoRA was distilled against that exact sigma schedule (see sigmas()).
+    void setTurbo(bool on) override;
+    // Switches between the int4 DiT (GGUF Q4_K, dit.mnn / dit_turbo.mnn) and the int2 one (GGUF Q2_K,
+    // dit_2bit.mnn / dit_2bit_turbo.mnn) -- smaller and faster, lossier. Combines with setTurbo() independently
+    // (4 files total). Takes effect on the next run()/runEdit().
+    void setDit2Bit(bool on);
+    // Each edit reference image is independently resized (own aspect ratio kept) to `scale` times the configured
+    // output area before VAE/vision encoding; the output's own size is unaffected (always computed from the last
+    // reference at scale 1.0 -- see editSize()). 1.0 is the original single-reference behaviour (reference ==
+    // output size). With two references at 0.5 each, the combined condition-token count is about the same as one
+    // reference at 1.0, so RAM/step time stay roughly where a single-reference edit is today; at 1.0 each, two
+    // references cost roughly twice that. Clamped to (0, 1].
+    void setRefAreaScale(double scale);
+    // Switches between vae_decoder.mnn/vae_encoder.mnn (the real VAE, ~0.5 GB + 0.16 GB) and
+    // vae_decoder_tiny.mnn/vae_encoder_tiny.mnn (TAEQI2.1, https://huggingface.co/madebyollin/taeqi2_1 -- a
+    // handful of conv layers distilled to match the real VAE's DiT-facing latent directly, ~15 MB each). Same
+    // I/O contract as the real VAE (same tensor names/shapes/value ranges), so nothing else in the pipeline needs
+    // to change. Takes effect on the next decode()/encodeImage() call (the currently-loaded module, if any, is
+    // released immediately so the next one is reloaded from the new file).
+    void setTinyVae(bool on);
+    // MemAvailable from /proc/meminfo in MB, or -1 where it is unavailable.
+    static int availableMemoryMB();
+
+    // turbo=true ignores `steps` (always 6) and uses the Viggle-turbo LoRA's fixed raw sigma nodes
+    // [1, 0.9375, 0.875, 0.75, 0.5, 0.25] with no shift_terminal rescale, instead of computing linspace(1,
+    // 1/steps, steps) and rescaling the last step to `terminal`. Both still go through the same resolution
+    // dependent exponential mu-shift.
+    static std::vector<float> sigmas(int steps, int imageSeqLen, bool turbo = false);
+    static void ropeTables(int textLen, int hTokens, int wTokens, std::vector<float>& cosTab, std::vector<float>& sinTab);
+    static void ropeFromPositions(const std::vector<int>& frame, const std::vector<int>& hpos,
+                                  const std::vector<int>& wpos, std::vector<float>& cosTab, std::vector<float>& sinTab);
+
+private:
+    std::shared_ptr<Module> loadModule(const std::string& file, const std::vector<std::string>& inputs,
+                                       const std::vector<std::string>& outputs,
+                                       std::shared_ptr<Executor::RuntimeManager> rt);
+    // "past_kv_0".."past_kv_31" / "present_kv_0".."present_kv_31": one K/V tensor per layer, see runPrefix.
+    static std::vector<std::string> kvNames(const char* prefix);
+    std::vector<VARP> runPrefix(VARP hidden, const std::vector<float>& cosTab, const std::vector<float>& sinTab,
+                   const std::vector<float>& mask);
+    VARP embedText(VARP textHidden);
+    struct RefImage { VARP bgr, rgb; int w, h; };
+    VARP encodeEditPrompt(const std::string& prompt, const std::vector<RefImage>& refs, std::vector<char>& isPad);
+    VARP encodeImage(VARP rgb, int w, int h);
+    // Output size/aspect (used for the last reference and the generated image): same area as configured, aspect
+    // from (srcW, srcH).
+    void editSize(int srcW, int srcH, int& w, int& h) const;
+    // A single reference image's own encode size: same area rule, scaled by mRefAreaScale.
+    void condSize(int srcW, int srcH, int& w, int& h) const;
+    // Returns false and records kOutOfMemory when the device has less than needMB (+margin) available.
+    bool ensureMemory(const char* stage, int needMB);
+    bool fail(int code, const std::string& message);
+    bool failStage(const char* stage);
+    void releaseAll();
+
+    int mErrorCode = kOk;
+    std::string mError;
+
+    int mLatentH = 32;
+    int mLatentW = 32;
+    bool mTurbo = false;
+    bool mDit2Bit = false;
+    std::string mDitFile = "dit.mnn";
+    double mRefAreaScale = 1.0;
+    bool mTinyVae = false;
+    std::string mVaeDecFile = "vae_decoder.mnn";
+    std::string mVaeEncFile = "vae_encoder.mnn";
+    int mDropIdx = 14;
+    std::string mTeOutputName = "/Add_182_output_0";
+    std::shared_ptr<Transformer::Llm> mTextEncoder;
+    std::shared_ptr<Module> mTxtIn, mImgIn, mDitStep, mVae;
+};
+
+} // namespace DIFFUSION
+} // namespace MNN
+
+#endif

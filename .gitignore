@@ -1,0 +1,11 @@
+.gradle/
+build/
+local.properties
+qwenimage21-debug.keystore
+.idea/
+*.iml
+.DS_Store
+.externalNativeBuild/
+.cxx/
+models/
+__pycache__/
