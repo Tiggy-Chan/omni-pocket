@@ -22,12 +22,15 @@ mkdir -p "$SRC" "$OUT/text_encoder"
 hf download "$QWEN_SOURCE_REPO" "$QWEN_GGUF" --revision "$QWEN_REVISION" --local-dir "$SRC/gguf"
 hf download Qwen/Qwen-Image-2.1 vae/config.json vae/diffusion_pytorch_model.safetensors --local-dir "$SRC/qwen-image-2.1"
 hf download taobao-mnn/Qwen3-VL-8B-Instruct-MNN --local-dir "$SRC/qwen3-vl-8b-mnn"
+hf download madebyollin/taeqi2_1 taeqi2_1.safetensors --local-dir "$SRC/taeqi2_1"
 
 # DiT: Q4_K -> MNN int4 (lossless, block 32), small layers int8.
 # --fuse 0: MNN's fused Attention op gives wrong results for the prefix / step masks.
 "$PY" "$ROOT/export/export_mnn.py" --gguf "$SRC/gguf/$QWEN_GGUF" --out "$OUT" --aux_bits 8 --fuse 0
 # VAE decoder (residual stream rescaled for fp16) + encoder for image editing, fp16 weights, dynamic size
 "$PY" "$ROOT/export/export_vae.py" --vae "$SRC/qwen-image-2.1/vae" --out "$OUT" --fp16 --parts decoder,encoder
+# Tiny VAE is the phone default: it keeps decode/encode on the GPU without the real VAE's multi-GB peak.
+"$PY" "$ROOT/export/export_vae_tiny.py" --weights "$SRC/taeqi2_1/taeqi2_1.safetensors" --out "$OUT" --fp16
 rm -rf "$OUT/onnx" "$OUT/vae_check.pt" "$OUT/order.txt"
 
 # Text encoder: stock Qwen3-VL-8B MNN files + configs that return the pre-norm last hidden state
