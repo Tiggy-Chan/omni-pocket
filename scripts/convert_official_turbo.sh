@@ -44,6 +44,8 @@ test -s "$GGUF_PATH"
   --fuse 0 \
   --dit_name dit_official_turbo.mnn
 
+rm -rf "$OUT/onnx"
+
 "$PY" "$ROOT/tools/model-convert/make_manifest.py" \
   --root "$OUT" \
   --model-id qwen-image-2.1-uc-q4km \
