@@ -12,6 +12,7 @@ enum class GenerationMode { TextToImage, ImageEdit }
 data class GenerationSettings(
     val mode: GenerationMode = GenerationMode.TextToImage,
     val prompt: String = "",
+    val negativePrompt: String = DEFAULT_NEGATIVE_PROMPT,
     val steps: Int = 20,
     val seed: Int = 42,
     val width: Int = 512,
@@ -31,7 +32,7 @@ data class GenerationSettings(
         require(mode != GenerationMode.ImageEdit || inputUri != null) { "图片编辑需要参考图" }
     }
     fun toJson() = JSONObject().apply {
-        put("mode", mode.name); put("prompt", prompt); put("steps", steps); put("seed", seed)
+        put("mode", mode.name); put("prompt", prompt); put("negativePrompt", negativePrompt); put("steps", steps); put("seed", seed)
         put("width", width); put("height", height); put("turbo", turbo); put("tinyVae", useTinyVae)
         put("halfReferences", secondReference); put("transparent", transparent)
         put("input", inputUri?.toString()); put("input2", inputUri2?.toString())
@@ -39,7 +40,8 @@ data class GenerationSettings(
     companion object {
         fun fromJson(o: JSONObject) = GenerationSettings(
             mode = GenerationMode.valueOf(o.optString("mode", "TextToImage")),
-            prompt = o.optString("prompt"), steps = o.optInt("steps", 20), seed = o.optInt("seed", 42),
+            prompt = o.optString("prompt"), negativePrompt = o.optString("negativePrompt", DEFAULT_NEGATIVE_PROMPT),
+            steps = o.optInt("steps", 20), seed = o.optInt("seed", 42),
             width = o.optInt("width", 512), height = o.optInt("height", 512),
             turbo = o.optBoolean("turbo"), useTinyVae = o.optBoolean("tinyVae", true),
             secondReference = o.optBoolean("halfReferences"), transparent = o.optBoolean("transparent"),
@@ -48,6 +50,8 @@ data class GenerationSettings(
         )
     }
 }
+
+const val DEFAULT_NEGATIVE_PROMPT = "deformed anatomy, bad hands, missing fingers, extra limbs, fused limbs, distorted face, blurry, low resolution, jpeg artifacts, text, watermark, bad proportions, unnatural body, mutated, child, underage"
 
 data class GenerationJob(
     val id: String,

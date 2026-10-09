@@ -40,7 +40,7 @@ data class QwenUiState(
     val resultPath: String? = null,
     val error: String? = null,
     val cpuThreads: Int = 6,
-    val keepModelsLoaded: Boolean = true
+    val keepModelsLoaded: Boolean = false
 )
 
 class QwenViewModel(application: Application) : AndroidViewModel(application) {
@@ -64,6 +64,15 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
+            val current = repository.status()
+            if (!current.ready && current.total > 0 && current.present == current.total) {
+                _state.update { it.copy(isBusy = true, modelStatus = current, status = "发现完整模型，正在手机端校验 SHA-256…") }
+                runCatching { repository.verify { file -> _state.update { it.copy(status = "校验 $file…") } } }
+                    .onSuccess { _state.update { it.copy(isBusy = false, modelStatus = repository.status(), status = "模型已校验，可以生成") } }
+                    .onFailure { error -> _state.update { it.copy(isBusy = false, status = "模型校验失败", error = error.message ?: error.toString()) } }
+            }
+        }
+        viewModelScope.launch {
             restoredJobs.filter { it.state == "queued" }.forEach { queue.send(it) }
             for (job in queue) runJob(job)
         }
@@ -72,11 +81,13 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     fun selectTab(tab: WorkspaceTab) = _state.update { it.copy(tab = tab) }
     fun setMode(mode: GenerationMode) = _state.update { it.copy(settings = it.settings.copy(mode = mode)) }
     fun setPrompt(prompt: String) = _state.update { it.copy(settings = it.settings.copy(prompt = prompt)) }
+    fun setNegativePrompt(prompt: String) = _state.update { it.copy(settings = it.settings.copy(negativePrompt = prompt)) }
     fun setSteps(steps: Int) = _state.update { it.copy(settings = it.settings.copy(steps = steps.coerceIn(6, 40))) }
     fun setSeed(seed: Int) = _state.update { it.copy(settings = it.settings.copy(seed = seed)) }
     fun setSize(width: Int, height: Int) = _state.update { it.copy(settings = it.settings.copy(width = width, height = height)) }
     fun setTurbo(value: Boolean) = _state.update { state ->
-        state.copy(settings = state.settings.copy(turbo = value, steps = if (value) 6 else state.settings.steps.coerceAtLeast(20)))
+        val enabled = value && (state.modelStatus?.manifest?.features?.contains("turbo") == true)
+        state.copy(settings = state.settings.copy(turbo = enabled, steps = if (enabled) 6 else state.settings.steps.coerceAtLeast(20)))
     }
     fun setTinyVae(value: Boolean) = _state.update { it.copy(settings = it.settings.copy(useTinyVae = value)) }
     fun setSecondReference(value: Boolean) = _state.update { it.copy(settings = it.settings.copy(secondReference = value)) }
@@ -97,6 +108,26 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     fun setTransparent(value: Boolean) = _state.update { it.copy(settings = it.settings.copy(transparent = value)) }
 
     fun refreshModelStatus() = _state.update { it.copy(modelStatus = repository.status()) }
+
+    fun checkRuntime() {
+        if (_state.value.isBusy || _state.value.jobs.any { it.state == "running" }) return
+        viewModelScope.launch {
+            _state.update { it.copy(isBusy = true, status = "检查 MNN/OpenCL 推理引擎…", error = null) }
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    check(repository.status().ready) { "请先完成模型校验" }
+                    QwenEngine(repository.modelDir, EngineSettings(false, true, false, false,
+                        _state.value.cpuThreads, File(getApplication<Application>().filesDir, "diagnostic.marker"))).use { }
+                    QwenEngine.availableMemoryMb()
+                }
+            }
+            result.onSuccess { memory ->
+                _state.update { it.copy(isBusy = false, status = "MNN 推理引擎已初始化，可用内存 ${memory}MB") }
+            }.onFailure { error ->
+                _state.update { it.copy(isBusy = false, error = error.message ?: error.toString(), status = "推理引擎检查失败") }
+            }
+        }
+    }
 
     fun downloadModels() {
         val snapshot = _state.value
@@ -132,6 +163,10 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
 
     fun enqueue() {
         val current = _state.value
+        if (current.isBusy || current.modelStatus?.ready != true) {
+            _state.update { it.copy(error = "请先完成模型校验") }
+            return
+        }
         val prompt = current.settings.prompt.trim()
         val prepared = current.settings.copy(
             prompt = if (current.settings.transparent && !prompt.contains("transparent", ignoreCase = true))
@@ -161,6 +196,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     fun exportPreset(): String = _state.value.settings.toJson().toString(2)
 
     private suspend fun runJob(job: GenerationJob) {
+        if (_state.value.jobs.firstOrNull { it.id == job.id }?.state != "queued") return
         updateJob(job.id) { it.copy(state = "running", progress = 0) }
         val settings = job.settings
         val output = File(getApplication<Application>().getExternalFilesDir(null), "outputs/${job.id}.png")
@@ -191,9 +227,13 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                         updateJob(job.id) { it.copy(progress = percent) }
                     }
                     if (settings.mode == GenerationMode.TextToImage) {
-                        engine!!.generate(settings.prompt, settings.width, settings.height, settings.steps, settings.seed, output, callback)
+                        val prompt = if (settings.negativePrompt.isBlank()) settings.prompt
+                        else "${settings.prompt}\nAvoid: ${settings.negativePrompt}"
+                        engine!!.generate(prompt, settings.width, settings.height, settings.steps, settings.seed, output, callback)
                     } else {
-                        engine!!.edit(settings.prompt, requireNotNull(input), input2, settings.width, settings.height, settings.steps, settings.seed, output, callback)
+                        val prompt = if (settings.negativePrompt.isBlank()) settings.prompt
+                        else "${settings.prompt}\nAvoid: ${settings.negativePrompt}"
+                        engine!!.edit(prompt, requireNotNull(input), input2, settings.width, settings.height, settings.steps, settings.seed, output, callback)
                     }
                 }
             }

@@ -11,7 +11,13 @@ import torch
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-sys.path.insert(0, os.path.join(HERE, "../ref/llmexport"))
+for _export_root in (
+    os.path.join(HERE, "../ref/llmexport"),
+    os.path.join(HERE, "../third_party/MNN/transformers/llm/export"),
+):
+    if os.path.isdir(_export_root):
+        sys.path.insert(0, _export_root)
+        break
 import qwen_image21_mnn as Q
 from utils.torch_utils import quant as torch_quant
 
@@ -56,7 +62,9 @@ class GGUFWeights:
 
     def tensor_type(self, name):
         """Return the source GGUF type for a Linear name without loading its payload."""
-        if name.endswith(".img_mlp.gate_layer") or name.endswith(".img_mlp.proj"):
+        if name + ".weight" in self.tensors:
+            name = name + ".weight"
+        elif name.endswith(".img_mlp.gate_layer") or name.endswith(".img_mlp.proj"):
             name = name.rsplit(".", 1)[0] + ".gate_up.weight"
         else:
             name = name + ".weight"
@@ -64,6 +72,8 @@ class GGUFWeights:
 
     def prequant(self, name):
         """Q4_K/Q2_K linears -> (q, scale, zero, bits, block), copied losslessly into MNN int4/int2; else None."""
+        if name + ".weight" in self.tensors:
+            return self._kquant(name + ".weight")
         if name.endswith(".img_mlp.gate_layer") or name.endswith(".img_mlp.proj"):
             r = self._kquant(name.rsplit(".", 1)[0] + ".gate_up.weight")
             if r is None:
@@ -78,6 +88,8 @@ class GGUFWeights:
 
     def __call__(self, name):
         # Linear weight provider: name without ".weight"
+        if name + ".weight" in self.tensors:
+            return self._load(name + ".weight")
         if name.endswith(".img_mlp.gate_layer") or name.endswith(".img_mlp.proj"):
             base = name.rsplit(".", 1)[0]
             w = self._load(base + ".gate_up.weight")
