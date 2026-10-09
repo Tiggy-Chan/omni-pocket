@@ -1,0 +1,15 @@
+Qwen Pocket device evidence
+
+Date: 2026-10-10 (Asia/Shanghai)
+APK: Qwen Pocket 0.1.2 (versionCode 3)
+Git commit: af93e39
+Device: OnePlus PJX110, Android 16, Snapdragon 8 Gen 3, 24 GB RAM class
+Model: abenzerps/Qwen-Image-2.1-Uncensored-GGUF, UC Q4_K_M converted to MNN
+Runtime: GPU DiT/OpenCL, CPU text encoder, Tiny VAE GPU
+Prompt: redapple
+Negative prompt: application default negative prompt
+Size: 512x512
+Steps: 20
+Seed: 42
+Native log: saved .../outputs/477b1d30-550e-4192-9394-656f11cee094.png (seed 42, total 382.0 s)
+Result: 512x512 RGBA PNG, SHA-256 38299ff1448e66a1849ebdff296b057e1cc2b14fb6304a14efa78a2233c31324

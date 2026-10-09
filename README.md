@@ -4,7 +4,7 @@
 
 ## 截图与样例来源
 
-目前首页不展示生图样例或 App 截图。项目尚未保存我们自己的完整真机生成结果，也没有当前 Compose 界面的正式截图。
+当前首页使用本项目自己的真机证据：新版 Compose 界面截图见 [0.1.2 UI](docs/device-evidence/qwen-pocket-0.1.2-pjx110-ui.png)，真实手机生图见 [0.1.2 输出](docs/device-evidence/qwen-pocket-0.1.2-pjx110-redapple-512.png)。
 
 最初 README 的 `sample_coffee_shop.png`、`turbo_t2i_kimono.png`、`turbo_edit_yukata.png` 和 `demo_app.png` 均随 [scsonic/libQwenImage21](https://github.com/scsonic/libQwenImage21/tree/2f30bc9019dfc423a9ff496d1103881443d61390) 源码一起引入，文件内容与上游相同。其中 `demo_app.png` 是上游 Java/XML demo 的界面，不是 Qwen Pocket 的 Compose 界面。PNG 没有记录对应构建提交，无法确认截图属于哪一次上游打包。
 
@@ -15,7 +15,8 @@
 - 本地与 GitHub Actions 的 APK/AAR 构建通过。
 - OnePlus PJX110 / Android 16：目标 MNN 模型包已传入并通过手机端 SHA-256 校验，应用进程可正常启动。
 - 已从手机取回一份完整的 512×512、20 步、seed 42 真机输出：[qwen-pocket-0.1.1-pjx110-512.png](docs/device-evidence/qwen-pocket-0.1.1-pjx110-512.png)。参数为 Q4_K_M、Tiny VAE、文生图；原始 prompt 是 `1 girl`，负向提示词为应用默认的人体/画质排除词。该文件是设备生成结果，不是上游样例。
-- 当前源码版本为 `0.1.2`：重做了 Compose 首页的材质层、渐变光晕、半透明高光卡片、悬浮玻璃导航和透明系统栏。`0.1.1` 的真机输出已验收；`0.1.2` 已构建并安装，最终界面截图需在手机解锁后补采。
+- 当前源码版本为 `0.1.2`：重做了 Compose 首页的材质层、渐变光晕、半透明高光卡片、悬浮玻璃导航和透明系统栏。新版真机界面截图：[qwen-pocket-0.1.2-pjx110-ui.png](docs/device-evidence/qwen-pocket-0.1.2-pjx110-ui.png)。
+- `0.1.2` 已在同一台手机完成第二轮 512×512、20 步文生图，原生日志记录总耗时 382.0 秒，输出为 [qwen-pocket-0.1.2-pjx110-redapple-512.png](docs/device-evidence/qwen-pocket-0.1.2-pjx110-redapple-512.png)；详细参数、路径和 SHA-256 见 [真机记录](docs/device-evidence/qwen-pocket-0.1.2-pjx110-redapple.txt)。
 - 负向提示词目前转换为 `Avoid` 文本指令。它不是独立负向条件，不等价于 Mac WebUI 的 CFG 双条件采样。
 - Turbo 未安装、未完成本项目回归验证，因此关闭对应选项。
 
