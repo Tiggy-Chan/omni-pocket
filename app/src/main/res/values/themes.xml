@@ -1,9 +1,12 @@
 <resources>
-    <style name="Theme.QwenImage" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="Theme.QwenImage" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#6750A4</item>
-        <item name="android:navigationBarColor">#FFFBFE</item>
-        <item name="android:statusBarColor">#FFFBFE</item>
-        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:colorAccent">#C5AEFF</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowNoTitle">true</item>
     </style>
 </resources>
