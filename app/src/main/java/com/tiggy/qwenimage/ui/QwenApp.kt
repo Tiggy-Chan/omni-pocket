@@ -18,12 +18,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -35,6 +37,8 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CloudDownload
+import androidx.compose.material.icons.outlined.Collections
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.FolderOpen
@@ -44,11 +48,13 @@ import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Queue
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -61,6 +67,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,11 +83,15 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tiggy.qwenimage.QwenViewModel
+import com.tiggy.qwenimage.data.GenerationJob
 import com.tiggy.qwenimage.data.GenerationMode
 import com.tiggy.qwenimage.data.GenerationSettings
 import com.tiggy.qwenimage.data.ModelStatus
@@ -95,34 +106,58 @@ private val VioletDeep = Color(0xFF7760D7)
 private val Mint = Color(0xFF8CE7D3)
 private val Coral = Color(0xFFFFA6B8)
 
+private fun Double.format1(): String = "%.1f".format(this)
+
 @Composable
 fun QwenApp(viewModel: QwenViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showError by remember { mutableStateOf<String?>(null) }
+    var previewImagePath by remember { mutableStateOf<String?>(null) }
     if (state.error != null && showError == null) showError = state.error
 
     Box(Modifier.fillMaxSize().background(Color(0xFF090A14))) {
         LiquidBackdrop()
         Scaffold(
             containerColor = Color.Transparent,
-            topBar = { TopBar(state.isBusy, state.modelStatus?.ready == true) },
+            topBar = { TopBar() },
             bottomBar = { LiquidNavigation(state.tab, viewModel::selectTab) }
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
                 when (state.tab) {
                     WorkspaceTab.Generate -> GenerateScreen(
-                        viewModel,
-                        state.settings,
-                        state.isBusy,
-                        state.progress,
-                        state.status,
-                        state.resultPath,
-                        state.modelStatus?.manifest?.features?.contains("official-turbo") == true,
-                        state.modelStatus?.ready == true
+                        viewModel = viewModel,
+                        settings = state.settings,
+                        busy = state.isBusy,
+                        progress = state.progress,
+                        status = state.status,
+                        resultPath = state.resultPath,
+                        liveLogs = state.liveLogs,
+                        jobs = state.jobs,
+                        officialTurboAvailable = state.modelStatus?.manifest?.features?.contains("official-turbo") == true,
+                        modelReady = state.modelStatus?.ready == true,
+                        onPreviewImage = { previewImagePath = it }
                     )
-                    WorkspaceTab.Queue -> QueueScreen(state.jobs, viewModel::cancelJob)
-                    WorkspaceTab.Models -> ModelsScreen(viewModel, state.modelStatus, state.repo, state.revision, state.isBusy, state.progress, state.status)
-                    WorkspaceTab.Settings -> SettingsScreen(viewModel, state.cpuThreads, state.keepModelsLoaded, state.status)
+                    WorkspaceTab.Queue -> QueueScreen(
+                        jobs = state.jobs,
+                        cancel = viewModel::cancelJob,
+                        onReuseSettings = viewModel::useSettings,
+                        onPreviewImage = { previewImagePath = it }
+                    )
+                    WorkspaceTab.Models -> ModelsScreen(
+                        viewModel = viewModel,
+                        status = state.modelStatus,
+                        repo = state.repo,
+                        revision = state.revision,
+                        busy = state.isBusy,
+                        progress = state.progress,
+                        message = state.status
+                    )
+                    WorkspaceTab.Settings -> SettingsScreen(
+                        viewModel = viewModel,
+                        threads = state.cpuThreads,
+                        keepLoaded = state.keepModelsLoaded,
+                        status = state.status
+                    )
                 }
             }
         }
@@ -135,6 +170,42 @@ fun QwenApp(viewModel: QwenViewModel) {
             text = { Text(message) },
             confirmButton = { TextButton(onClick = { showError = null; viewModel.clearError() }) { Text("知道了") } }
         )
+    }
+
+    previewImagePath?.let { path ->
+        val bitmap = remember(path) { BitmapFactory.decodeFile(path) }
+        if (bitmap != null) {
+            Dialog(onDismissRequest = { previewImagePath = null }) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .clickable { previewImagePath = null }
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    GlassCard(padding = 12.dp) {
+                        Image(
+                            bitmap.asImageBitmap(),
+                            "作品大图",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(File(path).name, color = Muted, style = MaterialTheme.typography.labelSmall)
+                            TextButton(onClick = { previewImagePath = null }) {
+                                Text("关闭预览", color = Ink, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -180,9 +251,12 @@ private fun LiquidBackdrop() {
 }
 
 @Composable
-private fun TopBar(busy: Boolean, modelReady: Boolean) {
+private fun TopBar() {
     Row(
-        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 10.dp),
+        Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -199,15 +273,6 @@ private fun TopBar(busy: Boolean, modelReady: Boolean) {
         Column(Modifier.weight(1f)) {
             Text("Qwen Image", color = Ink, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Text("2.1  ·  本地创作工作台", color = Muted, style = MaterialTheme.typography.labelMedium)
-        }
-        GlassPill(
-            selected = false,
-            accent = if (busy) Color(0xFFFFC36B) else if (modelReady) Mint else Coral,
-            modifier = Modifier.height(36.dp)
-        ) {
-            Box(Modifier.size(7.dp).clip(CircleShape).background(if (busy) Color(0xFFFFC36B) else if (modelReady) Mint else Coral))
-            Spacer(Modifier.width(7.dp))
-            Text(if (busy) "处理中" else if (modelReady) "就绪" else "待配置", color = Ink, style = MaterialTheme.typography.labelSmall)
         }
     }
 }
@@ -254,12 +319,16 @@ private fun GenerateScreen(
     progress: Int,
     status: String,
     resultPath: String?,
+    liveLogs: List<String>,
+    jobs: List<GenerationJob>,
     officialTurboAvailable: Boolean,
-    modelReady: Boolean
+    modelReady: Boolean,
+    onPreviewImage: (String) -> Unit
 ) {
     val inputPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) viewModel.setInput(uri) }
     val input2Picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) viewModel.setInput(uri, second = true) }
     var expanded by remember { mutableStateOf(false) }
+
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 2.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -373,31 +442,261 @@ private fun GenerateScreen(
             Icon(Icons.Outlined.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(if (settings.mode == GenerationMode.TextToImage) "开始生成" else "开始编辑", fontWeight = FontWeight.SemiBold)
         }
 
+        // 实时推理流程详细 Log 卡片
+        if (liveLogs.isNotEmpty()) {
+            GlassCard(padding = 12.dp) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Terminal, "日志", tint = Violet, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("实时推理流程日志", color = Ink, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.weight(1f))
+                    if (busy) {
+                        CircularProgressIndicator(modifier = Modifier.size(13.dp), color = Violet, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(6.dp))
+                        Text("推理中", color = Color(0xFFFFC36B), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                    } else {
+                        Text("空闲", color = Mint, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 180.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF07080F).copy(alpha = 0.88f))
+                        .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                        .padding(10.dp)
+                ) {
+                    val logScroll = rememberScrollState()
+                    LaunchedEffect(liveLogs.size) {
+                        logScroll.animateScrollTo(logScroll.maxValue)
+                    }
+                    Column(Modifier.verticalScroll(logScroll), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        liveLogs.forEach { line ->
+                            Text(
+                                line,
+                                color = when {
+                                    line.contains("失败") || line.contains("错误") -> Coral
+                                    line.contains("完成") || line.contains("就绪") -> Mint
+                                    line.contains("采样") || line.contains("启动") -> Color(0xFFFFC36B)
+                                    else -> Color(0xFFC5C7DB)
+                                },
+                                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 最新成图展示卡片
         resultPath?.let { path ->
             val bitmap = remember(path) { BitmapFactory.decodeFile(path) }
-            if (bitmap != null) GlassCard { Text("最新作品", color = Ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold); Spacer(Modifier.height(8.dp)); Image(bitmap.asImageBitmap(), "生成结果", Modifier.fillMaxWidth().height(300.dp).clip(RoundedCornerShape(20.dp))); Text(File(path).name, color = Muted, style = MaterialTheme.typography.labelSmall) }
+            if (bitmap != null) {
+                GlassCard {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("最新作品", color = Ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.weight(1f))
+                        Text("点击查看大图", color = Dim, style = MaterialTheme.typography.labelSmall)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Image(
+                        bitmap.asImageBitmap(),
+                        "生成结果",
+                        Modifier
+                            .fillMaxWidth()
+                            .height(280.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .clickable { onPreviewImage(path) }
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(File(path).name, color = Muted, style = MaterialTheme.typography.labelSmall)
+                }
+            }
         }
+
+        // 历史作品画廊展示 (可横向滑动浏览之前所有生成出的图)
+        val completedJobs = remember(jobs) {
+            jobs.filter { it.state == "done" && it.outputPath != null && File(it.outputPath).exists() }.reversed()
+        }
+        if (completedJobs.isNotEmpty()) {
+            GlassCard {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Outlined.Collections, null, tint = Violet, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("作品画廊 (${completedJobs.size})", color = Ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.weight(1f))
+                    Text("横向滑动", color = Dim, style = MaterialTheme.typography.labelSmall)
+                }
+                Spacer(Modifier.height(10.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(completedJobs, key = { it.id }) { job ->
+                        val path = job.outputPath!!
+                        val bmp = remember(path) { BitmapFactory.decodeFile(path) }
+                        if (bmp != null) {
+                            Column(
+                                Modifier
+                                    .width(135.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color.White.copy(alpha = 0.06f))
+                                    .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(14.dp))
+                                    .clickable { onPreviewImage(path) }
+                                    .padding(6.dp)
+                            ) {
+                                Image(
+                                    bmp.asImageBitmap(),
+                                    null,
+                                    modifier = Modifier
+                                        .size(123.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                )
+                                Spacer(Modifier.height(5.dp))
+                                Text(
+                                    job.settings.prompt,
+                                    color = Ink,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    "${job.settings.width}×${job.settings.height} · ${if (job.settings.officialTurbo) "Turbo" else "${job.settings.steps}步"}",
+                                    color = Muted,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Spacer(Modifier.height(12.dp))
     }
 }
 
 @Composable
-private fun QueueScreen(jobs: List<com.tiggy.qwenimage.data.GenerationJob>, cancel: (String) -> Unit) {
+private fun QueueScreen(
+    jobs: List<GenerationJob>,
+    cancel: (String) -> Unit,
+    onReuseSettings: (GenerationSettings) -> Unit,
+    onPreviewImage: (String) -> Unit
+) {
     if (jobs.isEmpty()) return EmptyState(Icons.Outlined.Queue, "队列还是空的", "提交一个 prompt，作品会在这里排队")
-    LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        items(jobs, key = { it.id }) { job ->
+    // 逆序排列：最新提交/生成的任务排在最开头，旧任务往下沉
+    val reversedJobs = remember(jobs) { jobs.asReversed() }
+
+    LazyColumn(
+        Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 16.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items(reversedJobs, key = { it.id }) { job ->
+            val timeStr = remember(job.createdAt) {
+                java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(job.createdAt))
+            }
             GlassCard {
                 Row(verticalAlignment = Alignment.Top) {
-                    Icon(if (job.state == "done") Icons.Outlined.CheckCircle else Icons.Outlined.AutoAwesome, null, tint = if (job.state == "done") Mint else Violet)
+                    Icon(
+                        when (job.state) {
+                            "done" -> Icons.Outlined.CheckCircle
+                            "running" -> Icons.Outlined.AutoAwesome
+                            else -> Icons.Outlined.Queue
+                        },
+                        null,
+                        tint = when (job.state) {
+                            "done" -> Mint
+                            "running" -> Color(0xFFFFC36B)
+                            "failed" -> Coral
+                            else -> Violet
+                        }
+                    )
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(job.settings.prompt, color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text("${job.settings.mode} · ${job.settings.width}×${job.settings.height} · seed ${job.settings.seed}", color = Muted, style = MaterialTheme.typography.labelSmall)
-                        Text(job.state, color = if (job.state == "failed") Coral else Muted, style = MaterialTheme.typography.labelSmall)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(job.settings.prompt, color = Ink, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                            Spacer(Modifier.width(8.dp))
+                            Text(timeStr, color = Dim, style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp))
+                        }
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "${job.settings.mode} · ${job.settings.width}×${job.settings.height} · seed ${job.settings.seed}${if (job.settings.officialTurbo) " · 官方Turbo" else ""}",
+                            color = Muted,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                            Text(
+                                when (job.state) {
+                                    "done" -> "生成完成"
+                                    "running" -> "正在生成"
+                                    "queued" -> "排队中"
+                                    "cancelled" -> "已取消"
+                                    else -> "生成失败"
+                                },
+                                color = when (job.state) {
+                                    "done" -> Mint
+                                    "running" -> Color(0xFFFFC36B)
+                                    "failed" -> Coral
+                                    else -> Muted
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (job.elapsedMs > 0) {
+                                Text(" · ${(job.elapsedMs / 1000.0).format1()}s", color = Dim, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     }
-                    if (job.state == "queued") IconButton(onClick = { cancel(job.id) }) { Icon(Icons.Outlined.Cancel, "取消", tint = Muted) }
+                    if (job.state == "queued") {
+                        IconButton(onClick = { cancel(job.id) }) { Icon(Icons.Outlined.Cancel, "取消", tint = Muted) }
+                    }
                 }
-                if (job.state == "running") LinearProgressIndicator(progress = { job.progress / 100f }, modifier = Modifier.fillMaxWidth().padding(top = 9.dp).clip(CircleShape), color = Violet, trackColor = Color.White.copy(.12f))
+
+                // 历史成图预览：如果已完成且存在输出图片，直接内嵌展示并支持点击大图预览
+                if (job.state == "done" && job.outputPath != null) {
+                    val file = File(job.outputPath)
+                    if (file.exists()) {
+                        val bitmap = remember(job.outputPath) { BitmapFactory.decodeFile(job.outputPath) }
+                        if (bitmap != null) {
+                            Spacer(Modifier.height(10.dp))
+                            Image(
+                                bitmap.asImageBitmap(),
+                                "作品预览",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(220.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable { onPreviewImage(job.outputPath) }
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(file.name, color = Dim, style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp))
+                                TextButton(onClick = { onReuseSettings(job.settings) }) {
+                                    Icon(Icons.Outlined.ContentCopy, null, Modifier.size(15.dp), tint = Violet)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("复用此参数", color = Violet, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (job.state == "running") {
+                    LinearProgressIndicator(
+                        progress = { job.progress / 100f },
+                        modifier = Modifier.fillMaxWidth().padding(top = 9.dp).clip(CircleShape),
+                        color = Violet,
+                        trackColor = Color.White.copy(.12f)
+                    )
+                }
                 job.error?.let { Text(it, color = Coral, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 6.dp)) }
             }
         }

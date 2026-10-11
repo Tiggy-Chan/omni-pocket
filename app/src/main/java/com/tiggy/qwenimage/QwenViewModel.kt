@@ -25,6 +25,9 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.io.File
 import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
 data class QwenUiState(
@@ -40,7 +43,8 @@ data class QwenUiState(
     val resultPath: String? = null,
     val error: String? = null,
     val cpuThreads: Int = 6,
-    val keepModelsLoaded: Boolean = false
+    val keepModelsLoaded: Boolean = false,
+    val liveLogs: List<String> = emptyList()
 )
 
 class QwenViewModel(application: Application) : AndroidViewModel(application) {
@@ -78,6 +82,13 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun appendLog(line: String) {
+        val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        _state.update {
+            it.copy(liveLogs = (it.liveLogs + "[$time] $line").takeLast(80))
+        }
+    }
+
     fun selectTab(tab: WorkspaceTab) = _state.update { it.copy(tab = tab) }
     fun setMode(mode: GenerationMode) = _state.update { it.copy(settings = it.settings.copy(mode = mode)) }
     fun setPrompt(prompt: String) = _state.update { it.copy(settings = it.settings.copy(prompt = prompt)) }
@@ -110,6 +121,10 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     fun setKeepModelsLoaded(value: Boolean) = _state.update { it.copy(keepModelsLoaded = value) }
 
     fun setTransparent(value: Boolean) = _state.update { it.copy(settings = it.settings.copy(transparent = value)) }
+
+    fun useSettings(settings: GenerationSettings) = _state.update {
+        it.copy(settings = settings, tab = WorkspaceTab.Generate)
+    }
 
     fun refreshModelStatus() = _state.update { it.copy(modelStatus = repository.status()) }
 
@@ -167,7 +182,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
 
     fun enqueue() {
         val current = _state.value
-        if (current.isBusy || current.modelStatus?.ready != true) {
+        if (current.modelStatus?.ready != true) {
             _state.update { it.copy(error = "请先完成模型校验") }
             return
         }
@@ -181,7 +196,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         val job = GenerationJob(UUID.randomUUID().toString(), prepared)
-        _state.update { it.copy(jobs = it.jobs + job, tab = WorkspaceTab.Queue, error = null, status = "任务已加入队列") }
+        _state.update { it.copy(jobs = it.jobs + job, error = null, status = "任务已加入队列") }
         queue.trySend(job)
     }
 
@@ -204,12 +219,20 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         updateJob(job.id) { it.copy(state = "running", progress = 0) }
         val settings = job.settings
         val output = File(getApplication<Application>().getExternalFilesDir(null), "outputs/${job.id}.png")
+        val startTime = System.currentTimeMillis()
         try {
+            _state.update { it.copy(isBusy = true, progress = 0, status = "正在初始化生成任务…") }
+            appendLog("----------------------------------------")
+            appendLog("任务启动 [${job.id.take(8)}]：${settings.prompt.take(45)}")
+            appendLog("规格：${settings.width}x${settings.height} | 步数：${if (settings.officialTurbo) "8 (官方Turbo)" else if (settings.turbo) "6 (LoRA)" else "${settings.steps}"} | 种子：${settings.seed}")
+            appendLog("后端调度：DiT (Adreno 750 OpenCL) + 文本编码 (CPU 6线程)")
+
             engineMutex.withLock {
                 withContext(Dispatchers.IO) {
                     val source = repository.modelDir
                     val status = repository.status()
                     check(status.ready) { "模型尚未准备好：${status.message}" }
+                    appendLog("准备模型资源，检查运行时内存...")
                     val engineSettings = EngineSettings(
                         turbo = settings.turbo,
                         officialTurbo = settings.officialTurbo,
@@ -220,6 +243,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                         crashMarker = File(getApplication<Application>().filesDir, "generation.marker")
                     )
                     if (engine == null || engineKey != engineSettings.key) {
+                        appendLog("载入 Native 引擎与着色器缓存 (.mnn_cl_cache)...")
                         engine?.close()
                         engine = QwenEngine(source, engineSettings)
                         engineKey = engineSettings.key
@@ -227,9 +251,32 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                     val input = settings.inputUri?.let { copyUriToCache(it, "${job.id}-input") }
                     val input2 = settings.inputUri2?.let { copyUriToCache(it, "${job.id}-input2") }
                     output.parentFile?.mkdirs()
+
+                    appendLog("执行文本编码 (Qwen3-VL-8B CPU int4)...")
+                    var lastReportedStep = 0
+                    val totalSteps = if (settings.officialTurbo) 8 else if (settings.turbo) 6 else settings.steps
                     val callback: (Int) -> Unit = { percent ->
                         _state.update { it.copy(progress = percent, status = "任务 ${job.id.take(8)} · $percent%") }
                         updateJob(job.id) { it.copy(progress = percent) }
+                        when {
+                            percent in 3..5 -> {
+                                appendLog("文本特征提取完成，卸载释放 CPU 编码器内存")
+                                appendLog("载入 DiT 扩散模型 (Adreno GPU / OpenCL)，构建 Prefix KV 缓存...")
+                            }
+                            percent == 10 -> {
+                                appendLog("Prefix 缓存就绪，开始去噪采样 (共 $totalSteps 步)...")
+                            }
+                            percent in 11..90 -> {
+                                val currentStep = (((percent - 10).toFloat() / 80f) * totalSteps).toInt().coerceIn(1, totalSteps)
+                                if (currentStep > lastReportedStep) {
+                                    lastReportedStep = currentStep
+                                    appendLog("DiT 采样 步骤 $currentStep/$totalSteps (进度 $percent%)")
+                                }
+                            }
+                            percent == 100 -> {
+                                appendLog("采样完成，Tiny VAE GPU 原生解码 RGBA 并落盘...")
+                            }
+                        }
                     }
                     if (settings.mode == GenerationMode.TextToImage) {
                         val prompt = if (settings.negativePrompt.isBlank()) settings.prompt
@@ -242,11 +289,17 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
-            updateJob(job.id) { it.copy(state = "done", progress = 100, outputPath = output.absolutePath) }
+            val elapsed = ((System.currentTimeMillis() - startTime) / 1000.0)
+            appendLog("生成完成，总耗时 ${"%.1f".format(elapsed)}s，已保存至 outputs/${output.name}")
+            updateJob(job.id) { it.copy(state = "done", progress = 100, outputPath = output.absolutePath, elapsedMs = System.currentTimeMillis() - startTime) }
             _state.update { it.copy(resultPath = output.absolutePath, progress = 100, status = "生成完成：${output.name}") }
         } catch (error: Throwable) {
-            updateJob(job.id) { it.copy(state = "failed", error = error.message ?: error.toString()) }
-            _state.update { it.copy(status = "生成失败", error = error.message ?: error.toString()) }
+            val errorMsg = error.message ?: error.toString()
+            appendLog("生成失败：$errorMsg")
+            updateJob(job.id) { it.copy(state = "failed", error = errorMsg) }
+            _state.update { it.copy(status = "生成失败", error = errorMsg) }
+        } finally {
+            _state.update { it.copy(isBusy = false) }
         }
     }
 
