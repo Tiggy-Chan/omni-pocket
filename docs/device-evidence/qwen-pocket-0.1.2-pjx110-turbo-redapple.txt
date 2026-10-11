@@ -1,0 +1,17 @@
+Qwen Pocket device evidence (Official Turbo 8-step)
+
+Date: 2026-10-11 (Asia/Shanghai)
+APK: Qwen Pocket 0.1.2 (versionCode 3)
+Git commit: bd51e96
+Device: OnePlus PJX110, Android 16, Snapdragon 8 Gen 3, 24 GB RAM class
+Model: Qwen/Qwen-Image-2.1-Turbo (Q4_K_M converted to MNN int4 dit_official_turbo.mnn)
+Runtime: GPU DiT/OpenCL, CPU text encoder, Tiny VAE GPU
+Prompt: redapple
+Negative prompt: application default negative prompt
+Size: 512x512
+Steps: 8
+Schedule: official sample_sigmas [1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568]
+Seed: 42
+Native log: saved /storage/emulated/0/Android/data/com.tiggy.qwenimage/files/outputs/23ece8f8-760c-4210-ac10-97d57502ad7c.png (seed 42, total 151.2 s)
+Breakdown: text encoder 10.20 s, DiT 8 steps ~125.7 s (~15.7 s/step), Tiny VAE decode 0.08 s
+Result: 512x512 RGBA PNG, SHA-256 865f3b3f2ee9576aa4d15b2e2cae07caae4e4b3f7440e8e6f50c69561f6c8bed

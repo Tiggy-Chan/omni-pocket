@@ -18,7 +18,7 @@
 - 当前源码版本为 `0.1.2`：重做了 Compose 首页的材质层、渐变光晕、半透明高光卡片、悬浮玻璃导航和透明系统栏。新版真机界面截图：[qwen-pocket-0.1.2-pjx110-ui.png](docs/device-evidence/qwen-pocket-0.1.2-pjx110-ui.png)。
 - `0.1.2` 已在同一台手机完成第二轮 512×512、20 步文生图，原生日志记录总耗时 382.0 秒，输出为 [qwen-pocket-0.1.2-pjx110-redapple-512.png](docs/device-evidence/qwen-pocket-0.1.2-pjx110-redapple-512.png)；详细参数、路径和 SHA-256 见 [真机记录](docs/device-evidence/qwen-pocket-0.1.2-pjx110-redapple.txt)。
 - 负向提示词目前转换为 `Avoid` 文本指令。它不是独立负向条件，不等价于 Mac WebUI 的 CFG 双条件采样。
-- 代码已接入官方 Qwen-Image-2.1-Turbo 的独立 8 步运行路径；手机端只有在模型清单同时包含经过回归验证的 dit_official_turbo.mnn 后才启用开关。
+- 官方 Qwen-Image-2.1-Turbo（8 步、`dit_official_turbo.mnn`）已完成真机回归验证：OnePlus PJX110 端到端耗时 151.2 秒（DiT 8 步约 125.7 秒，~15.7 秒/步；相比 20 步的 382.0 秒提速 2.53 倍），真机输出与界面证据见 [qwen-pocket-0.1.2-pjx110-turbo-redapple-512.png](docs/device-evidence/qwen-pocket-0.1.2-pjx110-turbo-redapple-512.png) 与 [qwen-pocket-0.1.2-pjx110-turbo-ui.png](docs/device-evidence/qwen-pocket-0.1.2-pjx110-turbo-ui.png)；详细参数、日志及 SHA-256 见 [Turbo 真机记录](docs/device-evidence/qwen-pocket-0.1.2-pjx110-turbo-redapple.txt)。
 
 ## 使用与构建
 
