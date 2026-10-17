@@ -4,13 +4,21 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.tiggy.qwenimage.data.AppDomain
+import com.tiggy.qwenimage.data.CoTMode
 import com.tiggy.qwenimage.data.GenerationJob
 import com.tiggy.qwenimage.data.GenerationMode
 import com.tiggy.qwenimage.data.GenerationSettings
 import com.tiggy.qwenimage.data.ModelRepository
 import com.tiggy.qwenimage.data.ModelStatus
+import com.tiggy.qwenimage.data.MusicJob
+import com.tiggy.qwenimage.data.MusicSettings
+import com.tiggy.qwenimage.data.MusicStudioTab
+import com.tiggy.qwenimage.data.MusicStylePreset
+import com.tiggy.qwenimage.data.MusicTrack
 import com.tiggy.qwenimage.data.WorkspaceTab
 import com.tiggy.qwenimage.engine.EngineSettings
+import com.tiggy.qwenimage.engine.MusicEngine
 import com.tiggy.qwenimage.engine.QwenEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -31,6 +39,7 @@ import java.util.Locale
 import java.util.UUID
 
 data class QwenUiState(
+    val domain: AppDomain = AppDomain.ImageStudio,
     val tab: WorkspaceTab = WorkspaceTab.Generate,
     val settings: GenerationSettings = GenerationSettings(),
     val jobs: List<GenerationJob> = emptyList(),
@@ -44,7 +53,16 @@ data class QwenUiState(
     val error: String? = null,
     val cpuThreads: Int = 6,
     val keepModelsLoaded: Boolean = false,
-    val liveLogs: List<String> = emptyList()
+    val liveLogs: List<String> = emptyList(),
+    // Music Studio state
+    val musicTab: MusicStudioTab = MusicStudioTab.Compose,
+    val musicSettings: MusicSettings = MusicSettings(),
+    val musicJobs: List<MusicJob> = emptyList(),
+    val musicPlaylist: List<MusicTrack> = emptyList(),
+    val activeMusicTrack: MusicTrack? = null,
+    val isMusicPlaying: Boolean = false,
+    val musicPositionMs: Int = 0,
+    val musicDurationMs: Int = 0
 )
 
 class QwenViewModel(application: Application) : AndroidViewModel(application) {
@@ -65,8 +83,30 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     private val engineMutex = Mutex()
     private var engine: QwenEngine? = null
     private var engineKey: String? = null
+    private val musicEngine = MusicEngine(application)
 
     init {
+        val initialTracks = musicEngine.preloadInitialTracks()
+        _state.update {
+            it.copy(
+                musicPlaylist = initialTracks,
+                activeMusicTrack = initialTracks.firstOrNull()
+            )
+        }
+
+        viewModelScope.launch {
+            musicEngine.isPlaying.collect { playing -> _state.update { it.copy(isMusicPlaying = playing) } }
+        }
+        viewModelScope.launch {
+            musicEngine.currentPositionMs.collect { pos -> _state.update { it.copy(musicPositionMs = pos) } }
+        }
+        viewModelScope.launch {
+            musicEngine.durationMs.collect { dur -> _state.update { it.copy(musicDurationMs = dur) } }
+        }
+        viewModelScope.launch {
+            musicEngine.activeTrack.collect { trk -> if (trk != null) _state.update { it.copy(activeMusicTrack = trk) } }
+        }
+
         viewModelScope.launch {
             val current = repository.status()
             if (!current.ready && current.total > 0 && current.present == current.total) {
@@ -89,7 +129,101 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setDomain(domain: AppDomain) = _state.update { it.copy(domain = domain) }
     fun selectTab(tab: WorkspaceTab) = _state.update { it.copy(tab = tab) }
+    fun selectMusicTab(tab: MusicStudioTab) = _state.update { it.copy(musicTab = tab) }
+
+    // Music settings modifiers
+    fun setMusicTitle(title: String) = _state.update { it.copy(musicSettings = it.musicSettings.copy(title = title)) }
+    fun setMusicStyle(style: String) = _state.update { it.copy(musicSettings = it.musicSettings.copy(style = style)) }
+    fun setMusicLyrics(lyrics: String) = _state.update { it.copy(musicSettings = it.musicSettings.copy(lyrics = lyrics)) }
+    fun setMusicBpm(bpm: Int) = _state.update { it.copy(musicSettings = it.musicSettings.copy(bpm = bpm.coerceIn(50, 220))) }
+    fun setMusicCotMode(mode: CoTMode) = _state.update { it.copy(musicSettings = it.musicSettings.copy(cotMode = mode)) }
+    fun setMusicSeed(seed: Long) = _state.update { it.copy(musicSettings = it.musicSettings.copy(seed = seed)) }
+    fun setMusicTargetDuration(sec: Int) = _state.update { it.copy(musicSettings = it.musicSettings.copy(targetDurationSec = sec)) }
+    fun setMusicOdeSteps(steps: Int) = _state.update { it.copy(musicSettings = it.musicSettings.copy(odeSteps = steps.coerceIn(8, 64))) }
+    fun setMusicGuidanceScale(scale: Float) = _state.update { it.copy(musicSettings = it.musicSettings.copy(guidanceScale = scale)) }
+    fun applyMusicPreset(preset: MusicStylePreset) = _state.update {
+        it.copy(
+            musicSettings = it.musicSettings.copy(
+                title = "《${preset.name}》",
+                style = preset.stylePrompt,
+                lyrics = preset.sampleLyrics,
+                bpm = preset.bpm,
+                cotMode = preset.defaultCot
+            )
+        )
+    }
+
+    // Music playback
+    fun playMusic(track: MusicTrack) = musicEngine.playTrack(track)
+    fun toggleMusicPlayPause() = musicEngine.togglePlayPause()
+    fun seekMusic(positionMs: Int) = musicEngine.seekTo(positionMs)
+    fun stopMusic() = musicEngine.stopPlayback()
+    fun setActiveTrack(track: MusicTrack) = _state.update { it.copy(activeMusicTrack = track) }
+
+    fun startMusicGeneration() {
+        if (_state.value.isBusy) return
+        val current = _state.value
+        val settings = current.musicSettings
+        runCatching { settings.validate() }.onFailure { error ->
+            _state.update { it.copy(error = error.message ?: "参数校验失败") }
+            return
+        }
+
+        val job = MusicJob(
+            id = UUID.randomUUID().toString(),
+            title = settings.title.ifBlank { "未命名曲目" },
+            settings = settings,
+            state = "running",
+            stageDescription = "正在规划生成..."
+        )
+
+        _state.update {
+            it.copy(
+                isBusy = true,
+                error = null,
+                musicJobs = it.musicJobs + job,
+                status = "准备端侧生成音乐..."
+            )
+        }
+
+        viewModelScope.launch {
+            runCatching {
+                musicEngine.executeGeneration(job) { progress, stage, log ->
+                    _state.update {
+                        it.copy(
+                            progress = (progress * 100).toInt(),
+                            status = stage
+                        )
+                    }
+                    appendLog(log)
+                }
+            }.onSuccess { track ->
+                _state.update {
+                    it.copy(
+                        isBusy = false,
+                        progress = 100,
+                        status = "音乐生成完毕：${track.title}",
+                        musicPlaylist = listOf(track) + it.musicPlaylist.filter { old -> old.id != track.id },
+                        activeMusicTrack = track,
+                        musicTab = MusicStudioTab.Playlist
+                    )
+                }
+                musicEngine.playTrack(track)
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        isBusy = false,
+                        status = "音乐生成失败",
+                        error = error.message ?: error.toString()
+                    )
+                }
+                appendLog("音乐生成异常: ${error.message}")
+            }
+        }
+    }
+
     fun setMode(mode: GenerationMode) = _state.update { it.copy(settings = it.settings.copy(mode = mode)) }
     fun setPrompt(prompt: String) = _state.update { it.copy(settings = it.settings.copy(prompt = prompt)) }
     fun setNegativePrompt(prompt: String) = _state.update { it.copy(settings = it.settings.copy(negativePrompt = prompt)) }
@@ -321,6 +455,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         queue.close()
         engine?.close()
+        musicEngine.close()
         super.onCleared()
     }
 
