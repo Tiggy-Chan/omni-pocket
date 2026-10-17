@@ -96,6 +96,7 @@ import com.tiggy.qwenimage.data.GenerationMode
 import com.tiggy.qwenimage.data.GenerationSettings
 import com.tiggy.qwenimage.data.ModelStatus
 import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.MovieCreation
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
@@ -113,6 +114,7 @@ private val Violet = Color(0xFFC5AEFF)
 private val VioletDeep = Color(0xFF7760D7)
 private val Mint = Color(0xFF8CE7D3)
 private val Coral = Color(0xFFFFA6B8)
+private val Amber = Color(0xFFF59E0B)
 
 private fun Double.format1(): String = "%.1f".format(this)
 
@@ -157,44 +159,46 @@ fun QwenApp(viewModel: QwenViewModel) {
                 }
             ) { padding ->
                 Box(Modifier.fillMaxSize().padding(padding)) {
-                    if (state.domain == AppDomain.MusicStudio) {
-                        MusicStudioScreen(state = state, viewModel = viewModel)
-                    } else {
-                        when (state.tab) {
-                            WorkspaceTab.Generate -> GenerateScreen(
-                                viewModel = viewModel,
-                                settings = state.settings,
-                                busy = state.isBusy,
-                                progress = state.progress,
-                                status = state.status,
-                                resultPath = state.resultPath,
-                                liveLogs = state.liveLogs,
-                                jobs = state.jobs,
-                                officialTurboAvailable = state.modelStatus?.manifest?.features?.contains("official-turbo") == true,
-                                modelReady = state.modelStatus?.ready == true,
-                                onPreviewImage = { previewImagePath = it }
-                            )
-                            WorkspaceTab.Queue -> QueueScreen(
-                                jobs = state.jobs,
-                                cancel = viewModel::cancelJob,
-                                onReuseSettings = viewModel::useSettings,
-                                onPreviewImage = { previewImagePath = it }
-                            )
-                            WorkspaceTab.Models -> ModelsScreen(
-                                viewModel = viewModel,
-                                status = state.modelStatus,
-                                repo = state.repo,
-                                revision = state.revision,
-                                busy = state.isBusy,
-                                progress = state.progress,
-                                message = state.status
-                            )
-                            WorkspaceTab.Settings -> SettingsScreen(
-                                viewModel = viewModel,
-                                threads = state.cpuThreads,
-                                keepLoaded = state.keepModelsLoaded,
-                                status = state.status
-                            )
+                    when (state.domain) {
+                        AppDomain.MusicStudio -> MusicStudioScreen(state = state, viewModel = viewModel)
+                        AppDomain.VideoStudio -> VideoStudioScreen(state = state, viewModel = viewModel)
+                        AppDomain.ImageStudio -> {
+                            when (state.tab) {
+                                WorkspaceTab.Generate -> GenerateScreen(
+                                    viewModel = viewModel,
+                                    settings = state.settings,
+                                    busy = state.isBusy,
+                                    progress = state.progress,
+                                    status = state.status,
+                                    resultPath = state.resultPath,
+                                    liveLogs = state.liveLogs,
+                                    jobs = state.jobs,
+                                    officialTurboAvailable = state.modelStatus?.manifest?.features?.contains("official-turbo") == true,
+                                    modelReady = state.modelStatus?.ready == true,
+                                    onPreviewImage = { previewImagePath = it }
+                                )
+                                WorkspaceTab.Queue -> QueueScreen(
+                                    jobs = state.jobs,
+                                    cancel = viewModel::cancelJob,
+                                    onReuseSettings = viewModel::useSettings,
+                                    onPreviewImage = { previewImagePath = it }
+                                )
+                                WorkspaceTab.Models -> ModelsScreen(
+                                    viewModel = viewModel,
+                                    status = state.modelStatus,
+                                    repo = state.repo,
+                                    revision = state.revision,
+                                    busy = state.isBusy,
+                                    progress = state.progress,
+                                    message = state.status
+                                )
+                                WorkspaceTab.Settings -> SettingsScreen(
+                                    viewModel = viewModel,
+                                    threads = state.cpuThreads,
+                                    keepLoaded = state.keepModelsLoaded,
+                                    status = state.status
+                                )
+                            }
                         }
                     }
                 }
@@ -306,17 +310,22 @@ private fun TopBar(
                 .size(46.dp)
                 .clip(RoundedCornerShape(16.dp))
                 .background(
-                    if (domain == AppDomain.ImageStudio)
-                        Brush.linearGradient(listOf(Color(0xFFAB8BFF), Color(0xFF6756C6)))
-                    else
-                        Brush.linearGradient(listOf(Color(0xFF5ED4BC), Color(0xFF388879)))
+                    when (domain) {
+                        AppDomain.ImageStudio -> Brush.linearGradient(listOf(Color(0xFFAB8BFF), Color(0xFF6756C6)))
+                        AppDomain.MusicStudio -> Brush.linearGradient(listOf(Color(0xFF5ED4BC), Color(0xFF388879)))
+                        AppDomain.VideoStudio -> Brush.linearGradient(listOf(Color(0xFFF59E0B), Color(0xFFD97706)))
+                    }
                 )
                 .border(1.dp, Color.White.copy(alpha = .48f), RoundedCornerShape(16.dp))
                 .clickable { onOpenDrawer() },
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                if (domain == AppDomain.ImageStudio) Icons.Outlined.AutoAwesome else Icons.Outlined.MusicNote,
+                when (domain) {
+                    AppDomain.ImageStudio -> Icons.Outlined.AutoAwesome
+                    AppDomain.MusicStudio -> Icons.Outlined.MusicNote
+                    AppDomain.VideoStudio -> Icons.Outlined.MovieCreation
+                },
                 "菜单",
                 tint = Color.White,
                 modifier = Modifier.size(24.dp)
@@ -335,21 +344,36 @@ private fun TopBar(
                     Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .background(
-                            if (domain == AppDomain.ImageStudio) Violet.copy(alpha = 0.2f)
-                            else Mint.copy(alpha = 0.2f)
+                            when (domain) {
+                                AppDomain.ImageStudio -> Violet.copy(alpha = 0.2f)
+                                AppDomain.MusicStudio -> Mint.copy(alpha = 0.2f)
+                                AppDomain.VideoStudio -> Amber.copy(alpha = 0.2f)
+                            }
                         )
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        if (domain == AppDomain.ImageStudio) "绘卷" else "乐坊",
-                        color = if (domain == AppDomain.ImageStudio) Violet else Mint,
+                        when (domain) {
+                            AppDomain.ImageStudio -> "绘卷"
+                            AppDomain.MusicStudio -> "乐坊"
+                            AppDomain.VideoStudio -> "影坊"
+                        },
+                        color = when (domain) {
+                            AppDomain.ImageStudio -> Violet
+                            AppDomain.MusicStudio -> Mint
+                            AppDomain.VideoStudio -> Amber
+                        },
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
             }
             Text(
-                if (domain == AppDomain.ImageStudio) "Qwen Image 2.1 · 8步 Turbo" else "YuE2-3B · 48kHz 符号乐理",
+                when (domain) {
+                    AppDomain.ImageStudio -> "Qwen Image 2.1 · 8步 Turbo"
+                    AppDomain.MusicStudio -> "YuE2-3B · 48kHz 符号乐理"
+                    AppDomain.VideoStudio -> "MobileWan · 3步极速采样"
+                },
                 color = Muted,
                 style = MaterialTheme.typography.labelMedium
             )

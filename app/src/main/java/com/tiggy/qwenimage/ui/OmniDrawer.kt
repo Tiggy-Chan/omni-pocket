@@ -23,6 +23,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.MovieCreation
 import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Speed
@@ -49,6 +50,7 @@ private val Subtle = Color(0xFF6B6678)
 private val Purple = Color(0xFFC5AEFF)
 private val Mint = Color(0xFF8CE7D3)
 private val Rose = Color(0xFFFFAEC5)
+private val Amber = Color(0xFFF59E0B)
 private val CardBg = Color(0xFF131424)
 
 @Composable
@@ -185,6 +187,50 @@ fun OmniDrawerContent(
                                         .size(8.dp)
                                         .clip(CircleShape)
                                         .background(Mint)
+                                )
+                            }
+                        }
+                    }
+
+                    // Video Studio Item
+                    val isVideoSelected = currentDomain == AppDomain.VideoStudio
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (isVideoSelected) Amber.copy(alpha = 0.18f) else CardBg)
+                            .border(
+                                1.dp,
+                                if (isVideoSelected) Amber else Color.White.copy(alpha = 0.06f),
+                                RoundedCornerShape(16.dp)
+                            )
+                            .clickable {
+                                onSelectDomain(AppDomain.VideoStudio)
+                                onCloseDrawer()
+                            }
+                            .padding(14.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Amber.copy(alpha = 0.25f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Outlined.MovieCreation, null, tint = Amber, modifier = Modifier.size(20.dp))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("影坊 · 动效工坊", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                Text("MobileWan · 3步极速采样 (480×832)", color = Subtle, fontSize = 11.sp)
+                            }
+                            if (isVideoSelected) {
+                                Box(
+                                    Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(Amber)
                                 )
                             }
                         }
