@@ -22,146 +22,21 @@ enum class CoTMode(val tag: String, val label: String, val description: String) 
     Off("off", "直接声学 (off)", "跳过乐理规划直接自回归生成音频，生成迅速")
 }
 
-data class MusicStylePreset(
-    val id: String,
-    val name: String,
-    val genre: String,
-    val bpm: Int,
-    val stylePrompt: String,
-    val sampleLyrics: String,
-    val defaultCot: CoTMode = CoTMode.Melody
-)
-
-object MusicPresets {
-    val presets = listOf(
-        MusicStylePreset(
-            id = "cyber_ballad",
-            name = "电子抒情",
-            genre = "Cyberpunk Ballad",
-            bpm = 112,
-            stylePrompt = "At 112 BPM, emotional anime cyberpunk ballad, soaring passionate female vocal, rich expressive singing, gentle melancholic piano intro building into powerful cinematic strings and pulsating analog synths, warm bassline, dynamic drums, grand emotional chorus",
-            sampleLyrics = """[Verse]
-晚风吹过街角的灯
-城市慢慢安静下来
-我把今天写进旋律
-留给明天的自己
-
-[Chorus]
-唱吧 让心跳跟着节拍
-唱吧 把烦恼留在窗外""",
-            defaultCot = CoTMode.Melody
-        ),
-        MusicStylePreset(
-            id = "miku_jp",
-            name = "初音未来 (日文)",
-            genre = "Vocaloid J-Pop",
-            bpm = 136,
-            stylePrompt = "At 136 BPM, Vocaloid J-pop electro-pop, iconic Hatsune Miku bright synthetic high-pitched anime female vocal, sparkling synth pads, fast electronic beats, cheerful cyber idol melody, energetic singing",
-            sampleLyrics = """[Verse]
-電子の海を飛び越えて
-キミの心に響くメロディ
-初音ミクだよ！
-今日も元気に歌おう！""",
-            defaultCot = CoTMode.Melody
-        ),
-        MusicStylePreset(
-            id = "miku_zh",
-            name = "初音未来 (中文)",
-            genre = "Cyber Future Bass",
-            bpm = 128,
-            stylePrompt = "At 128 BPM, upbeat Vocaloid Chinese anime electro-pop, sweet high-pitched synthetic female vocal, Hatsune Miku style, sparkling future bass synths, punchy rhythm, cheerful cyber idol melody",
-            sampleLyrics = """[Verse]
-穿越屏幕微蓝的光线
-我的歌声飞到你身边
-你好呀我是初音未来
-今天也要元气满满向前！""",
-            defaultCot = CoTMode.Melody
-        ),
-        MusicStylePreset(
-            id = "a_cappella",
-            name = "纯人声清唱",
-            genre = "A cappella",
-            bpm = 75,
-            stylePrompt = "A cappella, pure solo female vocal, completely unaccompanied, silence background, no music, no instruments, clear gentle singing",
-            sampleLyrics = """[Verse]
-晚风吹过街角的灯
-城市慢慢安静下来
-我把今天写进旋律
-留给明天的自己
-
-[Chorus]
-唱吧 让心跳跟着节拍
-唱吧 把烦恼留在窗外""",
-            defaultCot = CoTMode.Off
-        ),
-        MusicStylePreset(
-            id = "city_pop",
-            name = "都市流行",
-            genre = "City Pop / Nu-Disco",
-            bpm = 120,
-            stylePrompt = "At 120 BPM, City Pop, upbeat, danceable, groovy bass, electric guitar, synth, energetic, joyful, neon city night, crisp female lead vocal",
-            sampleLyrics = """[Verse]
-路灯眨着眼睛 偷看谁的身影
-街道哼着小调 节奏多轻盈
-晚风染成霓虹 吹乱发际线
-脚步踩着鼓点 不需要终点
-
-[Chorus]
-今晚不眠 快乐无限
-城市在狂欢 我们在中间
-自由摇摆 光芒盛开
-跟着这节拍 把心打开""",
-            defaultCot = CoTMode.Melody
-        ),
-        MusicStylePreset(
-            id = "anthem_rock",
-            name = "热血燃曲",
-            genre = "Modern Rock",
-            bpm = 142,
-            stylePrompt = "At 142 BPM, energetic modern rock with emotional soaring female vocal, big distorted guitars, cinematic heavy drums, powerful chorus, driving bassline, anthemic mood",
-            sampleLyrics = """[Verse]
-在风暴撕裂的边缘
-向着地平线冲锋不退
-每一次跌倒都是勋章
-钢铁意志铸造荣光
-
-[Chorus]
-逆光破晓 战意炽热
-挣脱引力 撕碎长夜
-生命在烈火中盛放
-直到最后的高光！""",
-            defaultCot = CoTMode.Melody
-        ),
-        MusicStylePreset(
-            id = "chinese_traditional",
-            name = "空灵国风",
-            genre = "Traditional Melody",
-            bpm = 92,
-            stylePrompt = "At 92 BPM, ethereal traditional Chinese melody, clear gentle female vocal, bamboo flute dizi, guzheng, sweeping cinematic strings, melancholic yet poetic atmosphere",
-            sampleLyrics = """[Verse]
-烟雨落青苔 孤舟泛碧海
-提灯照浮生 故人踏月来
-琴弦轻微颤 诉尽几多爱
-一樽清酒敬 岁月染青霭""",
-            defaultCot = CoTMode.Melody
-        )
-    )
-}
-
 data class MusicSettings(
-    val title: String = "《夏夜晚风》",
-    val style: String = MusicPresets.presets.first().stylePrompt,
-    val lyrics: String = MusicPresets.presets.first().sampleLyrics,
+    val title: String = "",
+    val style: String = "",
+    val lyrics: String = "",
     val bpm: Int = 112,
     val cotMode: CoTMode = CoTMode.Melody,
-    val seed: Long = 20261011L,
-    val targetDurationSec: Int = 90, // 30, 60, 90, 150
-    val odeSteps: Int = 32, // 16, 32
-    val guidanceScale: Float = 1.0f
+    val seed: Long = 42L,
+    val targetDurationSec: Int = 90,
+    val odeSteps: Int = 32,
+    val guidanceScale: Float = 1.0f,
+    val serverUrl: String = "http://127.0.0.1:8999"
 ) {
     fun validate() {
-        require(style.isNotBlank()) { "请输入音乐风格描述" }
-        require(lyrics.isNotBlank()) { "请输入歌词内容" }
+        require(style.isNotBlank()) { "请输入音乐风格描述 (Style)" }
+        require(lyrics.isNotBlank()) { "请输入歌词内容 (Lyrics)" }
         require(bpm in 50..220) { "BPM 范围应在 50 至 220 之间" }
         require(odeSteps in 8..64) { "ODE 步数必须在 8 至 64 之间" }
     }
@@ -176,19 +51,21 @@ data class MusicSettings(
         put("targetDurationSec", targetDurationSec)
         put("odeSteps", odeSteps)
         put("guidanceScale", guidanceScale.toDouble())
+        put("serverUrl", serverUrl)
     }
 
     companion object {
         fun fromJson(o: JSONObject): MusicSettings = MusicSettings(
-            title = o.optString("title", "未命名曲目"),
+            title = o.optString("title", ""),
             style = o.optString("style", ""),
             lyrics = o.optString("lyrics", ""),
             bpm = o.optInt("bpm", 112),
             cotMode = runCatching { CoTMode.valueOf(o.optString("cotMode")) }.getOrDefault(CoTMode.Melody),
-            seed = o.optLong("seed", 20261011L),
+            seed = o.optLong("seed", 42L),
             targetDurationSec = o.optInt("targetDurationSec", 90),
             odeSteps = o.optInt("odeSteps", 32),
-            guidanceScale = o.optDouble("guidanceScale", 1.0).toFloat()
+            guidanceScale = o.optDouble("guidanceScale", 1.0).toFloat(),
+            serverUrl = o.optString("serverUrl", "http://127.0.0.1:8999")
         )
     }
 }
