@@ -87,10 +87,8 @@ import androidx.core.content.FileProvider
 import com.tiggy.qwenimage.QwenUiState
 import com.tiggy.qwenimage.QwenViewModel
 import com.tiggy.qwenimage.data.CoTMode
-import com.tiggy.qwenimage.data.MusicPresets
 import com.tiggy.qwenimage.data.MusicSettings
 import com.tiggy.qwenimage.data.MusicStudioTab
-import com.tiggy.qwenimage.data.MusicStylePreset
 import com.tiggy.qwenimage.data.MusicTrack
 import java.io.File
 import java.text.SimpleDateFormat
@@ -208,35 +206,7 @@ private fun MusicComposeView(
             .padding(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 1. Preset Carousel
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(
-                "风格预设胶囊",
-                color = Ink,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(MusicPresets.presets) { preset ->
-                    val isSelected = musicSettings.style == preset.stylePrompt
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (isSelected) Purple.copy(alpha = 0.25f) else CardBg)
-                            .border(1.dp, if (isSelected) Purple else CardBorder, RoundedCornerShape(14.dp))
-                            .clickable { viewModel.applyMusicPreset(preset) }
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Column {
-                            Text(preset.name, color = if (isSelected) Purple else Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Text("${preset.genre} · ${preset.bpm} BPM", color = Subtle, fontSize = 10.sp)
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Song Title & Style Input Card
+        // 1. Song Title & Style Input Card
         Box(
             Modifier
                 .fillMaxWidth()
@@ -256,6 +226,7 @@ private fun MusicComposeView(
                     value = musicSettings.title,
                     onValueChange = { viewModel.setMusicTitle(it) },
                     label = { Text("曲目标题 (Title)") },
+                    placeholder = { Text("例如: 《无心之核的心跳》") },
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Ink,
                         unfocusedTextColor = Ink,
@@ -269,6 +240,7 @@ private fun MusicComposeView(
                     value = musicSettings.style,
                     onValueChange = { viewModel.setMusicStyle(it) },
                     label = { Text("音乐风格提示词 (Style Prompt)") },
+                    placeholder = { Text("描述曲风、配器与声线，如: At 112 BPM, emotional anime ballad, soaring passionate female vocal, piano into epic strings...") },
                     minLines = 3,
                     maxLines = 5,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -496,6 +468,27 @@ private fun MusicComposeView(
                                 }
                             }
                         }
+
+                        // Workstation Server URL
+                        OutlinedTextField(
+                            value = musicSettings.serverUrl,
+                            onValueChange = { viewModel.setMusicServerUrl(it) },
+                            label = { Text("YuE2 工作站地址 (Workstation Server URL)") },
+                            placeholder = { Text("http://127.0.0.1:8999 或 http://电脑局域网IP:8999") },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Ink,
+                                unfocusedTextColor = Ink,
+                                focusedBorderColor = Mint,
+                                unfocusedBorderColor = CardBorder
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            "提示：YuE2-3B (30亿参数全乐章音乐大模型) 通过工作站桥接服务推演，实时生成真实 48kHz 人声演唱。若手机 USB 连接电脑，可在电脑终端运行 'adb reverse tcp:8999 tcp:8999' 后使用默认地址。",
+                            color = Subtle,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
                     }
                 }
             }

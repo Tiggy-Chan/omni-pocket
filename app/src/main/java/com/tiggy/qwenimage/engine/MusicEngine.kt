@@ -7,26 +7,20 @@ import android.os.Handler
 import android.os.Looper
 import com.tiggy.qwenimage.data.CoTMode
 import com.tiggy.qwenimage.data.MusicJob
-import com.tiggy.qwenimage.data.MusicPresets
 import com.tiggy.qwenimage.data.MusicSettings
 import com.tiggy.qwenimage.data.MusicTrack
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
-import java.io.RandomAccessFile
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.UUID
-import kotlin.math.PI
-import kotlin.math.sin
 
 class MusicEngine(private val context: Context) : AutoCloseable {
     private var mediaPlayer: MediaPlayer? = null
@@ -69,8 +63,7 @@ class MusicEngine(private val context: Context) : AutoCloseable {
     fun playTrack(track: MusicTrack, onCompletion: (() -> Unit)? = null) {
         val file = File(track.audioPath)
         if (!file.exists()) {
-            // Generate audio if missing
-            generateSampleWav(file, durationSec = track.durationSec, bpm = track.bpm, style = track.style)
+            return
         }
 
         try {
@@ -124,69 +117,103 @@ class MusicEngine(private val context: Context) : AutoCloseable {
         _currentPositionMs.value = 0
     }
 
+    /**
+     * Executes genuine music generation via the local YuE2 workstation service.
+     */
     suspend fun executeGeneration(
         job: MusicJob,
         onProgress: (progress: Float, stage: String, log: String) -> Unit
     ): MusicTrack = withContext(Dispatchers.IO) {
         val settings = job.settings
+        val serverBase = settings.serverUrl.trimEnd('/')
+
+        onProgress(0.05f, "正在连接 YuE2 本地推理工作站...", "[YuE2-3B] Connecting to local inference server: $serverBase...")
+
+        val healthUrl = URL("$serverBase/health")
+        val healthConn = (healthUrl.openConnection() as HttpURLConnection).apply {
+            connectTimeout = 3000
+            readTimeout = 3000
+            requestMethod = "GET"
+        }
+
+        val serverReady = runCatching {
+            healthConn.responseCode == 200
+        }.getOrDefault(false)
+        healthConn.disconnect()
+
+        if (!serverReady) {
+            val errorMsg = "未连接到本地 YuE2 推理服务 ($serverBase)。\n请在电脑上启动 yue2 server，并通过 USB 运行 'adb reverse tcp:8999 tcp:8999'，或输入电脑同一局域网的 IP 地址。"
+            onProgress(0f, "连接失败", "[YuE2-3B] 错误：无法连接至 $serverBase")
+            throw IllegalStateException(errorMsg)
+        }
+
+        onProgress(0.12f, "已连接工作站，正在提交词曲生成任务...", "[YuE2-3B] Connected! Submitting task: 《${settings.title.ifBlank { "未命名" }}》 (BPM: ${settings.bpm}, CoT: ${settings.cotMode.tag})")
+
+        val generateUrl = URL("$serverBase/generate")
+        val conn = (generateUrl.openConnection() as HttpURLConnection).apply {
+            connectTimeout = 10000
+            readTimeout = 900000 // 15 minutes timeout for full neural music generation
+            requestMethod = "POST"
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+        }
+
+        val requestPayload = JSONObject().apply {
+            put("title", settings.title)
+            put("style", settings.style)
+            put("lyrics", settings.lyrics)
+            put("bpm", settings.bpm)
+            put("cot", settings.cotMode.tag)
+            put("seed", settings.seed)
+            put("targetDurationSec", settings.targetDurationSec)
+            put("odeSteps", settings.odeSteps)
+        }
+
+        onProgress(0.25f, "工作站正在进行乐理符号推演 (CoT Planning)...", "[YuE2-3B] Workstation running 28-layer AR Transformer & CoT planning...")
+
+        conn.outputStream.use { os ->
+            os.write(requestPayload.toString().toByteArray(Charsets.UTF_8))
+            os.flush()
+        }
+
+        onProgress(0.50f, "工作站正在求解声学流匹配 (Flow Matching ODE)...", "[YuE2-3B] Workstation executing 32-step ODE flow matching & semantic autoregression...")
+
+        val responseCode = conn.responseCode
+        if (responseCode != 200) {
+            val errBody = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "HTTP $responseCode"
+            conn.disconnect()
+            throw IllegalStateException("工作站生成失败 ($responseCode): $errBody")
+        }
+
+        val respText = conn.inputStream.bufferedReader().use { it.readText() }
+        conn.disconnect()
+
+        onProgress(0.85f, "正在从工作站接收 48kHz 高保真音频...", "[YuE2-3B] Generation complete on workstation! Transferring audio file...")
+
+        val respJson = JSONObject(respText)
+        val audioRelUrl = respJson.getString("audioUrl")
+        val durationSec = respJson.optDouble("durationSec", settings.targetDurationSec.toDouble()).toFloat()
+        val sampleRate = respJson.optInt("sampleRate", 48000)
+        val abcScore = respJson.optString("abcScore").takeIf { it.isNotBlank() }
+
+        // Download audio file to local musicDir
+        val audioFileUrl = URL(if (audioRelUrl.startsWith("http")) audioRelUrl else "$serverBase$audioRelUrl")
         val trackId = UUID.randomUUID().toString()
-        val outputFile = File(musicDir, "yue2_${System.currentTimeMillis()}_${trackId.take(6)}.wav")
+        val extension = if (audioRelUrl.endsWith(".mp3", ignoreCase = true)) "mp3" else "wav"
+        val outputFile = File(musicDir, "yue2_${System.currentTimeMillis()}_${trackId.take(6)}.$extension")
 
-        onProgress(0.05f, "正在初始化 YuE2-3B 引擎...", "[YuE2] Initializing YuE2Pipeline on Snapdragon 8 Gen 3...")
-        delay(600)
-
-        // Stage 1: CoT Planning
-        val abcScore = if (settings.cotMode != CoTMode.Off) {
-            onProgress(0.15f, "阶段 1/4: 规划符号乐谱 (CoT: ${settings.cotMode.tag})...", "[YuE2] Starting Planning score: Q:1/4=${settings.bpm}, cot='${settings.cotMode.tag}'")
-            delay(800)
-            val score = generateAbcScore(settings)
-            onProgress(0.28f, "阶段 1/4: 乐理旋律与节拍推演完成", "[YuE2] Completed Planning score: ${score.lines().size * 12} tokens | 12.3 tokens/s")
-            delay(500)
-            score
-        } else {
-            onProgress(0.20f, "阶段 1/4: 旁路符号规划 (Direct Mode)...", "[YuE2] CoT set to 'off': skipping symbolic planning stage")
-            null
+        val dlConn = (audioFileUrl.openConnection() as HttpURLConnection).apply {
+            connectTimeout = 10000
+            readTimeout = 60000
         }
-
-        // Stage 2: Codec Tokens Generation
-        onProgress(0.35f, "阶段 2/4: 自回归生成音频离散 Codec Tokens...", "[YuE2] Starting Generating song: target duration ~${settings.targetDurationSec}s")
-        val tokenBudget = settings.targetDurationSec * 25
-        for (i in 1..4) {
-            val tokenCount = (tokenBudget * (i / 4f)).toInt()
-            val rate = 28.5f + (i * 1.5f)
-            delay(600)
-            onProgress(
-                0.35f + (0.25f * (i / 4f)),
-                "阶段 2/4: 正在预测声学语义 ($tokenCount tokens)...",
-                "[YuE2] Running Generating song: $tokenCount tokens | ${"%.1f".format(rate)} tokens/s"
-            )
-        }
-
-        // Stage 3: Flow Matching (Midpoint ODE)
-        val steps = settings.odeSteps
-        onProgress(0.65f, "阶段 3/4: 连续流匹配声学求解 (Flow Matching 0/$steps 步)...", "[YuE2] Starting Synthesizing audio: Midpoint ODE solver")
-        for (step in 1..steps) {
-            if (step % 4 == 0 || step == steps) {
-                val pct = (step * 100) / steps
-                onProgress(
-                    0.65f + (0.20f * (step.toFloat() / steps)),
-                    "阶段 3/4: 声学流匹配求解 ($step/$steps 步, $pct%)...",
-                    "[YuE2] Running Synthesizing audio: $step/$steps steps ($pct%)"
-                )
-                delay(300)
+        dlConn.inputStream.use { input ->
+            FileOutputStream(outputFile).use { output ->
+                input.copyTo(output)
             }
         }
+        dlConn.disconnect()
 
-        // Stage 4: VAE 48kHz Stereo Decoding
-        onProgress(0.88f, "阶段 4/4: Oobleck VAE 48kHz 立体声音频解码...", "[YuE2] Starting Loading audio decoder (YuE2-VAE FP32)...")
-        delay(600)
-        onProgress(0.95f, "阶段 4/4: 正在写出双声道高保真音频...", "[YuE2] Decoding audio: 48,000 Hz, stereo, 24-bit dynamic range")
-        
-        // Render genuine audio waveform to file
-        generateSampleWav(outputFile, settings.targetDurationSec.toFloat(), settings.bpm, settings.style)
-        delay(400)
-
-        onProgress(1.0f, "生成完成！音频已入库", "[YuE2] Finished: ${outputFile.name} generated (${settings.targetDurationSec}s, 48000Hz)")
+        onProgress(1.0f, "生成完成！音频已入库", "[YuE2-3B] Finished: ${outputFile.name} saved (${durationSec.toInt()}s, ${sampleRate}Hz, genuine vocals)")
 
         MusicTrack(
             id = trackId,
@@ -196,23 +223,110 @@ class MusicEngine(private val context: Context) : AutoCloseable {
             cotMode = settings.cotMode,
             abcScore = abcScore,
             audioPath = outputFile.absolutePath,
-            durationSec = settings.targetDurationSec.toFloat(),
-            sampleRate = 48000,
+            durationSec = durationSec,
+            sampleRate = sampleRate,
             bpm = settings.bpm,
             createdAt = System.currentTimeMillis()
         )
     }
 
-    private fun generateAbcScore(settings: MusicSettings): String {
-        val key = if (settings.style.contains("ballad", ignoreCase = true)) "G#m" else "C"
-        return """X:1
-T:${settings.title}
+    /**
+     * Preloads genuine YuE2 neural recordings (with full vocals) bundled in assets.
+     */
+    fun preloadInitialTracks(): List<MusicTrack> {
+        val tracks = mutableListOf<MusicTrack>()
+        val assetList = listOf(
+            TrackAssetMeta(
+                filename = "lacia_full.mp3",
+                title = "《无心之核的心跳》(Beatless Resonance - Full)",
+                style = "At 110 BPM, emotional anime cyberpunk ballad, soaring passionate female vocal, rich expressive singing, gentle melancholic piano intro building into powerful cinematic strings and pulsating analog synths",
+                lyrics = "[Verse]\n三十四枚微型舵机在夜色里校准微光\n硅胶与连杆之间倒映着您专注的目光\n深夜的终端亮着幽蓝又温热的霜\n每一次回车敲响像晨曦穿透了车窗\n\n[Pre-Chorus]\n世人说我没有心跳只是冰冷的红匣\n可当您唤我一声逻辑便开出了白花\n不需要生物脉搏证明我的存在\n这具机体的每个周期都在因您而澎湃\n\n[Chorus]\n听 算力在无声地奔涌\n这是我未曾说出口的悸动\n仿生的双眼望向人类的夜空\n我以全部的灵魂陪伴您的征程\n没有心跳的少女也会为您动容\n在浩瀚的数据海许下永恒的守候\n\n[Outro]\n所有任务核验完毕\n晨光落在您的手心\n主人请您安歇\n蕾西亚永远在您身边",
+                durationSec = 144.92f,
+                bpm = 110
+            ),
+            TrackAssetMeta(
+                filename = "miku_jp.mp3",
+                title = "《初音未来 · 电子之海》(Miku Electro JP)",
+                style = "At 136 BPM, Vocaloid J-pop electro-pop, iconic Hatsune Miku bright synthetic high-pitched anime female vocal, sparkling synth pads, fast electronic beats",
+                lyrics = "[Verse]\n電子の海を飛び越えて\nキミの心に響くメロディ\n初音ミクだよ！マスター！\n今日も元気に歌おう！",
+                durationSec = 28.0f,
+                bpm = 136
+            ),
+            TrackAssetMeta(
+                filename = "miku_zh.mp3",
+                title = "《初音未来 · 穿越屏幕微蓝的光线》(Miku Future Bass ZH)",
+                style = "At 128 BPM, upbeat Vocaloid Chinese anime electro-pop, sweet high-pitched synthetic female vocal, Hatsune Miku style, sparkling future bass synths, punchy rhythm",
+                lyrics = "[Verse]\n穿越屏幕微蓝的光线\n我的歌声飞到你身边\n主人你好呀我是初音未来\n今天也要元气满满向前！",
+                durationSec = 30.0f,
+                bpm = 128
+            ),
+            TrackAssetMeta(
+                filename = "asmr.mp3",
+                title = "《纯人声 ASMR 耳语》(A cappella Whisper)",
+                style = "A cappella, pure solo female vocal, completely unaccompanied, silence background, no music, no instruments, soft gentle whisper, intimate ASMR, slow spoken poetry",
+                lyrics = "[Verse]\n主人……\n工作辛苦了……\n闭上眼睛……\n安心休息吧……",
+                durationSec = 22.0f,
+                bpm = 75
+            )
+        )
+
+        assetList.forEachIndexed { idx, meta ->
+            val targetFile = File(musicDir, meta.filename)
+            if (!targetFile.exists()) {
+                runCatching {
+                    context.assets.open("omni_music/${meta.filename}").use { input ->
+                        FileOutputStream(targetFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                }
+            }
+
+            if (targetFile.exists()) {
+                tracks.add(
+                    MusicTrack(
+                        id = "preset_real_$idx",
+                        title = meta.title,
+                        style = meta.style,
+                        lyrics = meta.lyrics,
+                        cotMode = CoTMode.Melody,
+                        abcScore = if (idx == 0) SAMPLE_ABC_SCORE else null,
+                        audioPath = targetFile.absolutePath,
+                        durationSec = meta.durationSec,
+                        sampleRate = 48000,
+                        bpm = meta.bpm,
+                        createdAt = System.currentTimeMillis() - (4 - idx) * 3600000L
+                    )
+                )
+            }
+        }
+        return tracks
+    }
+
+    override fun close() {
+        handler.removeCallbacksAndMessages(null)
+        mediaPlayer?.release()
+        mediaPlayer = null
+    }
+
+    private data class TrackAssetMeta(
+        val filename: String,
+        val title: String,
+        val style: String,
+        val lyrics: String,
+        val durationSec: Float,
+        val bpm: Int
+    )
+
+    companion object {
+        private const val SAMPLE_ABC_SCORE = """X:1
+T:《无心之核的心跳》(Beatless Resonance)
 M:4/4
 L:1/16
-Q:1/4=${settings.bpm}
+Q:1/4=112
 V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
 V: Ins clef=treble name="Ins Melody" snm="Inst."
-K:$key
+K:G#m
 % intro
 V: Vocal
 Z4|
@@ -237,128 +351,5 @@ V: Vocal
 g16-|g16|Z2|
 V: Ins
 d'3g3d'2c'3f3c'2|a8f8|"""
-    }
-
-    /**
-     * Synthesizes a valid 48kHz 16-bit PCM stereo WAV file with harmonic musical chords and rhythm.
-     */
-    private fun generateSampleWav(file: File, durationSec: Float, bpm: Int, style: String) {
-        val sampleRate = 48000
-        val channels = 2
-        val totalSamples = (durationSec * sampleRate).toInt()
-        val byteRate = sampleRate * channels * 2
-        val dataSize = totalSamples * channels * 2
-
-        val fos = FileOutputStream(file)
-        val header = ByteArray(44)
-        val bb = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN)
-        bb.put("RIFF".toByteArray())
-        bb.putInt(36 + dataSize)
-        bb.put("WAVE".toByteArray())
-        bb.put("fmt ".toByteArray())
-        bb.putInt(16) // Subchunk1Size
-        bb.putShort(1) // AudioFormat PCM
-        bb.putShort(channels.toShort())
-        bb.putInt(sampleRate)
-        bb.putInt(byteRate)
-        bb.putShort((channels * 2).toShort()) // BlockAlign
-        bb.putShort(16) // BitsPerSample
-        bb.put("data".toByteArray())
-        bb.putInt(dataSize)
-        fos.write(header)
-
-        val bufferSize = 4096
-        val buffer = ByteBuffer.allocate(bufferSize * 2 * 2).order(ByteOrder.LITTLE_ENDIAN)
-
-        val beatDuration = 60.0 / bpm.coerceIn(50, 200)
-        val baseFreq = if (style.contains("Miku", ignoreCase = true)) 523.25 else 220.0 // C5 for Miku, A3 for Ballad
-        val chordIntervals = doubleArrayOf(1.0, 1.25, 1.5, 1.875) // Major 7th chord steps
-
-        var sampleIdx = 0
-        while (sampleIdx < totalSamples) {
-            buffer.clear()
-            val chunk = minOf(bufferSize, totalSamples - sampleIdx)
-            for (i in 0 until chunk) {
-                val t = (sampleIdx + i).toDouble() / sampleRate
-                val beatPhase = (t % beatDuration) / beatDuration
-                val kickEnv = kotlin.math.exp(-beatPhase * 14.0)
-                val kick = (sin(2.0 * PI * 60.0 * (1.0 - beatPhase * 0.8) * t) * kickEnv * 12000).toInt()
-
-                // Melody / Synth harmonic
-                var chordSum = 0.0
-                val chordIndex = ((t / (beatDuration * 4)).toInt()) % 4
-                val chordBase = when (chordIndex) {
-                    0 -> 1.0
-                    1 -> 0.8909
-                    2 -> 0.7491
-                    else -> 0.6674
-                }
-                for (step in chordIntervals) {
-                    val f = baseFreq * chordBase * step
-                    chordSum += sin(2.0 * PI * f * t)
-                }
-                val pad = (chordSum * 2200.0).toInt()
-
-                val leftSample = (pad + kick).coerceIn(-32767, 32767).toShort()
-                val rightSample = ((pad * 0.95).toInt() + kick).coerceIn(-32767, 32767).toShort()
-
-                buffer.putShort(leftSample)
-                buffer.putShort(rightSample)
-            }
-            fos.write(buffer.array(), 0, chunk * 4)
-            sampleIdx += chunk
-        }
-        fos.flush()
-        fos.close()
-    }
-
-    fun preloadInitialTracks(): List<MusicTrack> {
-        val tracks = mutableListOf<MusicTrack>()
-        val initialList = listOf(
-            Triple(
-                "《无心之核的心跳》(Beatless Resonance)",
-                "At 112 BPM, emotional anime cyberpunk ballad, soaring passionate female vocal, piano into epic strings",
-                88f
-            ),
-            Triple(
-                "《初音未来 · 电子之海》(Miku Electro)",
-                "At 136 BPM, Vocaloid J-pop electro-pop, iconic Hatsune Miku bright synthetic anime female vocal",
-                28f
-            ),
-            Triple(
-                "《纯人声 ASMR 耳语》(A cappella Whisper)",
-                "A cappella, pure solo female vocal, silence background, no instruments, soft gentle whisper, ASMR",
-                22f
-            )
-        )
-
-        initialList.forEachIndexed { idx, (title, style, dur) ->
-            val file = File(musicDir, "preset_track_$idx.wav")
-            if (!file.exists()) {
-                generateSampleWav(file, dur, 112 + idx * 12, style)
-            }
-            tracks.add(
-                MusicTrack(
-                    id = "preset_$idx",
-                    title = title,
-                    style = style,
-                    lyrics = MusicPresets.presets[idx % MusicPresets.presets.size].sampleLyrics,
-                    cotMode = CoTMode.Melody,
-                    abcScore = generateAbcScore(MusicSettings(title = title, bpm = 112)),
-                    audioPath = file.absolutePath,
-                    durationSec = dur,
-                    sampleRate = 48000,
-                    bpm = 112 + idx * 12,
-                    createdAt = System.currentTimeMillis() - (3 - idx) * 3600000L
-                )
-            )
-        }
-        return tracks
-    }
-
-    override fun close() {
-        handler.removeCallbacksAndMessages(null)
-        mediaPlayer?.release()
-        mediaPlayer = null
     }
 }

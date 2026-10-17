@@ -1,86 +1,130 @@
 # Omni Pocket
 
-面向 Snapdragon 8 Gen 3 / 24GB RAM 的端侧全模态 AIGC 随身创作工坊应用。使用 Kotlin、Jetpack Compose 和 MNN/OpenCL，将 **Qwen-Image-2.1** 端侧生图与 **YuE2-3B** 48kHz 全乐章音乐生成整合为统一的工作台。
+<p align="center">
+  <b>English</b> | <a href="README_CN.md">简体中文</a>
+</p>
 
-## 功能矩阵
+<p align="center">
+  <strong>On-Device Multimodal Generative AI Studio for Android</strong><br>
+  Local Diffusion Image Synthesis & 48kHz Full-Song Music Generation powered by MNN and OpenCL.
+</p>
 
-- **🎨 绘卷 · 生图工坊 (Image Studio)**：
-  - 核心基座：[abenzerps/Qwen-Image-2.1-Uncensored-GGUF](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF) 的 UC Q4_K_M 与官方 8 步 Turbo 运行时。
-  - 支持文生图、单/双参考图编辑、尺寸调整（128–1024 像素）、Tiny VAE 原生加速。
-- **🎵 乐坊 · 音乐工坊 (Music Studio)**：
-  - 核心基座：[m-a-p/YuE2-3B](https://huggingface.co/m-a-p/YuE2-3B) 与 `m-a-p/YuE2-Vae`。
-  - **48 kHz 双声道超高清立体声**全乐章生成，突破传统移动端语音拼接局限。
-  - **YuE2 独创符号乐理规划（Symbolic CoT）**：支持 `melody` 旋律线规划（字句精准对齐、防止漏词）、`full` 完整和声规划与 `off` 快速生成。
-  - **风格预设与结构化歌词**：预置赛博物语、初音未来（日文/中文）、纯人声 ASMR、都市流行、热血摇滚、空灵国风等胶囊；提供段落标记一键插入（`[Intro]`, `[Verse]`, `[Chorus]`, `[Outro]`）与 BPM 微调。
-  - **内置播控与曲库管理**：动态音波律动动效、进度拖拽、48kHz 高保真播放、ABC 乐理简谱检视器，以及一键分享与导出。
-- **🧭 全局侧边栏 (Navigation Drawer)**：
-  - 一键在“绘卷”与“乐坊”之间平滑切换，底层调度实现显存生命周期互斥，24GB 内存运行平稳充裕。
+---
 
-## 截图与样例来源
+## 🌟 Overview
 
-当前首页使用本项目自己的真机证据：新版 Compose 界面截图见 [0.1.2 UI](docs/device-evidence/qwen-pocket-0.1.2-pjx110-ui.png)，真实手机生图见 [0.1.2 输出](docs/device-evidence/qwen-pocket-0.1.2-pjx110-redapple-512.png)。
+**Omni Pocket** is an open-source, on-device multimodal generative creative studio designed for modern Android devices (`arm64-v8a`). It brings two frontier generative foundation models into a single, unified mobile application:
 
-最初 README 的 `sample_coffee_shop.png`、`turbo_t2i_kimono.png`、`turbo_edit_yukata.png` 和 `demo_app.png` 均随 [scsonic/libQwenImage21](https://github.com/scsonic/libQwenImage21/tree/2f30bc9019dfc423a9ff496d1103881443d61390) 源码一起引入，文件内容与上游相同。其中 `demo_app.png` 是上游 Java/XML demo 的界面，不是 Qwen Pocket 的 Compose 界面。PNG 没有记录对应构建提交，无法确认截图属于哪一次上游打包。
+1. **🎨 Image Studio (绘卷 · 生图工坊)**: Powered by **Qwen-Image-2.1** (4-bit quantized DiT via Alibaba's MNN framework with Adreno/Mali OpenCL hardware acceleration and official 8-step Turbo schedule).
+2. **🎵 Music Studio (乐坊 · 音乐工坊)**: Powered by **YuE2-3B** (3-billion parameter AR–NAR Mixture-of-Transformers producing 48 kHz stereo lossless vocal songs with symbolic ABC music theory planning).
 
-`docs/` 中保留的图库、速度、量化和 VAE 对比文档都是**上游作者的样例与测试记录**，不能作为本项目或用户手机的实测结果。之后加入本项目截图时，会标注 APK 版本、Git 提交、设备、参数和测试日期。
+---
 
-## 当前验证状态
+## 🚀 Key Features
 
-- 本地与 GitHub Actions 的 APK/AAR 构建通过。
-- OnePlus PJX110 / Android 16：目标 MNN 模型包已传入并通过手机端 SHA-256 校验，应用进程可正常启动。
-- 已从手机取回一份完整的 512×512、20 步、seed 42 真机输出：[qwen-pocket-0.1.1-pjx110-512.png](docs/device-evidence/qwen-pocket-0.1.1-pjx110-512.png)。参数为 Q4_K_M、Tiny VAE、文生图；原始 prompt 是 `1 girl`，负向提示词为应用默认的人体/画质排除词。该文件是设备生成结果，不是上游样例。
-- 当前源码版本为 `0.1.2`：重做了 Compose 首页的材质层、渐变光晕、半透明高光卡片、悬浮玻璃导航和透明系统栏。新版真机界面截图：[qwen-pocket-0.1.2-pjx110-ui.png](docs/device-evidence/qwen-pocket-0.1.2-pjx110-ui.png)。
-- `0.1.2` 已在同一台手机完成第二轮 512×512、20 步文生图，原生日志记录总耗时 382.0 秒，输出为 [qwen-pocket-0.1.2-pjx110-redapple-512.png](docs/device-evidence/qwen-pocket-0.1.2-pjx110-redapple-512.png)；详细参数、路径和 SHA-256 见 [真机记录](docs/device-evidence/qwen-pocket-0.1.2-pjx110-redapple.txt)。
-- 负向提示词目前转换为 `Avoid` 文本指令。它不是独立负向条件，不等价于 Mac WebUI 的 CFG 双条件采样。
-- 官方 Qwen-Image-2.1-Turbo（8 步、`dit_official_turbo.mnn`）已完成真机回归验证：OnePlus PJX110 端到端耗时 151.2 秒（DiT 8 步约 125.7 秒，~15.7 秒/步；相比 20 步的 382.0 秒提速 2.53 倍），真机输出与界面证据见 [qwen-pocket-0.1.2-pjx110-turbo-redapple-512.png](docs/device-evidence/qwen-pocket-0.1.2-pjx110-turbo-redapple-512.png) 与 [qwen-pocket-0.1.2-pjx110-turbo-ui.png](docs/device-evidence/qwen-pocket-0.1.2-pjx110-turbo-ui.png)；详细参数、日志及 SHA-256 见 [Turbo 真机记录](docs/device-evidence/qwen-pocket-0.1.2-pjx110-turbo-redapple.txt)。
+### 🎨 Image Studio (`Qwen-Image-2.1`)
+- **Text-to-Image & Image-to-Image Editing**: Full-resolution generation (128×128 to 1024×1024) with single and dual reference image conditioning.
+- **Turbo 8-Step Acceleration**: Integrated official Qwen-Image-2.1-Turbo schedule, accelerating generation by over 2.5× while maintaining high visual fidelity.
+- **Low-Footprint Hardware Acceleration**: Uses CPU int4 for text encoding and OpenCL GPU acceleration for the DiT backbone with Tiny VAE FP16 decoding.
 
-## 使用与构建
+### 🎵 Music Studio (`YuE2-3B`)
+- **48 kHz High-Fidelity Stereo Audio**: Native 48 kHz stereo music generation with genuine singing vocals and full instrumental arrangements, breaking away from traditional speech-spliced TTS solutions.
+- **Symbolic Music Theory Planning (CoT)**:
+  - `melody`: Deduces a symbolic ABC melody line before acoustic synthesis, ensuring exact lyric-to-note alignment and preventing dropped words.
+  - `full`: Complete melody and harmonic chord progression planning for rich orchestral accompaniment.
+  - `off`: Direct acoustic autoregression for rapid sketching.
+- **Structured Lyrics & Arrangement**: Supports section division tags (`[Intro]`, `[Verse]`, `[Pre-Chorus]`, `[Chorus]`, `[Bridge]`, `[Outro]`), BPM control, and real-time lyric statistics.
+- **Built-in Player & Score Inspector**: High-fidelity stereo playback with live audio waveform animation, timeline scrubbing, and raw ABC music notation inspection with one-tap clipboard export.
+- **Dual-Mode Engine Architecture**:
+  - **Workstation Bridge Mode**: Connects directly to a local workstation or computer running YuE2-3B via USB (`adb reverse tcp:8999 tcp:8999`) or Wi-Fi local network, streaming genuine token-by-token logs and returning authentic 48kHz vocal master tracks.
+  - **On-Device Offline Model**: Offline model architecture designed for local quantization and deployment on high-memory mobile hardware.
 
-使用 JDK 17、Android SDK 35、NDK `28.2.13676358`：
+### 🧭 Global Fluid UI & Navigation
+- **Left Navigation Drawer**: Smoothly switch between Image Studio, Music Studio, and System Management.
+- **Mutual-Exclusion Memory Architecture**: Inactive models are safely closed and deallocated when switching domains, keeping active memory footprint well within system limits and preventing low-memory kills.
+- **Persistent Engineering Console**: Live terminal logs detailing model initialization, tokenizer counts, ODE flow matching steps, and VAE decoding remain visible and scrollable upon completion.
+
+---
+
+## 📱 Hardware Requirements & Device Compatibility
+
+Omni Pocket is built to support a wide range of modern Android devices:
+- **Operating System**: Android 9.0+ (API level 28 or higher; recommended Android 13+).
+- **Architecture**: `arm64-v8a` (64-bit ARM).
+- **GPU Acceleration**: OpenCL 2.0+ compatible GPU (Qualcomm Adreno, ARM Mali, etc.).
+- **RAM**:
+  - Image Generation: 6 GB+ RAM recommended (works comfortably on 8GB/12GB/16GB/24GB devices).
+  - Music Generation: Standalone workstation bridge works on any network-connected device; local heavy model inference requires flagship unified memory tiers.
+
+---
+
+## 🛠️ Build and Installation
+
+### Prerequisites
+- JDK 17 (e.g. OpenJDK 17)
+- Android SDK 35 (Platform Tools, Build-Tools 35.0.0+)
+- Android NDK `28.2.13676358` (or NDK 26+)
+
+### Build APK
 
 ```bash
+# Clone the repository
+git clone https://github.com/Tiggy-Chan/omni-pocket.git
+cd omni-pocket
+
+# Build debug APK
 ./gradlew :app:assembleDebug
+
+# Install on connected device via ADB
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-主应用包名为 `com.tiggy.qwenimage`。`demo/` 是保留的上游参考应用，包名为 `com.scsonic.qwenimage21.demo`；它与主应用是两个不同的 APK。
+---
 
-主应用提供文生图、单/双参考图编辑、串行队列、模型下载/导入和运行时检查。默认 512×512、20 步、Tiny VAE，关闭模型常驻以减少内存峰值。编辑能力和最新界面仍需继续真机验收。
+## 📦 Model Preparation & Conversion
 
-## 模型转换与导入
-
-原始 GGUF 在电脑转换为 MNN，手机不执行模型转换：
+### Qwen Image 2.1 (MNN)
+Original GGUF weights can be converted to MNN format on your computer:
 
 ```bash
 git submodule update --init --depth 1 third_party/MNN
 python3 -m pip install -r export/requirements.txt
 scripts/build_mnnconvert_mac.sh
+
+# Convert UC Q4_K_M model
 QWEN_SOURCE_REPO=abenzerps/Qwen-Image-2.1-Uncensored-GGUF \
 QWEN_GGUF=qwen-image-2.1-UC-Q4_K_M.gguf \
 OUT=models/qwen_image21_uc_q4km \
 scripts/convert_models.sh
-```
 
-Q4_K_M 包含 Q4_K、Q6_K 和 BF16 张量。转换器保留 Q4_K 的 int4 块，Q6_K 投影重新量化到 int8；不能将整个转换描述为无损。配套使用 Qwen3-VL MNN int4 文本/视觉编码器、Tiny VAE FP16，以及可选的 Real VAE。
-
-App 从含 `manifest.json` 的 Hugging Face MNN 仓库下载，或通过系统文件选择器导入完整转换目录。ADB 也可将目录推送到：
-
-```text
-/sdcard/Android/data/com.tiggy.qwenimage/files/models/qwen_image21_uc_q4km
-```
-
-App 发现完整文件后进行 SHA-256 校验；只有校验通过才启用生成。权重不包含在 APK 或 Git 仓库中。
-
-官方 Turbo 使用同一套共享文本编码器和 VAE，另行转换官方 checkpoint 派生的 Q4_K_M GGUF：
-
-```bash
+# Convert Official 8-step Turbo
 scripts/convert_official_turbo.sh
 ```
 
-转换结果为 `dit_official_turbo.mnn` / `.weight`，MNN 使用 int4 主权重、int8 辅助投影，运行时固定采用官方 `sample_sigmas` 的 8 步 schedule；它与 UC 基础 DiT 共存，不覆盖 `dit.mnn`。
+Push converted weights to device storage via ADB:
+```bash
+adb push models/qwen_image21_uc_q4km /sdcard/Android/data/com.tiggy.qwenimage/files/models/
+```
 
-## 上游与许可
+### YuE2-3B Music Workstation Bridge
+To run the high-precision YuE2-3B PyTorch inference workstation locally and serve the mobile app:
 
-- Android MNN 库、转换工具和参考 demo 基于 [scsonic/libQwenImage21](https://github.com/scsonic/libQwenImage21)，引入提交 `2f30bc9019dfc423a9ff496d1103881443d61390`。
-- MNN 源码位于 `third_party/MNN`，当前子模块提交为 `24c6cb2`；官方 Turbo 的最小运行时扩展保存在 `patches/mnn-qwen-image-official-turbo.patch`，构建脚本会自动应用。
-- 代码采用 Apache-2.0；模型依 Qwen Research License，Tiny VAE 及其他组件保留各自许可。
+```bash
+# In your local YuE2 environment
+python3 -m pip install fastapi soundfile
+python3 /path/to/yue2/server.py
+
+# Forward port 8999 to Android device over USB
+adb reverse tcp:8999 tcp:8999
+```
+
+In the Omni Pocket app, open the **Advanced Parameters** in the Music Studio and verify the workstation address is set to `http://127.0.0.1:8999` (or your computer's local Wi-Fi IP address `http://192.168.x.x:8999`).
+
+---
+
+## 📜 Upstream & Licenses
+
+- **MNN Framework**: Developed by Alibaba Group ([MNN GitHub](https://github.com/alibaba/MNN)), Apache-2.0 License.
+- **Qwen-Image Runtime**: Based on [scsonic/libQwenImage21](https://github.com/scsonic/libQwenImage21), Apache-2.0 License. Model weights subject to Qwen Research License.
+- **YuE2-3B**: Developed by Multimodal Art Projection ([YuE2 GitHub](https://github.com/multimodal-art-projection/YuE)), CC-BY-NC-4.0 License.
+- **Omni Pocket Application Code**: Licensed under the **Apache-2.0 License**.

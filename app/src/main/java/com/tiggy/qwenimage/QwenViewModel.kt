@@ -14,7 +14,6 @@ import com.tiggy.qwenimage.data.ModelStatus
 import com.tiggy.qwenimage.data.MusicJob
 import com.tiggy.qwenimage.data.MusicSettings
 import com.tiggy.qwenimage.data.MusicStudioTab
-import com.tiggy.qwenimage.data.MusicStylePreset
 import com.tiggy.qwenimage.data.MusicTrack
 import com.tiggy.qwenimage.data.WorkspaceTab
 import com.tiggy.qwenimage.engine.EngineSettings
@@ -143,17 +142,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     fun setMusicTargetDuration(sec: Int) = _state.update { it.copy(musicSettings = it.musicSettings.copy(targetDurationSec = sec)) }
     fun setMusicOdeSteps(steps: Int) = _state.update { it.copy(musicSettings = it.musicSettings.copy(odeSteps = steps.coerceIn(8, 64))) }
     fun setMusicGuidanceScale(scale: Float) = _state.update { it.copy(musicSettings = it.musicSettings.copy(guidanceScale = scale)) }
-    fun applyMusicPreset(preset: MusicStylePreset) = _state.update {
-        it.copy(
-            musicSettings = it.musicSettings.copy(
-                title = "《${preset.name}》",
-                style = preset.stylePrompt,
-                lyrics = preset.sampleLyrics,
-                bpm = preset.bpm,
-                cotMode = preset.defaultCot
-            )
-        )
-    }
+    fun setMusicServerUrl(url: String) = _state.update { it.copy(musicSettings = it.musicSettings.copy(serverUrl = url)) }
 
     // Music playback
     fun playMusic(track: MusicTrack) = musicEngine.playTrack(track)
@@ -191,7 +180,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         appendLog("音乐任务启动 [${job.id.take(8)}]：《${settings.title}》")
         appendLog("曲风描述：${settings.style.take(60)}...")
         appendLog("规格：48kHz 双声道高保真 | CoT: ${settings.cotMode.tag} | 速度: ${settings.bpm} BPM | 步数: ${settings.odeSteps}")
-        appendLog("计算调度：Snapdragon 8 Gen 3 (Adreno 750 OpenCL + Cortex-X4 CPU)")
+        appendLog("计算调度：端侧硬件原生加速 (ARM64-v8a · OpenCL GPU + CPU)")
 
         viewModelScope.launch {
             runCatching {

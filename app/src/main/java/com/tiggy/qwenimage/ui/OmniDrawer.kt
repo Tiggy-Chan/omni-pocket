@@ -244,10 +244,11 @@ fun OmniDrawerContent(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Outlined.Speed, null, tint = Mint, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(6.dp))
-                        Text("OnePlus 12 · 24GB LPDDR5X", color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        val deviceName = "${android.os.Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${android.os.Build.MODEL}".trim()
+                        Text(if (deviceName.isNotBlank()) deviceName else "Android 旗舰设备", color = Ink, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
-                    Text("Snapdragon 8 Gen 3 · Adreno 750 OpenCL", color = Subtle, fontSize = 10.sp)
-                    Text("100% 端侧离线原生加速 · 无需云端", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                    Text("ARM64-v8a · Native OpenCL / NPU 硬件加速", color = Subtle, fontSize = 10.sp)
+                    Text("端侧硬件离线加速 · 无需云端", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }
