@@ -1,6 +1,20 @@
-# Qwen Pocket
+# Omni Pocket
 
-面向 Snapdragon 8 Gen 3 / 24GB RAM 的 Qwen-Image-2.1 安卓本地生图应用。使用 Kotlin、Compose 和 MNN/OpenCL；目标源权重为 [abenzerps/Qwen-Image-2.1-Uncensored-GGUF](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF) 的 UC Q4_K_M。
+面向 Snapdragon 8 Gen 3 / 24GB RAM 的端侧全模态 AIGC 随身创作工坊应用。使用 Kotlin、Jetpack Compose 和 MNN/OpenCL，将 **Qwen-Image-2.1** 端侧生图与 **YuE2-3B** 48kHz 全乐章音乐生成整合为统一的工作台。
+
+## 功能矩阵
+
+- **🎨 绘卷 · 生图工坊 (Image Studio)**：
+  - 核心基座：[abenzerps/Qwen-Image-2.1-Uncensored-GGUF](https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-GGUF) 的 UC Q4_K_M 与官方 8 步 Turbo 运行时。
+  - 支持文生图、单/双参考图编辑、尺寸调整（128–1024 像素）、Tiny VAE 原生加速。
+- **🎵 乐坊 · 音乐工坊 (Music Studio)**：
+  - 核心基座：[m-a-p/YuE2-3B](https://huggingface.co/m-a-p/YuE2-3B) 与 `m-a-p/YuE2-Vae`。
+  - **48 kHz 双声道超高清立体声**全乐章生成，突破传统移动端语音拼接局限。
+  - **YuE2 独创符号乐理规划（Symbolic CoT）**：支持 `melody` 旋律线规划（字句精准对齐、防止漏词）、`full` 完整和声规划与 `off` 快速生成。
+  - **风格预设与结构化歌词**：预置赛博物语、初音未来（日文/中文）、纯人声 ASMR、都市流行、热血摇滚、空灵国风等胶囊；提供段落标记一键插入（`[Intro]`, `[Verse]`, `[Chorus]`, `[Outro]`）与 BPM 微调。
+  - **内置播控与曲库管理**：动态音波律动动效、进度拖拽、48kHz 高保真播放、ABC 乐理简谱检视器，以及一键分享与导出。
+- **🧭 全局侧边栏 (Navigation Drawer)**：
+  - 一键在“绘卷”与“乐坊”之间平滑切换，底层调度实现显存生命周期互斥，24GB 内存运行平稳充裕。
 
 ## 截图与样例来源
 

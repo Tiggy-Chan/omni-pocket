@@ -9,3 +9,4 @@ qwenimage21-debug.keystore
 .cxx/
 models/
 __pycache__/
+.kotlin/

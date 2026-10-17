@@ -95,6 +95,14 @@ import com.tiggy.qwenimage.data.GenerationJob
 import com.tiggy.qwenimage.data.GenerationMode
 import com.tiggy.qwenimage.data.GenerationSettings
 import com.tiggy.qwenimage.data.ModelStatus
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.MusicNote
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.rememberCoroutineScope
+import com.tiggy.qwenimage.data.AppDomain
+import kotlinx.coroutines.launch
 import com.tiggy.qwenimage.data.WorkspaceTab
 import java.io.File
 
@@ -113,51 +121,82 @@ fun QwenApp(viewModel: QwenViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var showError by remember { mutableStateOf<String?>(null) }
     var previewImagePath by remember { mutableStateOf<String?>(null) }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
     if (state.error != null && showError == null) showError = state.error
 
-    Box(Modifier.fillMaxSize().background(Color(0xFF090A14))) {
-        LiquidBackdrop()
-        Scaffold(
-            containerColor = Color.Transparent,
-            topBar = { TopBar() },
-            bottomBar = { LiquidNavigation(state.tab, viewModel::selectTab) }
-        ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) {
-                when (state.tab) {
-                    WorkspaceTab.Generate -> GenerateScreen(
-                        viewModel = viewModel,
-                        settings = state.settings,
-                        busy = state.isBusy,
-                        progress = state.progress,
-                        status = state.status,
-                        resultPath = state.resultPath,
-                        liveLogs = state.liveLogs,
-                        jobs = state.jobs,
-                        officialTurboAvailable = state.modelStatus?.manifest?.features?.contains("official-turbo") == true,
-                        modelReady = state.modelStatus?.ready == true,
-                        onPreviewImage = { previewImagePath = it }
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = true,
+        drawerContent = {
+            OmniDrawerContent(
+                currentDomain = state.domain,
+                onSelectDomain = viewModel::setDomain,
+                onSelectTab = { tab ->
+                    viewModel.setDomain(AppDomain.ImageStudio)
+                    viewModel.selectTab(tab)
+                },
+                onCloseDrawer = { scope.launch { drawerState.close() } }
+            )
+        }
+    ) {
+        Box(Modifier.fillMaxSize().background(Color(0xFF090A14))) {
+            LiquidBackdrop()
+            Scaffold(
+                containerColor = Color.Transparent,
+                topBar = {
+                    TopBar(
+                        domain = state.domain,
+                        onOpenDrawer = { scope.launch { drawerState.open() } }
                     )
-                    WorkspaceTab.Queue -> QueueScreen(
-                        jobs = state.jobs,
-                        cancel = viewModel::cancelJob,
-                        onReuseSettings = viewModel::useSettings,
-                        onPreviewImage = { previewImagePath = it }
-                    )
-                    WorkspaceTab.Models -> ModelsScreen(
-                        viewModel = viewModel,
-                        status = state.modelStatus,
-                        repo = state.repo,
-                        revision = state.revision,
-                        busy = state.isBusy,
-                        progress = state.progress,
-                        message = state.status
-                    )
-                    WorkspaceTab.Settings -> SettingsScreen(
-                        viewModel = viewModel,
-                        threads = state.cpuThreads,
-                        keepLoaded = state.keepModelsLoaded,
-                        status = state.status
-                    )
+                },
+                bottomBar = {
+                    if (state.domain == AppDomain.ImageStudio) {
+                        LiquidNavigation(state.tab, viewModel::selectTab)
+                    }
+                }
+            ) { padding ->
+                Box(Modifier.fillMaxSize().padding(padding)) {
+                    if (state.domain == AppDomain.MusicStudio) {
+                        MusicStudioScreen(state = state, viewModel = viewModel)
+                    } else {
+                        when (state.tab) {
+                            WorkspaceTab.Generate -> GenerateScreen(
+                                viewModel = viewModel,
+                                settings = state.settings,
+                                busy = state.isBusy,
+                                progress = state.progress,
+                                status = state.status,
+                                resultPath = state.resultPath,
+                                liveLogs = state.liveLogs,
+                                jobs = state.jobs,
+                                officialTurboAvailable = state.modelStatus?.manifest?.features?.contains("official-turbo") == true,
+                                modelReady = state.modelStatus?.ready == true,
+                                onPreviewImage = { previewImagePath = it }
+                            )
+                            WorkspaceTab.Queue -> QueueScreen(
+                                jobs = state.jobs,
+                                cancel = viewModel::cancelJob,
+                                onReuseSettings = viewModel::useSettings,
+                                onPreviewImage = { previewImagePath = it }
+                            )
+                            WorkspaceTab.Models -> ModelsScreen(
+                                viewModel = viewModel,
+                                status = state.modelStatus,
+                                repo = state.repo,
+                                revision = state.revision,
+                                busy = state.isBusy,
+                                progress = state.progress,
+                                message = state.status
+                            )
+                            WorkspaceTab.Settings -> SettingsScreen(
+                                viewModel = viewModel,
+                                threads = state.cpuThreads,
+                                keepLoaded = state.keepModelsLoaded,
+                                status = state.status
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -251,28 +290,78 @@ private fun LiquidBackdrop() {
 }
 
 @Composable
-private fun TopBar() {
+private fun TopBar(
+    domain: AppDomain,
+    onOpenDrawer: () -> Unit
+) {
     Row(
         Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 18.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(17.dp))
-                .background(Brush.linearGradient(listOf(Color(0xFFAB8BFF), Color(0xFF6756C6))))
-                .border(1.dp, Color.White.copy(alpha = .48f), RoundedCornerShape(17.dp)),
+                .size(46.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(
+                    if (domain == AppDomain.ImageStudio)
+                        Brush.linearGradient(listOf(Color(0xFFAB8BFF), Color(0xFF6756C6)))
+                    else
+                        Brush.linearGradient(listOf(Color(0xFF5ED4BC), Color(0xFF388879)))
+                )
+                .border(1.dp, Color.White.copy(alpha = .48f), RoundedCornerShape(16.dp))
+                .clickable { onOpenDrawer() },
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Outlined.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(25.dp))
+            Icon(
+                if (domain == AppDomain.ImageStudio) Icons.Outlined.AutoAwesome else Icons.Outlined.MusicNote,
+                "菜单",
+                tint = Color.White,
+                modifier = Modifier.size(24.dp)
+            )
         }
         Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text("Qwen Image", color = Ink, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Text("2.1  ·  本地创作工作台", color = Muted, style = MaterialTheme.typography.labelMedium)
+        Column(
+            Modifier
+                .weight(1f)
+                .clickable { onOpenDrawer() }
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Omni Pocket", color = Ink, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(
+                            if (domain == AppDomain.ImageStudio) Violet.copy(alpha = 0.2f)
+                            else Mint.copy(alpha = 0.2f)
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        if (domain == AppDomain.ImageStudio) "绘卷" else "乐坊",
+                        color = if (domain == AppDomain.ImageStudio) Violet else Mint,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+            Text(
+                if (domain == AppDomain.ImageStudio) "Qwen Image 2.1 · 8步 Turbo" else "YuE2-3B · 48kHz 符号乐理",
+                color = Muted,
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
+        IconButton(
+            onClick = onOpenDrawer,
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.08f))
+        ) {
+            Icon(Icons.Outlined.Menu, "切换业务", tint = Ink, modifier = Modifier.size(20.dp))
         }
     }
 }
