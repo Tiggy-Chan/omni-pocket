@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,6 +35,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.QueueMusic
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -45,7 +47,6 @@ import androidx.compose.material.icons.outlined.MusicNote
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.Piano
 import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.QueueMusic
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Speed
@@ -169,7 +170,7 @@ private fun MusicTabSegment(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val icon = when (tab) {
                         MusicStudioTab.Compose -> Icons.Outlined.MusicNote
-                        MusicStudioTab.Playlist -> Icons.Outlined.QueueMusic
+                        MusicStudioTab.Playlist -> Icons.AutoMirrored.Outlined.QueueMusic
                         MusicStudioTab.Score -> Icons.Outlined.Piano
                     }
                     Icon(
@@ -531,54 +532,135 @@ private fun MusicComposeView(
             }
         }
 
-        // 7. Live Generation Status Card (If generating or has logs)
-        if (state.isBusy || state.liveLogs.isNotEmpty()) {
+        // 7. Live Generation Status & Engineering Logs Card
+        if (state.liveLogs.isNotEmpty() || state.isBusy) {
             Box(
                 Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xCC0C0D1A))
-                    .border(1.dp, Purple.copy(alpha = 0.3f), RoundedCornerShape(18.dp))
+                    .background(Color(0xFF0C0D1A).copy(alpha = 0.92f))
+                    .border(1.dp, Purple.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
                     .padding(14.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.Terminal, null, tint = Mint, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(state.status, color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Outlined.Terminal, "日志", tint = Purple, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("实时音乐推理流程日志", color = Ink, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.weight(1f))
-                        Text("${state.progress}%", color = Mint, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        if (state.isBusy) {
+                            CircularProgressIndicator(modifier = Modifier.size(13.dp), color = Mint, strokeWidth = 2.dp)
+                            Spacer(Modifier.width(6.dp))
+                            Text("推理中 ${state.progress}%", color = Color(0xFFFFC36B), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                        } else {
+                            Text("最新生成已就绪", color = Mint, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                        }
                     }
 
-                    LinearProgressIndicator(
-                        progress = { state.progress / 100f },
-                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
-                        color = Mint,
-                        trackColor = Color.White.copy(alpha = 0.1f)
-                    )
+                    if (state.isBusy) {
+                        LinearProgressIndicator(
+                            progress = { state.progress / 100f },
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                            color = Mint,
+                            trackColor = Color.White.copy(alpha = 0.1f)
+                        )
+                    }
 
-                    // Logs tail
-                    Column(
+                    Box(
                         Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.Black.copy(alpha = 0.5f))
-                            .padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                            .heightIn(max = 200.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF06070E))
+                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                            .padding(10.dp)
                     ) {
-                        state.liveLogs.takeLast(5).forEach { log ->
+                        val logScroll = rememberScrollState()
+                        androidx.compose.runtime.LaunchedEffect(state.liveLogs.size) {
+                            logScroll.animateScrollTo(logScroll.maxValue)
+                        }
+                        Column(
+                            Modifier.verticalScroll(logScroll),
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            state.liveLogs.forEach { line ->
+                                Text(
+                                    line,
+                                    color = when {
+                                        line.contains("失败") || line.contains("异常") || line.contains("Error") -> Rose
+                                        line.contains("完成") || line.contains("Finished") || line.contains("已存入") -> Mint
+                                        line.contains("Starting") || line.contains("Running") || line.contains("阶段") || line.contains("任务启动") -> Color(0xFFFFC36B)
+                                        line.contains("规格") || line.contains("计算调度") || line.contains("调式") -> Purple
+                                        else -> Color(0xFFC5C7DB)
+                                    },
+                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 8. Latest Generated Song Preview Card (Immediate Playback & Inspection)
+        state.activeMusicTrack?.let { activeTrack ->
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(Color(0xFF221A3D), Color(0xFF13222B))
+                        )
+                    )
+                    .border(1.dp, Mint.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                    .padding(14.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (state.isMusicPlaying) Mint else Purple.copy(alpha = 0.3f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            IconButton(onClick = { viewModel.toggleMusicPlayPause() }) {
+                                Icon(
+                                    if (state.isMusicPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
+                                    null,
+                                    tint = if (state.isMusicPlaying) Color.Black else Ink,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
                             Text(
-                                log,
-                                color = if (log.contains("Finished") || log.contains("完成")) Mint
-                                else if (log.contains("Error") || log.contains("失败")) Rose
-                                else Muted,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace,
+                                "最新成果 · ${activeTrack.title}",
+                                color = Ink,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
+                            Text(
+                                "${activeTrack.bpm} BPM · ${"%.0f".format(activeTrack.durationSec)}s · 48kHz 双声道",
+                                color = Mint,
+                                fontSize = 11.sp
+                            )
+                        }
+                        Button(
+                            onClick = { viewModel.selectMusicTab(MusicStudioTab.Playlist) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.08f)),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("进曲库", color = Ink, fontSize = 11.sp)
                         }
                     }
+
+                    AnimatedWaveform(isPlaying = state.isMusicPlaying)
                 }
             }
         }
@@ -772,6 +854,57 @@ private fun MusicPlaylistView(
                             modifier = Modifier.size(36.dp)
                         ) {
                             Icon(Icons.Outlined.Share, "分享", tint = Muted, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+
+            if (state.liveLogs.isNotEmpty()) {
+                item {
+                    Spacer(Modifier.height(8.dp))
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color(0xFF0C0D1A).copy(alpha = 0.92f))
+                            .border(1.dp, CardBorder, RoundedCornerShape(18.dp))
+                            .padding(14.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Outlined.Terminal, "日志", tint = Purple, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("历史生成流程日志", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Spacer(Modifier.weight(1f))
+                                Text("${state.liveLogs.size} 条记录", color = Subtle, fontSize = 11.sp)
+                            }
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 180.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color(0xFF06070E))
+                                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                                    .padding(10.dp)
+                            ) {
+                                val logScroll = rememberScrollState()
+                                Column(Modifier.verticalScroll(logScroll), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    state.liveLogs.forEach { line ->
+                                        Text(
+                                            line,
+                                            color = when {
+                                                line.contains("失败") || line.contains("异常") -> Rose
+                                                line.contains("完成") || line.contains("Finished") -> Mint
+                                                line.contains("Starting") || line.contains("Running") || line.contains("任务启动") -> Color(0xFFFFC36B)
+                                                line.contains("规格") || line.contains("计算调度") -> Purple
+                                                else -> Color(0xFFC5C7DB)
+                                            },
+                                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace, fontSize = 11.sp),
+                                            lineHeight = 15.sp
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
