@@ -17,6 +17,7 @@
 
 1. **🎨 Image Studio (绘卷 · 生图工坊)**: Powered by **Qwen-Image-2.1** (4-bit quantized DiT via Alibaba's MNN framework with Adreno/Mali OpenCL hardware acceleration and official 8-step Turbo schedule).
 2. **🎵 Music Studio (乐坊 · 音乐工坊)**: Powered by **YuE2-3B** (3-billion parameter AR–NAR Mixture-of-Transformers producing 48 kHz stereo lossless vocal songs with symbolic ABC music theory planning).
+3. **🎬 Video Studio (影坊 · 动效工坊)**: Powered by **MobileWan** (Qualcomm AI Research 3-Step Decoupled DMD Diffusion Transformer producing 81-frame 480×832 cinematic mobile video clips with Recurrent Hybrid Attention).
 
 ---
 
@@ -38,6 +39,13 @@
 - **Dual-Mode Engine Architecture**:
   - **Workstation Bridge Mode**: Connects directly to a local workstation or computer running YuE2-3B via USB (`adb reverse tcp:8999 tcp:8999`) or Wi-Fi local network, streaming genuine token-by-token logs and returning authentic 48kHz vocal master tracks.
   - **On-Device Offline Model**: Offline model architecture designed for local quantization and deployment on high-memory mobile hardware.
+
+### 🎬 Video Studio (`MobileWan`)
+- **3-Step Decoupled DMD Distillation**: Leverages Qualcomm AI Research's step-distilled video diffusion transformer to generate smooth 81-frame cinematic video clips in just 3 denoising steps.
+- **Mobile-Native Aspect Ratio (480×832)**: Native high-definition portrait resolution designed specifically for modern smartphone displays and feeds.
+- **Recurrent Hybrid Attention (RHA)**: Employs 23% head pruning and linear hybrid attention to drastically minimize long spatio-temporal memory overhead during diffusion.
+- **Workstation Bridge Mode**: Connects directly to a workstation running MobileWan via USB (`adb reverse tcp:8998 tcp:8998`) or Wi-Fi local network.
+- **Integrated Video Player & Export**: In-app hardware-accelerated looping video playback with timeline controls and native Android sharing.
 
 ### 🧭 Global Fluid UI & Navigation
 - **Left Navigation Drawer**: Smoothly switch between Image Studio, Music Studio, and System Management.

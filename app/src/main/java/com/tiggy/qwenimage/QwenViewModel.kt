@@ -9,16 +9,22 @@ import com.tiggy.qwenimage.data.CoTMode
 import com.tiggy.qwenimage.data.GenerationJob
 import com.tiggy.qwenimage.data.GenerationMode
 import com.tiggy.qwenimage.data.GenerationSettings
+import com.tiggy.qwenimage.data.ModelManifest
 import com.tiggy.qwenimage.data.ModelRepository
 import com.tiggy.qwenimage.data.ModelStatus
 import com.tiggy.qwenimage.data.MusicJob
 import com.tiggy.qwenimage.data.MusicSettings
 import com.tiggy.qwenimage.data.MusicStudioTab
 import com.tiggy.qwenimage.data.MusicTrack
+import com.tiggy.qwenimage.data.VideoItem
+import com.tiggy.qwenimage.data.VideoJob
+import com.tiggy.qwenimage.data.VideoSettings
+import com.tiggy.qwenimage.data.VideoStudioTab
 import com.tiggy.qwenimage.data.WorkspaceTab
 import com.tiggy.qwenimage.engine.EngineSettings
 import com.tiggy.qwenimage.engine.MusicEngine
 import com.tiggy.qwenimage.engine.QwenEngine
+import com.tiggy.qwenimage.engine.VideoEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,7 +67,13 @@ data class QwenUiState(
     val activeMusicTrack: MusicTrack? = null,
     val isMusicPlaying: Boolean = false,
     val musicPositionMs: Int = 0,
-    val musicDurationMs: Int = 0
+    val musicDurationMs: Int = 0,
+    // Video Studio state (MobileWan 3-Step Decoupled DMD)
+    val videoTab: VideoStudioTab = VideoStudioTab.Compose,
+    val videoSettings: VideoSettings = VideoSettings(),
+    val videoJobs: List<VideoJob> = emptyList(),
+    val videoGallery: List<VideoItem> = emptyList(),
+    val activeVideo: VideoItem? = null
 )
 
 class QwenViewModel(application: Application) : AndroidViewModel(application) {
@@ -83,13 +95,17 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     private var engine: QwenEngine? = null
     private var engineKey: String? = null
     private val musicEngine = MusicEngine(application)
+    private val videoEngine = VideoEngine(application)
 
     init {
         val initialTracks = musicEngine.preloadInitialTracks()
+        val initialVideos = videoEngine.preloadInitialVideos()
         _state.update {
             it.copy(
                 musicPlaylist = initialTracks,
-                activeMusicTrack = initialTracks.firstOrNull()
+                activeMusicTrack = initialTracks.firstOrNull(),
+                videoGallery = initialVideos,
+                activeVideo = initialVideos.firstOrNull()
             )
         }
 
@@ -128,9 +144,101 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setDomain(domain: AppDomain) = _state.update { it.copy(domain = domain) }
+    fun setDomain(domain: AppDomain) {
+        if (domain != AppDomain.MusicStudio && _state.value.isMusicPlaying) {
+            musicEngine.stopPlayback()
+        }
+        _state.update { it.copy(domain = domain) }
+    }
+
     fun selectTab(tab: WorkspaceTab) = _state.update { it.copy(tab = tab) }
     fun selectMusicTab(tab: MusicStudioTab) = _state.update { it.copy(musicTab = tab) }
+    fun selectVideoTab(tab: VideoStudioTab) = _state.update { it.copy(videoTab = tab) }
+
+    // Video settings modifiers
+    fun setVideoPrompt(prompt: String) = _state.update { it.copy(videoSettings = it.videoSettings.copy(prompt = prompt)) }
+    fun setVideoSeed(seed: Long) = _state.update { it.copy(videoSettings = it.videoSettings.copy(seed = seed)) }
+    fun setVideoFps(fps: Int) = _state.update { it.copy(videoSettings = it.videoSettings.copy(fps = fps.coerceIn(8, 30))) }
+    fun setVideoSteps(steps: Int) = _state.update { it.copy(videoSettings = it.videoSettings.copy(steps = steps.coerceIn(1, 10))) }
+    fun setVideoShift(shift: Float) = _state.update { it.copy(videoSettings = it.videoSettings.copy(shift = shift.coerceIn(1.0f, 10.0f))) }
+    fun setVideoServerUrl(url: String) = _state.update { it.copy(videoSettings = it.videoSettings.copy(serverUrl = url)) }
+    fun setActiveVideo(video: VideoItem) = _state.update { it.copy(activeVideo = video) }
+    fun deleteVideo(video: VideoItem) {
+        runCatching { File(video.videoPath).delete() }
+        video.thumbnailPath?.let { runCatching { File(it).delete() } }
+        _state.update { state ->
+            val nextList = state.videoGallery.filter { it.id != video.id }
+            state.copy(
+                videoGallery = nextList,
+                activeVideo = if (state.activeVideo?.id == video.id) nextList.firstOrNull() else state.activeVideo
+            )
+        }
+    }
+
+    fun startVideoGeneration() {
+        if (_state.value.isBusy) return
+        val current = _state.value
+        val settings = current.videoSettings
+        runCatching { settings.validate() }.onFailure { error ->
+            _state.update { it.copy(error = error.message ?: "参数校验失败") }
+            return
+        }
+
+        val job = VideoJob(
+            id = UUID.randomUUID().toString(),
+            settings = settings,
+            state = "running",
+            stage = "准备端侧生成视频..."
+        )
+
+        _state.update {
+            it.copy(
+                isBusy = true,
+                error = null,
+                videoJobs = it.videoJobs + job,
+                status = "准备端侧生成视频 (MobileWan 3步)..."
+            )
+        }
+        appendLog("----------------------------------------")
+        appendLog("视频任务启动 [${job.id.take(8)}]：MobileWan 3-Step Decoupled DMD")
+        appendLog("提示词：${settings.prompt.take(60)}...")
+        appendLog("规格：${settings.width}×${settings.height} | 帧数: ${settings.numFrames} (5.06s @ ${settings.fps}fps) | 步数: ${settings.steps}步 (Flow Euler Shift ${settings.shift})")
+        appendLog("计算调度：端侧硬件原生加速 (ARM64-v8a · 循环混合注意力 RHA)")
+
+        viewModelScope.launch {
+            runCatching {
+                videoEngine.executeGeneration(job) { progress, stage, log ->
+                    _state.update {
+                        it.copy(
+                            progress = (progress * 100).toInt(),
+                            status = stage
+                        )
+                    }
+                    appendLog(log)
+                }
+            }.onSuccess { videoItem ->
+                _state.update {
+                    it.copy(
+                        isBusy = false,
+                        progress = 100,
+                        status = "视频渲染完毕：${videoItem.id.take(8)}.mp4",
+                        videoGallery = listOf(videoItem) + it.videoGallery.filter { old -> old.id != videoItem.id },
+                        activeVideo = videoItem
+                    )
+                }
+                appendLog("视频渲染全流程完成，已存入作品展映库：${videoItem.videoPath}")
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        isBusy = false,
+                        status = "视频渲染失败",
+                        error = error.message ?: error.toString()
+                    )
+                }
+                appendLog("视频渲染异常: ${error.message}")
+            }
+        }
+    }
 
     // Music settings modifiers
     fun setMusicTitle(title: String) = _state.update { it.copy(musicSettings = it.musicSettings.copy(title = title)) }
@@ -450,6 +558,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         queue.close()
         engine?.close()
         musicEngine.close()
+        videoEngine.close()
         super.onCleared()
     }
 

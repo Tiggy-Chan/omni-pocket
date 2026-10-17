@@ -7,7 +7,8 @@ import java.util.UUID
 
 enum class AppDomain(val title: String, val subtitle: String) {
     ImageStudio("绘卷 · 生图工坊", "Qwen-Image-2.1 Turbo (8-step)"),
-    MusicStudio("乐坊 · 音乐工坊", "YuE2-3B 48kHz 端侧全乐章")
+    MusicStudio("乐坊 · 音乐工坊", "YuE2-3B 48kHz 端侧全乐章"),
+    VideoStudio("影坊 · 动效工坊", "MobileWan 3步极速采样 (480×832)")
 }
 
 enum class MusicStudioTab(val label: String) {
