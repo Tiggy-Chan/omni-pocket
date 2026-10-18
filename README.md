@@ -40,10 +40,10 @@
   - **Workstation Bridge Mode**: Connects directly to a local workstation or computer running YuE2-3B via USB (`adb reverse tcp:8999 tcp:8999`) or Wi-Fi local network, streaming genuine token-by-token logs and returning authentic 48kHz vocal master tracks.
   - **On-Device Offline Model**: Offline model architecture designed for local quantization and deployment on high-memory mobile hardware.
 
-### 🎬 Video Studio (`MobileWan`)
-- **3-Step Decoupled DMD Distillation**: Leverages Qualcomm AI Research's step-distilled video diffusion transformer to generate smooth 81-frame cinematic video clips in just 3 denoising steps.
-- **Mobile-Native Aspect Ratio (480×832)**: Native high-definition portrait resolution designed specifically for modern smartphone displays and feeds.
-- **Recurrent Hybrid Attention (RHA)**: Employs 23% head pruning and linear hybrid attention to drastically minimize long spatio-temporal memory overhead during diffusion.
+### 🎬 Video Studio (`MobileWan / Wan2.2-TI2V`)
+- **Native On-Device GPU Acceleration**: Directly executes on mobile GPUs (Qualcomm Adreno 750 / OpenCL 3.0) and multi-threaded CPU cores, lifting driver single-buffer memory caps and boosting per-step sampling speed by nearly 3× over pure CPU inference.
+- **4-Step Turbo Distillation**: Powered by the Wan2.2-TI2V 5B Turbo diffusion backbone and UMT5-XXL text encoder, generating crisp and cohesive 480×832 vertical video clips in just 4 steps.
+- **Thread Starvation Prevention & Zero ANR**: Lowers engine CPU priority via `/system/bin/nice -n 10` and offloads coroutines to `Dispatchers.Default`, ensuring the Android main thread and Compose UI never stutter or drop frames.
 - **Workstation Bridge Mode**: Connects directly to a workstation running MobileWan via USB (`adb reverse tcp:8998 tcp:8998`) or Wi-Fi local network.
 - **Integrated Video Player & Export**: In-app hardware-accelerated looping video playback with timeline controls and native Android sharing.
 
