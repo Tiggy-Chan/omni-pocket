@@ -10,3 +10,4 @@ qwenimage21-debug.keystore
 models/
 __pycache__/
 .kotlin/
+app/src/main/jniLibs/

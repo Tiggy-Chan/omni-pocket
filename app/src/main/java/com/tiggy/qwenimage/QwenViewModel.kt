@@ -205,7 +205,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         appendLog("规格：${settings.width}×${settings.height} | 帧数: ${settings.numFrames} (5.06s @ ${settings.fps}fps) | 步数: ${settings.steps}步 (Flow Euler Shift ${settings.shift})")
         appendLog("计算调度：端侧硬件原生加速 (ARM64-v8a · 循环混合注意力 RHA)")
 
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             runCatching {
                 videoEngine.executeGeneration(job) { progress, stage, log ->
                     _state.update {
