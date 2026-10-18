@@ -18,33 +18,50 @@ class VideoEngine(private val context: Context) : AutoCloseable {
 
     private val videoDir = File(context.filesDir, "omni_video").apply { mkdirs() }
     private val thumbDir = File(context.filesDir, "omni_video_thumbs").apply { mkdirs() }
+    private val externalVideoDir = File(context.getExternalFilesDir(null), "omni_video").apply { mkdirs() }
 
     fun preloadInitialVideos(): List<VideoItem> {
         val items = mutableListOf<VideoItem>()
+        val seenIds = mutableSetOf<String>()
 
-        // Check if there are existing MP4 files in videoDir
-        val files = videoDir.listFiles { file -> file.isFile && file.extension.equals("mp4", ignoreCase = true) }
-        files?.sortedByDescending { it.lastModified() }?.forEach { f ->
-            val thumbFile = File(thumbDir, "${f.nameWithoutExtension}.jpg")
-            val thumbPath = if (thumbFile.exists()) thumbFile.absolutePath else extractThumbnail(f, thumbFile)
+        // Check internal filesDir and external filesDir
+        val sourceDirs = listOfNotNull(videoDir, externalVideoDir).filter { it.exists() }
+        for (dir in sourceDirs) {
+            val files = dir.listFiles { file -> file.isFile && file.extension.equals("mp4", ignoreCase = true) }
+            files?.sortedByDescending { it.lastModified() }?.forEach { f ->
+                val id = f.nameWithoutExtension
+                if (!seenIds.add(id)) return@forEach
 
-            items.add(
-                VideoItem(
-                    id = f.nameWithoutExtension,
-                    prompt = "本地历史渲染视频: ${f.name}",
-                    videoPath = f.absolutePath,
-                    thumbnailPath = thumbPath,
-                    durationSec = 5.06f,
-                    fps = 16,
-                    resolution = "480×832",
-                    steps = 3,
-                    fileSizeBytes = f.length(),
-                    createdAt = f.lastModified()
+                // Ensure file is copied or accessible in videoDir for VideoView
+                val targetFile = if (f.parentFile?.absolutePath == videoDir.absolutePath) f else {
+                    val localCopy = File(videoDir, f.name)
+                    if (!localCopy.exists() || localCopy.length() != f.length()) {
+                        runCatching { f.copyTo(localCopy, overwrite = true) }
+                    }
+                    if (localCopy.exists()) localCopy else f
+                }
+
+                val thumbFile = File(thumbDir, "$id.jpg")
+                val thumbPath = if (thumbFile.exists()) thumbFile.absolutePath else extractThumbnail(targetFile, thumbFile)
+
+                items.add(
+                    VideoItem(
+                        id = id,
+                        prompt = "本地渲染视频: ${f.name}",
+                        videoPath = targetFile.absolutePath,
+                        thumbnailPath = thumbPath,
+                        durationSec = 5.06f,
+                        fps = 16,
+                        resolution = "480×832",
+                        steps = 4,
+                        fileSizeBytes = targetFile.length(),
+                        createdAt = targetFile.lastModified()
+                    )
                 )
-            )
+            }
         }
 
-        return items
+        return items.sortedByDescending { it.createdAt }
     }
 
     private fun extractThumbnail(videoFile: File, outputFile: File): String? {

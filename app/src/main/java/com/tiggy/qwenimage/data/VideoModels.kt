@@ -17,7 +17,7 @@ data class VideoSettings(
     val numFrames: Int = 81, // 81 frames @ 16 fps = 5.06s
     val width: Int = 480,
     val height: Int = 832,
-    val steps: Int = 3, // MobileWan 3-step DMD distillation
+    val steps: Int = 4, // Wan 2.2 Turbo 4-step distillation
     val shift: Float = 5.0f,
     val highQuality: Boolean = true,
     val serverUrl: String = "http://127.0.0.1:8998",
