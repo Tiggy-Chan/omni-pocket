@@ -540,10 +540,12 @@ private fun VideoGalleryView(
 ) {
     val context = LocalContext.current
     val activeVideo = state.activeVideo
+    val scrollState = rememberScrollState()
 
     Column(
         Modifier
             .fillMaxSize()
+            .verticalScroll(scrollState)
             .padding(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
@@ -558,11 +560,11 @@ private fun VideoGalleryView(
                     .padding(14.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // Video View
+                    // Video View with bounded height
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .aspectRatio(480f / 832f)
+                            .height(380.dp)
                             .clip(RoundedCornerShape(14.dp))
                             .background(Color.Black),
                         contentAlignment = Alignment.Center
@@ -649,11 +651,11 @@ private fun VideoGalleryView(
             fontWeight = FontWeight.SemiBold
         )
 
-        LazyColumn(
+        Column(
             Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            items(state.videoGallery) { item ->
+            state.videoGallery.forEach { item ->
                 val isSelected = item.id == activeVideo?.id
                 Box(
                     Modifier
