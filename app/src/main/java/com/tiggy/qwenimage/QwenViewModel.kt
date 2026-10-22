@@ -162,6 +162,14 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     fun setVideoSteps(steps: Int) = _state.update { it.copy(videoSettings = it.videoSettings.copy(steps = steps.coerceIn(1, 10))) }
     fun setVideoShift(shift: Float) = _state.update { it.copy(videoSettings = it.videoSettings.copy(shift = shift.coerceIn(1.0f, 10.0f))) }
     fun setVideoServerUrl(url: String) = _state.update { it.copy(videoSettings = it.videoSettings.copy(serverUrl = url)) }
+    fun setVideoInputImage(uri: Uri?) {
+        if (uri != null) runCatching {
+            getApplication<Application>().contentResolver.takePersistableUriPermission(
+                uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+        _state.update { it.copy(videoSettings = it.videoSettings.copy(inputImageUri = uri)) }
+    }
     fun setActiveVideo(video: VideoItem) = _state.update { it.copy(activeVideo = video) }
     fun deleteVideo(video: VideoItem) {
         runCatching { File(video.videoPath).delete() }
@@ -196,14 +204,15 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                 isBusy = true,
                 error = null,
                 videoJobs = it.videoJobs + job,
-                status = "准备端侧生成视频 (MobileWan 3步)..."
+                status = if (settings.inputImageUri != null) "准备 Wan2.2 图生视频..." else "准备 Wan2.2 文生视频..."
             )
         }
         appendLog("----------------------------------------")
-        appendLog("视频任务启动 [${job.id.take(8)}]：MobileWan 3-Step Decoupled DMD")
+        appendLog("视频任务启动 [${job.id.take(8)}]：Wan2.2-TI2V-5B-Turbo")
         appendLog("提示词：${settings.prompt.take(60)}...")
-        appendLog("规格：${settings.width}×${settings.height} | 帧数: ${settings.numFrames} (5.06s @ ${settings.fps}fps) | 步数: ${settings.steps}步 (Flow Euler Shift ${settings.shift})")
-        appendLog("计算调度：端侧硬件原生加速 (ARM64-v8a · 循环混合注意力 RHA)")
+        appendLog("模式：${if (settings.inputImageUri != null) "图生视频（App 所选参考首帧）" else "文生视频"}")
+        appendLog("规格：${settings.width}×${settings.height} | 实际最多25帧 | ${settings.fps}fps | ${settings.steps.coerceIn(1, 6)}步 Euler")
+        appendLog("执行设备：本机 Wan2.2 模型与原生推理 CLI；diffusion=GPUOpenCL, text encoder=CPU, VAE=CPU")
 
         viewModelScope.launch(Dispatchers.Default) {
             runCatching {

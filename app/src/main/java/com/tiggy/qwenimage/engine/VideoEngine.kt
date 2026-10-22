@@ -91,6 +91,9 @@ class VideoEngine(private val context: Context) : AutoCloseable {
         if (ditFile.exists() && t5File.exists() && vaeFile.exists() && nativeLib.exists()) {
             return@withContext executeOnDevice(job, ditFile, t5File, vaeFile, nativeLib, onProgress)
         } else {
+            require(job.settings.inputImageUri == null) {
+                "当前工作站桥接接口尚未支持参考图；请在模型部署到本机后使用端侧图生视频。"
+            }
             return@withContext executeWorkstationBridge(job, onProgress)
         }
     }
@@ -110,6 +113,17 @@ class VideoEngine(private val context: Context) : AutoCloseable {
         onProgress(0.05f, "正在初始化端侧神经视频扩散引擎...", "[Wan2.2-TI2V] Initializing On-Device Engine (Adreno GPU + UMT5-XXL)...")
 
         val targetFrames = settings.numFrames.coerceIn(5, 25)
+        val initImageFile = settings.inputImageUri?.let { uri ->
+            val extension = context.contentResolver.getType(uri)?.substringAfter('/')
+                ?.takeIf { it.matches(Regex("[A-Za-z0-9]+")) } ?: "img"
+            File(context.cacheDir, "video-init-${videoId.take(8)}.$extension").also { target ->
+                context.contentResolver.openInputStream(uri).use { input ->
+                    requireNotNull(input) { "无法读取所选参考图" }
+                    FileOutputStream(target).use { output -> input.copyTo(output) }
+                }
+                require(target.length() > 0L) { "所选参考图为空" }
+            }
+        }
         val command = mutableListOf(
             "/system/bin/nice", "-n", "10",
             nativeLib.absolutePath,
@@ -132,11 +146,10 @@ class VideoEngine(private val context: Context) : AutoCloseable {
             "-o", outputFile.absolutePath
         )
 
-        val initImageFile = File(context.getExternalFilesDir(null), "init_frame.png")
-        if (initImageFile.exists()) {
+        initImageFile?.let { imageFile ->
             command.add("-i")
-            command.add(initImageFile.absolutePath)
-            onProgress(0.10f, "已载入参考首帧图像...", "[Wan2.2-TI2V] Conditioning on init image: ${initImageFile.name}")
+            command.add(imageFile.absolutePath)
+            onProgress(0.10f, "已载入您在 App 中选择的参考首帧...", "[Wan2.2-TI2V] Image-to-video conditioning enabled: ${imageFile.name}")
         }
 
         onProgress(0.15f, "正在加载模型至 Adreno 750 GPU (OpenCL)...", "[Wan2.2-TI2V] Loading weights (DiT: 2.89GB to GPU, UMT5: 2.7GB to CPU)...")

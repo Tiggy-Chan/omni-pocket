@@ -372,7 +372,7 @@ private fun TopBar(
                 when (domain) {
                     AppDomain.ImageStudio -> "Qwen Image 2.1 · 8步 Turbo"
                     AppDomain.MusicStudio -> "YuE2-3B · 48kHz 符号乐理"
-                    AppDomain.VideoStudio -> "MobileWan · 3步极速采样"
+                    AppDomain.VideoStudio -> "Wan2.2-TI2V · 端侧视频生成"
                 },
                 color = Muted,
                 style = MaterialTheme.typography.labelMedium

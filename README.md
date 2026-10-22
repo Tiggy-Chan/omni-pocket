@@ -17,7 +17,7 @@
 
 1. **🎨 Image Studio (绘卷 · 生图工坊)**: Powered by **Qwen-Image-2.1** (4-bit quantized DiT via Alibaba's MNN framework with Adreno/Mali OpenCL hardware acceleration and official 8-step Turbo schedule).
 2. **🎵 Music Studio (乐坊 · 音乐工坊)**: Powered by **YuE2-3B** (3-billion parameter AR–NAR Mixture-of-Transformers producing 48 kHz stereo lossless vocal songs with symbolic ABC music theory planning).
-3. **🎬 Video Studio (影坊 · 动效工坊)**: Powered by **MobileWan** (Qualcomm AI Research 3-Step Decoupled DMD Diffusion Transformer producing 81-frame 480×832 cinematic mobile video clips with Recurrent Hybrid Attention).
+3. **🎬 Video Studio (影坊 · 动效工坊)**: Powered by on-device **Wan2.2-TI2V-5B-Turbo**, with an in-app first-frame picker for image-to-video and prompt-only text-to-video. On-device clip length is bounded by the phone memory budget; workstation bridge currently supports text-to-video only.
 
 ---
 
@@ -40,12 +40,12 @@
   - **Workstation Bridge Mode**: Connects directly to a local workstation or computer running YuE2-3B via USB (`adb reverse tcp:8999 tcp:8999`) or Wi-Fi local network, streaming genuine token-by-token logs and returning authentic 48kHz vocal master tracks.
   - **On-Device Offline Model**: Offline model architecture designed for local quantization and deployment on high-memory mobile hardware.
 
-### 🎬 Video Studio (`MobileWan / Wan2.2-TI2V`)
-- **Native On-Device GPU Acceleration**: Directly executes on mobile GPUs (Qualcomm Adreno 750 / OpenCL 3.0) and multi-threaded CPU cores, lifting driver single-buffer memory caps and boosting per-step sampling speed by nearly 3× over pure CPU inference.
-- **4-Step Turbo Distillation**: Powered by the Wan2.2-TI2V 5B Turbo diffusion backbone and UMT5-XXL text encoder, generating crisp and cohesive 480×832 vertical video clips in just 4 steps.
-- **Thread Starvation Prevention & Zero ANR**: Lowers engine CPU priority via `/system/bin/nice -n 10` and offloads coroutines to `Dispatchers.Default`, ensuring the Android main thread and Compose UI never stutter or drop frames.
-- **Workstation Bridge Mode**: Connects directly to a workstation running MobileWan via USB (`adb reverse tcp:8998 tcp:8998`) or Wi-Fi local network.
-- **Integrated Video Player & Export**: In-app hardware-accelerated looping video playback with timeline controls and native Android sharing.
+### 🎬 Video Studio (`Wan2.2-TI2V`)
+- **On-device image-to-video**: Pick a first-frame image in the app; the selected image is staged locally and passed to Wan2.2-TI2V through its native `-i` input. If no image is selected, the app runs text-to-video.
+- **Model/backend**: Wan2.2-TI2V 5B Turbo with UMT5-XXL and TAEHV; diffusion uses OpenCL GPU, text encoder and VAE use CPU.
+- **Memory-bounded output**: Current on-device path limits output to at most 25 frames at 480×832; actual generation time depends on device load and chosen settings.
+- **Workstation bridge**: Available for text-to-video; the current bridge API does not accept a reference image. The app reports an explicit error rather than silently dropping a selected image.
+- **In-app video gallery and playback**: Preview generated clips and share them with Android's system share sheet.
 
 ### 🧭 Global Fluid UI & Navigation
 - **Left Navigation Drawer**: Smoothly switch between Image Studio, Music Studio, and System Management.

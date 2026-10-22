@@ -223,7 +223,7 @@ fun OmniDrawerContent(
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text("影坊 · 动效工坊", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                Text("MobileWan · 3步极速采样 (480×832)", color = Subtle, fontSize = 11.sp)
+                                Text("Wan2.2-TI2V 端侧图生视频 (480×832)", color = Subtle, fontSize = 11.sp)
                             }
                             if (isVideoSelected) {
                                 Box(

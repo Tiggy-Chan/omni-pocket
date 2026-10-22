@@ -3,8 +3,11 @@ package com.tiggy.qwenimage.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.ImageView
 import android.widget.MediaController
 import android.widget.VideoView
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -182,6 +185,9 @@ private fun VideoComposeView(
     val scrollState = rememberScrollState()
     val videoSettings = state.videoSettings
     var showAdvanced by remember { mutableStateOf(false) }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        viewModel.setVideoInputImage(uri)
+    }
 
     Column(
         Modifier
@@ -190,7 +196,7 @@ private fun VideoComposeView(
             .padding(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 1. MobileWan Architecture Banner
+        // 1. Wan2.2 TI2V architecture banner
         Box(
             Modifier
                 .fillMaxWidth()
@@ -207,7 +213,7 @@ private fun VideoComposeView(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Outlined.Movie, null, tint = Amber, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("MobileWan 移动端视频扩散引擎", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("Wan2.2-TI2V 端侧视频生成", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.weight(1f))
                     Box(
                         Modifier
@@ -215,19 +221,19 @@ private fun VideoComposeView(
                             .background(Amber.copy(alpha = 0.2f))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        Text("3步 DMD 极速", color = Amber, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        Text("4步 Turbo 推理", color = Amber, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 Text(
-                    "高通 AI 研究院基于 Wan2.2-5B 剪枝 23% 注意力头并引入循环混合注意力 (RHA) 的移动端特化模型，仅需 3 步解算 81 帧 480×832 原生视频。",
+                    "Wan2.2-TI2V-5B-Turbo 在手机端执行推理；可选参考首帧图像并结合动态提示词生成视频。",
                     color = Muted,
                     fontSize = 11.sp,
                     lineHeight = 15.sp
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("• 480×832 竖屏画质", color = Amber, fontSize = 11.sp)
-                    Text("• 81 帧 (5.06s)", color = Amber, fontSize = 11.sp)
-                    Text("• 16 FPS 电影帧率", color = Amber, fontSize = 11.sp)
+                    Text("• 480×832 竖屏", color = Amber, fontSize = 11.sp)
+                    Text("• 最多 25 帧", color = Amber, fontSize = 11.sp)
+                    Text("• 16 FPS", color = Amber, fontSize = 11.sp)
                 }
             }
         }
@@ -265,6 +271,48 @@ private fun VideoComposeView(
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+        }
+
+        // Optional first-frame reference image for image-to-video generation.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(CardBg)
+                .border(1.dp, CardBorder, RoundedCornerShape(18.dp))
+                .padding(14.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("参考图（可选）", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "选择一张图片作为视频首帧，Wan2.2 将基于该图生成动态画面。未选择时使用纯文生视频。",
+                    color = Muted, fontSize = 11.sp, lineHeight = 15.sp
+                )
+                videoSettings.inputImageUri?.let { imageUri ->
+                    AndroidView(
+                        factory = { viewContext ->
+                            ImageView(viewContext).apply {
+                                scaleType = ImageView.ScaleType.CENTER_CROP
+                                setImageURI(imageUri)
+                                contentDescription = "视频生成参考首帧"
+                            }
+                        },
+                        update = { it.setImageURI(imageUri) },
+                        modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp))
+                    )
+                    Text("已选择参考图；本次端侧生成将使用该首帧。", color = Mint, fontSize = 11.sp)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { imagePicker.launch(arrayOf("image/*")) }) {
+                        Text(if (videoSettings.inputImageUri == null) "选择参考图" else "更换参考图")
+                    }
+                    if (videoSettings.inputImageUri != null) {
+                        Button(onClick = { viewModel.setVideoInputImage(null) }) {
+                            Text("移除")
+                        }
+                    }
+                }
             }
         }
 
@@ -346,7 +394,7 @@ private fun VideoComposeView(
                     OutlinedTextField(
                         value = videoSettings.serverUrl,
                         onValueChange = { viewModel.setVideoServerUrl(it) },
-                        label = { Text("MobileWan 工作站地址 (Workstation Server URL)") },
+                        label = { Text("仅文生视频时的工作站地址") },
                         placeholder = { Text("http://127.0.0.1:8998 或 http://电脑局域网IP:8998") },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = Ink,
@@ -357,7 +405,7 @@ private fun VideoComposeView(
                         modifier = Modifier.fillMaxWidth()
                     )
                     Text(
-                        "提示：MobileWan 视频扩散大模型通过工作站桥接服务推演。若手机连电脑 USB，可在电脑终端运行 'adb reverse tcp:8998 tcp:8998' 后使用默认地址。",
+                        "工作站桥接仅支持文生视频；选择参考图后需要端侧 Wan2.2 模型文件已就绪，避免将图生视频误送到不支持图片的桥接服务。",
                         color = Subtle,
                         fontSize = 11.sp,
                         lineHeight = 15.sp
@@ -390,7 +438,7 @@ private fun VideoComposeView(
             } else {
                 Icon(Icons.Outlined.AutoAwesome, null, tint = Color.Black, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("开始渲染视频 (MobileWan 3-Step)", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text(if (videoSettings.inputImageUri != null) "开始图生视频" else "开始文生视频", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
         }
 
@@ -497,7 +545,7 @@ private fun VideoTerminalConsoleCard(logs: List<String>) {
                 ) {
                     if (logs.isEmpty()) {
                         Text(
-                            "> MobileWan 调度引擎已就绪...\n> 循环混合注意力 (Recurrent Hybrid Attention) 算子载入完毕\n> 等待视频渲染任务提交...",
+                            "> Wan2.2-TI2V 原生端侧推理已就绪...\n> 图像扩散 OpenCL GPU 后端 / UMT5 文本编码 CPU 后端\n> 可选择首帧图像进行图生视频，或直接输入提示词进行文生视频...",
                             color = Color(0xFF5B6078),
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
