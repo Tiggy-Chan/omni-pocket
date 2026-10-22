@@ -1,0 +1,73 @@
+ggml_opencl: selected platform: 'QUALCOMM Snapdragon(TM)'
+ggml_opencl: device: 'QUALCOMM Adreno(TM) 750 (OpenCL 3.0 Adreno(TM) 750)'
+ggml_opencl: default device: 'QUALCOMM Adreno(TM) 750 (OpenCL 3.0 Adreno(TM) 750)'
+[INFO   ] diffusion_engine.cpp:714  - loading diffusion model from '/sdcard/Android/data/com.tiggy.qwenimage/files/models/wan22_turbo/Wan2_2-TI2V-5B-Turbo-Q4_0.gguf'
+[INFO   ] model_loader.cpp:215  - load /sdcard/Android/data/com.tiggy.qwenimage/files/models/wan22_turbo/Wan2_2-TI2V-5B-Turbo-Q4_0.gguf using gguf format
+[ERROR  ] ggml - gguf_init_from_reader: tensor 'patch_embedding.weight' has invalid number of dimensions: 5 > 4
+[ERROR  ] ggml - gguf_init_from_reader: failed to read tensor info
+[INFO   ] diffusion_engine.cpp:756  - loading t5xxl from '/sdcard/Android/data/com.tiggy.qwenimage/files/models/wan22_turbo/umt5-xxl-encoder-Q3_K_S.gguf'
+[INFO   ] model_loader.cpp:215  - load /sdcard/Android/data/com.tiggy.qwenimage/files/models/wan22_turbo/umt5-xxl-encoder-Q3_K_S.gguf using gguf format
+[INFO   ] diffusion_engine.cpp:793  - loading tae from '/sdcard/Android/data/com.tiggy.qwenimage/files/models/wan22_turbo/taew2_2.safetensors'
+[INFO   ] model_loader.cpp:221  - load /sdcard/Android/data/com.tiggy.qwenimage/files/models/wan22_turbo/taew2_2.safetensors using safetensors format
+[INFO   ] diffusion_engine.cpp:977  - Version: Wan 2.2 TI2V 
+[INFO   ] backend_fit.cpp:323  - auto-fit plan:
+[INFO   ] backend_fit.cpp:324  -   devices:
+[INFO   ] backend_fit.cpp:328  -     GPUOpenCL    QUALCOMM Adreno(TM) 750          free  10558 MiB, budget  10046 MiB
+[INFO   ] backend_fit.cpp:334  -     RAM          free  11482 MiB, params budget   9434 MiB
+[INFO   ] backend_fit.cpp:336  -   compute-device weight cache priority: diffusion > te > vae
+[INFO   ] backend_fit.cpp:337  -   components (params: compute device -> RAM -> other GPU -> disk):
+[INFO   ] backend_fit.cpp:348  -     DiT          params   2893 MiB, compute reserve  2048 MiB -> compute GPUOpenCL, params GPUOpenCL
+[INFO   ] backend_fit.cpp:348  -     Conditioner  params   2720 MiB, compute reserve  2048 MiB -> compute CPU, params cpu
+[INFO   ] backend_fit.cpp:348  -     VAE          params     21 MiB, compute reserve  1024 MiB -> compute CPU, params cpu
+[INFO   ] backend_fit.cpp:477  - auto-fit: --backend "diffusion=GPUOpenCL,te=CPU,vae=CPU" --params-backend "te=cpu,vae=cpu"
+[INFO   ] ggml - ggml_opencl: OpenCL driver: OpenCL 3.0 QUALCOMM build: 0762.40 Compiler E031.45.02.26
+[INFO   ] ggml - ggml_opencl: vector subgroup broadcast support: false
+[INFO   ] ggml - ggml_opencl: subgroup shuffle support: true
+[INFO   ] ggml - ggml_opencl: device FP16 support: true
+[INFO   ] ggml - ggml_opencl: khr dot product support: true
+[INFO   ] ggml - ggml_opencl: mem base addr align: 128
+[INFO   ] ggml - ggml_opencl: global mem size: 11582 MB
+[INFO   ] ggml - ggml_opencl: max mem alloc size: 1024 MB
+[INFO   ] ggml - ggml_opencl: device max image buffer size (pixels): 134217728
+[INFO   ] ggml - ggml_opencl: device max image2d size: 16384 x 16384
+[INFO   ] ggml - ggml_opencl: device max workgroup size: 1024
+[INFO   ] ggml - ggml_opencl: SVM coarse grain buffer support: true
+[INFO   ] ggml - ggml_opencl: SVM fine grain buffer support: true
+[INFO   ] ggml - ggml_opencl: SVM fine grain system support: false
+[INFO   ] ggml - ggml_opencl: SVM atomics support: true
+[INFO   ] ggml - ggml_opencl: cl_qcom_subgroup_shuffle support: true
+[INFO   ] ggml - ggml_opencl: flattening quantized weights representation as struct of arrays (GGML_OPENCL_SOA_Q)
+[INFO   ] ggml - ggml_opencl: using kernels optimized for Adreno (GGML_OPENCL_USE_ADRENO_KERNELS)
+[INFO   ] ggml - ggml_opencl: Adreno large buffer enabled
+[INFO   ] diffusion_engine.cpp:1494 - Weight type stat:                      f32: 592  |     f16: 134  |    q4_0: 270  |    q4_1: 30   |    q3_K: 168  |    q6_K: 1    
+[INFO   ] diffusion_engine.cpp:1495 - Conditioner weight type stat:          f32: 73   |    q3_K: 168  |    q6_K: 1    
+[INFO   ] diffusion_engine.cpp:1496 - Diffusion model weight type stat:      f32: 519  |     f16: 6    |    q4_0: 270  |    q4_1: 30   
+[INFO   ] diffusion_engine.cpp:1497 - VAE weight type stat:             
+[INFO   ] wan.hpp:967  - Wan2.2-TI2V-5B
+[INFO   ] model_builders.cpp:584  - using TAE for encoding / decoding
+[INFO   ] diffusion_engine.cpp:1184 - Using flash attention in the diffusion model
+[INFO   ] diffusion_engine.cpp:1319 - total params memory size = 5633.96MB (VRAM 2892.18MB, RAM 2741.79MB): text_encoders 2720.00MB(RAM), diffusion_model 2892.18MB(VRAM), vae 21.79MB(RAM), controlnet 0.00MB(N/A), extensions 0.00MB(N/A)
+[INFO   ] diffusion_engine.cpp:1438 - running in FLOW mode
+[INFO   ] denoiser.hpp:1129 - get_sigmas with discrete scheduler
+[INFO   ] request.cpp:420  - sampling using Euler method
+[INFO   ] ggml_graph_cut.cpp:1034 - t5 build cached graph cut plan done (taking 2 ms)
+  |###########                                       | 51/242 - 1.66GB/s
+[INFO   ] model_loader.cpp:1367 - loading tensors completed, taking 2.10s (read: 1.24s, memcpy: 0.00s, convert: 0.00s, copy_to_backend: 0.00s)
+[INFO   ] video.cpp:1212 - get_learned_condition completed, taking 81.43s
+[INFO   ] video.cpp:1615 - generate_video 480x832x25
+[INFO   ] ggml_graph_cut.cpp:1034 - Wan2.2-TI2V-5B build cached graph cut plan done (taking 7 ms)
+[INFO   ] ggml - ggml_opencl: kernel cache enabled at '/data/local/tmp/llama.cpp/cl-cache'
+[INFO   ] ggml - ggml_opencl: loading OpenCL kernels
+  |###############################################   | 759/825 - 313.29MB/s
+[INFO   ] model_loader.cpp:1367 - loading tensors completed, taking 9.55s (read: 1.82s, memcpy: 0.00s, convert: 0.00s, copy_to_backend: 7.56s)
+  |============>                                     | 1/4 - 92.97s/it
+  |=========================>                        | 2/4 - 81.80s/it
+  |=====================================>            | 3/4 - 82.25s/it
+  |==================================================| 4/4 - 83.13s/it
+[INFO   ] video.cpp:1712 - sampling completed, taking 340.44s
+[INFO   ] video.cpp:1856 - generating latent video completed, taking 340.46s
+[INFO   ] ggml_graph_cut.cpp:1034 - taehv build cached graph cut plan done (taking 1 ms)
+[INFO   ] model_loader.cpp:1367 - loading tensors completed, taking 0.20s (read: 0.03s, memcpy: 0.00s, convert: 0.00s, copy_to_backend: 0.00s)
+[INFO   ] video.cpp:1243 - decode_first_stage completed, taking 57.30s
+[INFO   ] video.cpp:1944 - generate_video completed in 479.29s
+[INFO   ] main.cpp:547  - save result video to '/data/local/tmp/t1.webm'
