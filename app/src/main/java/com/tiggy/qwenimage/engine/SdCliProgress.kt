@@ -25,6 +25,8 @@ data class SdCliEvent(
 class SdCliProgressParser {
     private val pending = StringBuilder()
     private var lastStep = 0
+    private var samplingStarted = false
+    private var samplingFinished = false
 
     fun feed(chunk: String): List<SdCliEvent> {
         pending.append(chunk)
@@ -51,21 +53,26 @@ class SdCliProgressParser {
         val line = raw.replace(ANSI, "").trim()
         if (line.isEmpty()) return null
 
+        if (line.contains("sampling using ")) {
+            samplingStarted = true
+            return null
+        }
         STEP.find(line)?.let { m ->
+            if (!samplingStarted || samplingFinished) return null
             val step = m.groupValues[1].toInt()
             val total = m.groupValues[2].toInt()
             if (total <= 0 || step > total) return null
             val rate = m.groupValues[3].toFloatOrNull() ?: return null
             val secondsPerStep = if (m.groupValues[4] == "it/s") (if (rate > 0f) 1f / rate else null) else rate
-            // The bar is redrawn several times per step; only a changed step number is news.
             if (step == lastStep) return null
             lastStep = step
             return SdCliEvent(VideoStage.Denoising, step, total, secondsPerStep)
         }
         if (line.contains("get_learned_condition completed")) {
-            return SdCliEvent(VideoStage.Denoising, finishedSeconds = seconds(line))
+            return SdCliEvent(VideoStage.TextEncoding, finishedSeconds = seconds(line))
         }
         if (line.contains("sampling completed")) {
+            samplingFinished = true
             return SdCliEvent(VideoStage.Decoding, finishedSeconds = seconds(line))
         }
         if (line.contains("decode_first_stage completed")) {
@@ -73,9 +80,6 @@ class SdCliProgressParser {
         }
         if (line.contains("generate_video completed")) {
             return SdCliEvent(VideoStage.Saving, finishedSeconds = seconds(line), completed = true)
-        }
-        if (line.contains("sampling using ") || line.contains("running in FLOW mode")) {
-            return SdCliEvent(VideoStage.TextEncoding)
         }
         if (line.contains("loading diffusion model") || line.contains("loading t5xxl") || line.contains("loading tae")) {
             return SdCliEvent(VideoStage.Loading)

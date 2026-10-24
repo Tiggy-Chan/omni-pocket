@@ -65,6 +65,7 @@ data class QwenUiState(
     val musicJobs: List<MusicJob> = emptyList(),
     val musicPlaylist: List<MusicTrack> = emptyList(),
     val activeMusicTrack: MusicTrack? = null,
+    val nowPlayingTrack: MusicTrack? = null,
     val isMusicPlaying: Boolean = false,
     val musicPositionMs: Int = 0,
     val musicDurationMs: Int = 0,
@@ -119,7 +120,15 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             musicEngine.durationMs.collect { dur -> _state.update { it.copy(musicDurationMs = dur) } }
         }
         viewModelScope.launch {
-            musicEngine.activeTrack.collect { trk -> if (trk != null) _state.update { it.copy(activeMusicTrack = trk) } }
+            musicEngine.activeTrack.collect { track -> _state.update { it.copy(nowPlayingTrack = track) } }
+        }
+        viewModelScope.launch {
+            musicEngine.playbackError.collect { message ->
+                if (message != null) {
+                    _state.update { it.copy(error = message) }
+                    musicEngine.clearPlaybackError()
+                }
+            }
         }
 
         viewModelScope.launch {
@@ -145,9 +154,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setDomain(domain: AppDomain) {
-        if (domain != AppDomain.MusicStudio && _state.value.isMusicPlaying) {
-            musicEngine.stopPlayback()
-        }
+        if (domain != AppDomain.MusicStudio) musicEngine.pausePlayback()
         _state.update { it.copy(domain = domain) }
     }
 
@@ -216,35 +223,36 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.Default) {
             runCatching {
-                videoEngine.executeGeneration(job) { progress, stage, log ->
-                    _state.update {
-                        it.copy(
-                            progress = (progress * 100).toInt(),
-                            status = stage
+                videoEngine.executeGeneration(job) { update ->
+                    _state.update { currentState ->
+                        currentState.copy(
+                            progress = update.progress?.let { (it * 100).toInt() } ?: currentState.progress,
+                            status = update.stage
                         )
                     }
-                    appendLog(log)
+                    update.log?.let(::appendLog)
                 }
             }.onSuccess { videoItem ->
                 _state.update {
                     it.copy(
                         isBusy = false,
                         progress = 100,
-                        status = "视频渲染完毕：${videoItem.id.take(8)}.mp4",
+                        status = "视频已保存：${File(videoItem.videoPath).name}",
                         videoGallery = listOf(videoItem) + it.videoGallery.filter { old -> old.id != videoItem.id },
                         activeVideo = videoItem
                     )
                 }
-                appendLog("视频渲染全流程完成，已存入作品展映库：${videoItem.videoPath}")
+                appendLog("视频已存入作品库：${videoItem.videoPath}")
             }.onFailure { error ->
+                val cancelled = error is kotlinx.coroutines.CancellationException
                 _state.update {
                     it.copy(
                         isBusy = false,
-                        status = "视频渲染失败",
-                        error = error.message ?: error.toString()
+                        status = if (cancelled) "视频生成已取消" else "视频生成失败",
+                        error = if (cancelled) null else error.message ?: error.toString()
                     )
                 }
-                appendLog("视频渲染异常: ${error.message}")
+                appendLog(if (cancelled) "视频生成已取消" else "视频生成异常: ${error.message}")
             }
         }
     }
@@ -261,17 +269,28 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     fun setMusicGuidanceScale(scale: Float) = _state.update { it.copy(musicSettings = it.musicSettings.copy(guidanceScale = scale)) }
     fun setMusicServerUrl(url: String) = _state.update { it.copy(musicSettings = it.musicSettings.copy(serverUrl = url)) }
 
-    // Music playback
-    fun playMusic(track: MusicTrack) = musicEngine.playTrack(track)
-    fun toggleMusicPlayPause() = musicEngine.togglePlayPause()
+    fun playMusic(track: MusicTrack) {
+        if (_state.value.nowPlayingTrack?.id == track.id) {
+            musicEngine.togglePlayPause(track)
+        } else {
+            _state.update { it.copy(activeMusicTrack = track) }
+            musicEngine.playTrack(track)
+        }
+    }
+
+    fun toggleMusicPlayPause() {
+        val track = _state.value.activeMusicTrack ?: _state.value.nowPlayingTrack ?: return
+        musicEngine.togglePlayPause(track)
+    }
+
     fun seekMusic(positionMs: Int) = musicEngine.seekTo(positionMs)
     fun stopMusic() = musicEngine.stopPlayback()
+    fun cancelMusicGeneration() = musicEngine.cancelGeneration()
     fun setActiveTrack(track: MusicTrack) = _state.update { it.copy(activeMusicTrack = track) }
 
     fun startMusicGeneration() {
         if (_state.value.isBusy) return
-        val current = _state.value
-        val settings = current.musicSettings
+        val settings = _state.value.musicSettings
         runCatching { settings.validate() }.onFailure { error ->
             _state.update { it.copy(error = error.message ?: "参数校验失败") }
             return
@@ -282,7 +301,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             title = settings.title.ifBlank { "未命名曲目" },
             settings = settings,
             state = "running",
-            stageDescription = "正在规划生成..."
+            stageDescription = "等待工作站"
         )
 
         _state.update {
@@ -290,47 +309,60 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                 isBusy = true,
                 error = null,
                 musicJobs = it.musicJobs + job,
-                status = "准备端侧生成音乐..."
+                status = "正在连接 YuE2 工作站"
             )
         }
-        appendLog("----------------------------------------")
-        appendLog("音乐任务启动 [${job.id.take(8)}]：《${settings.title}》")
-        appendLog("曲风描述：${settings.style.take(60)}...")
-        appendLog("规格：48kHz 双声道高保真 | CoT: ${settings.cotMode.tag} | 速度: ${settings.bpm} BPM | 步数: ${settings.odeSteps}")
-        appendLog("计算调度：端侧硬件原生加速 (ARM64-v8a · OpenCL GPU + CPU)")
+        appendLog("音乐任务 ${job.id.take(8)} · ${settings.bpm} BPM · ${settings.cotMode.tag} · ${settings.odeSteps} 步")
 
         viewModelScope.launch {
             runCatching {
-                musicEngine.executeGeneration(job) { progress, stage, log ->
-                    _state.update {
-                        it.copy(
-                            progress = (progress * 100).toInt(),
-                            status = stage
+                musicEngine.executeGeneration(job) { update ->
+                    _state.update { currentState ->
+                        currentState.copy(
+                            progress = update.progress?.let { (it * 100).toInt() } ?: currentState.progress,
+                            status = update.stage,
+                            musicJobs = currentState.musicJobs.map { item ->
+                                if (item.id == job.id) item.copy(
+                                    progress = update.progress ?: item.progress,
+                                    stageDescription = update.stage
+                                ) else item
+                            }
                         )
                     }
-                    appendLog(log)
+                    update.log?.let(::appendLog)
                 }
             }.onSuccess { track ->
-                _state.update {
-                    it.copy(
+                _state.update { currentState ->
+                    currentState.copy(
                         isBusy = false,
                         progress = 100,
-                        status = "音乐生成完毕：${track.title}",
-                        musicPlaylist = listOf(track) + it.musicPlaylist.filter { old -> old.id != track.id },
+                        status = "音乐已保存：${track.title}",
+                        musicJobs = currentState.musicJobs.map { item ->
+                            if (item.id == job.id) item.copy(state = "completed", progress = 1f, stageDescription = "已保存", resultAudioPath = track.audioPath) else item
+                        },
+                        musicPlaylist = listOf(track) + currentState.musicPlaylist.filter { old -> old.id != track.id },
                         activeMusicTrack = track
                     )
                 }
-                appendLog("音频生成全流程完成，已存入曲库：${track.title}")
+                appendLog("音频已存入曲库：${track.title}")
                 musicEngine.playTrack(track)
             }.onFailure { error ->
-                _state.update {
-                    it.copy(
+                val cancelled = error is kotlinx.coroutines.CancellationException
+                _state.update { currentState ->
+                    currentState.copy(
                         isBusy = false,
-                        status = "音乐生成失败",
-                        error = error.message ?: error.toString()
+                        status = if (cancelled) "音乐生成已取消" else "音乐生成失败",
+                        error = if (cancelled) null else error.message ?: error.toString(),
+                        musicJobs = currentState.musicJobs.map { item ->
+                            if (item.id == job.id) item.copy(
+                                state = if (cancelled) "cancelled" else "failed",
+                                stageDescription = if (cancelled) "已取消" else "生成失败",
+                                error = if (cancelled) null else error.message
+                            ) else item
+                        }
                     )
                 }
-                appendLog("音乐生成异常: ${error.message}")
+                appendLog(if (cancelled) "音乐生成已取消" else "音乐生成异常：${error.message}")
             }
         }
     }

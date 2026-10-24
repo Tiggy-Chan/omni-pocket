@@ -2,6 +2,7 @@ package com.tiggy.qwenimage.engine
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.MediaMetadataRetriever
 import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
@@ -9,7 +10,10 @@ import com.tiggy.qwenimage.data.CoTMode
 import com.tiggy.qwenimage.data.MusicJob
 import com.tiggy.qwenimage.data.MusicSettings
 import com.tiggy.qwenimage.data.MusicTrack
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,15 +21,29 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URL
+import java.io.IOException
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 class MusicEngine(private val context: Context) : AutoCloseable {
     private var mediaPlayer: MediaPlayer? = null
+    private var preparing = false
     private val handler = Handler(Looper.getMainLooper())
-    private var updateRunnable: Runnable? = null
+    private val activeClients = ConcurrentHashMap.newKeySet<WorkstationClient>()
+
+    @Volatile
+    private var cancelRequested = false
+
+    private val progressUpdater = object : Runnable {
+        override fun run() {
+            val player = mediaPlayer ?: return
+            if (player.isPlaying) {
+                _currentPositionMs.value = player.currentPosition
+                _durationMs.value = player.duration
+                handler.postDelayed(this, 250)
+            }
+        }
+    }
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
@@ -39,196 +57,227 @@ class MusicEngine(private val context: Context) : AutoCloseable {
     private val _activeTrack = MutableStateFlow<MusicTrack?>(null)
     val activeTrack: StateFlow<MusicTrack?> = _activeTrack.asStateFlow()
 
+    private val _playbackError = MutableStateFlow<String?>(null)
+    val playbackError: StateFlow<String?> = _playbackError.asStateFlow()
+
     private val musicDir = File(context.filesDir, "omni_music").apply { mkdirs() }
-
-    init {
-        startProgressUpdater()
-    }
-
-    private fun startProgressUpdater() {
-        updateRunnable = object : Runnable {
-            override fun run() {
-                mediaPlayer?.let { player ->
-                    if (player.isPlaying) {
-                        _currentPositionMs.value = player.currentPosition
-                        _durationMs.value = player.duration
-                    }
-                }
-                handler.postDelayed(this, 100)
-            }
-        }
-        handler.post(updateRunnable!!)
-    }
 
     fun playTrack(track: MusicTrack, onCompletion: (() -> Unit)? = null) {
         val file = File(track.audioPath)
-        if (!file.exists()) {
+        if (!file.isFile) {
+            _playbackError.value = "音频文件不存在"
             return
         }
 
+        releasePlayer()
+        _activeTrack.value = track
+        _currentPositionMs.value = 0
+        _durationMs.value = (track.durationSec * 1000).toInt()
         try {
-            mediaPlayer?.stop()
-            mediaPlayer?.release()
-            mediaPlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .build()
-                )
-                setDataSource(file.absolutePath)
-                prepare()
-                start()
-                setOnCompletionListener {
-                    _isPlaying.value = false
-                    _currentPositionMs.value = 0
-                    onCompletion?.invoke()
+            val player = MediaPlayer()
+            mediaPlayer = player
+            player.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .build()
+            )
+            player.setDataSource(file.absolutePath)
+            player.setOnPreparedListener { prepared ->
+                if (mediaPlayer !== prepared) return@setOnPreparedListener
+                preparing = false
+                prepared.start()
+                _isPlaying.value = true
+                _durationMs.value = prepared.duration
+                handler.post(progressUpdater)
+                onCompletion?.let { completion ->
+                    prepared.setOnCompletionListener {
+                        _isPlaying.value = false
+                        _currentPositionMs.value = 0
+                        handler.removeCallbacks(progressUpdater)
+                        completion()
+                    }
                 }
             }
-            _activeTrack.value = track
-            _isPlaying.value = true
-            _durationMs.value = mediaPlayer?.duration ?: (track.durationSec * 1000).toInt()
-            _currentPositionMs.value = 0
-        } catch (e: Exception) {
-            e.printStackTrace()
-            _isPlaying.value = false
+            player.setOnCompletionListener {
+                _isPlaying.value = false
+                _currentPositionMs.value = 0
+                handler.removeCallbacks(progressUpdater)
+            }
+            player.setOnErrorListener { failed, _, _ ->
+                if (mediaPlayer === failed) playbackFailed("无法播放此音频")
+                true
+            }
+            preparing = true
+            player.prepareAsync()
+        } catch (error: Exception) {
+            playbackFailed(error.message ?: "无法初始化播放器")
         }
     }
 
-    fun togglePlayPause() {
-        val player = mediaPlayer ?: return
-        if (player.isPlaying) {
-            player.pause()
-            _isPlaying.value = false
-        } else {
-            player.start()
-            _isPlaying.value = true
+    fun togglePlayPause(track: MusicTrack) {
+        val player = mediaPlayer
+        if (player == null || _activeTrack.value?.id != track.id) {
+            playTrack(track)
+            return
         }
+        if (preparing) return
+        try {
+            if (player.isPlaying) {
+                pausePlayback()
+            } else {
+                if (_durationMs.value > 0 && _currentPositionMs.value >= _durationMs.value) player.seekTo(0)
+                player.start()
+                _isPlaying.value = true
+                handler.post(progressUpdater)
+            }
+        } catch (error: Exception) {
+            playbackFailed(error.message ?: "播放器状态异常")
+        }
+    }
+
+    fun pausePlayback() {
+        val player = mediaPlayer ?: return
+        try {
+            if (player.isPlaying) player.pause()
+        } catch (error: Exception) {
+            playbackFailed(error.message ?: "无法暂停播放")
+            return
+        }
+        _isPlaying.value = false
+        handler.removeCallbacks(progressUpdater)
     }
 
     fun seekTo(positionMs: Int) {
-        mediaPlayer?.seekTo(positionMs)
-        _currentPositionMs.value = positionMs
+        try {
+            mediaPlayer?.seekTo(positionMs)
+            _currentPositionMs.value = positionMs
+        } catch (error: Exception) {
+            playbackFailed(error.message ?: "无法调整播放位置")
+        }
     }
 
     fun stopPlayback() {
-        mediaPlayer?.stop()
-        _isPlaying.value = false
+        releasePlayer()
         _currentPositionMs.value = 0
     }
 
-    /**
-     * Executes genuine music generation via the local YuE2 workstation service.
-     */
+    fun clearPlaybackError() {
+        _playbackError.value = null
+    }
+
+    private fun playbackFailed(message: String) {
+        _playbackError.value = message
+        releasePlayer()
+    }
+
+    private fun releasePlayer() {
+        preparing = false
+        handler.removeCallbacks(progressUpdater)
+        mediaPlayer?.release()
+        mediaPlayer = null
+        _isPlaying.value = false
+    }
+
+    fun cancelGeneration() {
+        cancelRequested = true
+        activeClients.forEach { it.close() }
+    }
+
     suspend fun executeGeneration(
         job: MusicJob,
-        onProgress: (progress: Float, stage: String, log: String) -> Unit
+        onUpdate: (EngineUpdate) -> Unit
     ): MusicTrack = withContext(Dispatchers.IO) {
+        cancelRequested = false
+        job.settings.validate()
         val settings = job.settings
-        val serverBase = settings.serverUrl.trimEnd('/')
-
-        onProgress(0.05f, "正在连接 YuE2 本地推理工作站...", "[YuE2-3B] Connecting to local inference server: $serverBase...")
-
-        val healthUrl = URL("$serverBase/health")
-        val healthConn = (healthUrl.openConnection() as HttpURLConnection).apply {
-            connectTimeout = 3000
-            readTimeout = 3000
-            requestMethod = "GET"
-        }
-
-        val serverReady = runCatching {
-            healthConn.responseCode == 200
-        }.getOrDefault(false)
-        healthConn.disconnect()
-
-        if (!serverReady) {
-            val errorMsg = "未连接到本地 YuE2 推理服务 ($serverBase)。\n请在电脑上启动 yue2 server，并通过 USB 运行 'adb reverse tcp:8999 tcp:8999'，或输入电脑同一局域网的 IP 地址。"
-            onProgress(0f, "连接失败", "[YuE2-3B] 错误：无法连接至 $serverBase")
-            throw IllegalStateException(errorMsg)
-        }
-
-        onProgress(0.12f, "已连接工作站，正在提交词曲生成任务...", "[YuE2-3B] Connected! Submitting task: 《${settings.title.ifBlank { "未命名" }}》 (BPM: ${settings.bpm}, CoT: ${settings.cotMode.tag})")
-
-        val generateUrl = URL("$serverBase/generate")
-        val conn = (generateUrl.openConnection() as HttpURLConnection).apply {
-            connectTimeout = 10000
-            readTimeout = 900000 // 15 minutes timeout for full neural music generation
-            requestMethod = "POST"
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
-        }
-
-        val requestPayload = JSONObject().apply {
-            put("title", settings.title)
-            put("style", settings.style)
-            put("lyrics", settings.lyrics)
-            put("bpm", settings.bpm)
-            put("cot", settings.cotMode.tag)
-            put("seed", settings.seed)
-            put("targetDurationSec", settings.targetDurationSec)
-            put("odeSteps", settings.odeSteps)
-        }
-
-        onProgress(0.25f, "工作站正在进行乐理符号推演 (CoT Planning)...", "[YuE2-3B] Workstation running 28-layer AR Transformer & CoT planning...")
-
-        conn.outputStream.use { os ->
-            os.write(requestPayload.toString().toByteArray(Charsets.UTF_8))
-            os.flush()
-        }
-
-        onProgress(0.50f, "工作站正在求解声学流匹配 (Flow Matching ODE)...", "[YuE2-3B] Workstation executing 32-step ODE flow matching & semantic autoregression...")
-
-        val responseCode = conn.responseCode
-        if (responseCode != 200) {
-            val errBody = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "HTTP $responseCode"
-            conn.disconnect()
-            throw IllegalStateException("工作站生成失败 ($responseCode): $errBody")
-        }
-
-        val respText = conn.inputStream.bufferedReader().use { it.readText() }
-        conn.disconnect()
-
-        onProgress(0.85f, "正在从工作站接收 48kHz 高保真音频...", "[YuE2-3B] Generation complete on workstation! Transferring audio file...")
-
-        val respJson = JSONObject(respText)
-        val audioRelUrl = respJson.getString("audioUrl")
-        val durationSec = respJson.optDouble("durationSec", settings.targetDurationSec.toDouble()).toFloat()
-        val sampleRate = respJson.optInt("sampleRate", 48000)
-        val abcScore = respJson.optString("abcScore").takeIf { it.isNotBlank() }
-
-        // Download audio file to local musicDir
-        val audioFileUrl = URL(if (audioRelUrl.startsWith("http")) audioRelUrl else "$serverBase$audioRelUrl")
-        val trackId = UUID.randomUUID().toString()
-        val extension = if (audioRelUrl.endsWith(".mp3", ignoreCase = true)) "mp3" else "wav"
-        val outputFile = File(musicDir, "yue2_${System.currentTimeMillis()}_${trackId.take(6)}.$extension")
-
-        val dlConn = (audioFileUrl.openConnection() as HttpURLConnection).apply {
-            connectTimeout = 10000
-            readTimeout = 60000
-        }
-        dlConn.inputStream.use { input ->
-            FileOutputStream(outputFile).use { output ->
-                input.copyTo(output)
+        val client = WorkstationClient(settings.serverUrl)
+        activeClients += client
+        try {
+            onUpdate(EngineUpdate(null, "正在连接 YuE2 工作站"))
+            if (!client.isHealthy()) {
+                throw IOException("无法连接 YuE2 工作站。请启动服务；USB 连接可运行 adb reverse tcp:8999 tcp:8999")
             }
+            val payload = JSONObject().apply {
+                put("title", settings.title)
+                put("style", settings.style)
+                put("lyrics", settings.lyrics)
+                put("bpm", settings.bpm)
+                put("cot", settings.cotMode.tag)
+                put("seed", settings.seed)
+                put("targetDurationSec", settings.targetDurationSec)
+                put("odeSteps", settings.odeSteps)
+                put("guidanceScale", settings.guidanceScale.toDouble())
+            }
+            onUpdate(EngineUpdate(null, "工作站正在生成", "任务已提交，等待服务器返回"))
+            val response = client.postJson("/generate", payload, 900_000)
+            currentCoroutineContext().ensureActive()
+            if (cancelRequested) throw CancellationException("已取消音乐生成")
+
+            val reference = response.getString("audioUrl")
+            val extension = client.resolve(reference).path.substringAfterLast('.', "wav").lowercase()
+                .takeIf { it in AUDIO_EXTENSIONS } ?: "wav"
+            val trackId = "yue2_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
+            val outputFile = File(musicDir, "$trackId.$extension")
+            onUpdate(EngineUpdate(null, "正在接收音频"))
+            client.download(reference, outputFile, 512L * 1024 * 1024, "audio")
+
+            val info = readAudioInfo(outputFile)
+            require(info.valid) { "下载内容不是可识别的音频" }
+            val track = MusicTrack(
+                id = trackId,
+                title = settings.title.ifBlank { "未命名曲目" },
+                style = settings.style,
+                lyrics = settings.lyrics,
+                cotMode = settings.cotMode,
+                abcScore = response.optString("abcScore").takeIf { it.isNotBlank() },
+                audioPath = outputFile.absolutePath,
+                durationSec = info.durationSec.takeIf { it > 0 }
+                    ?: response.optDouble("durationSec", settings.targetDurationSec.toDouble()).toFloat(),
+                sampleRate = info.sampleRate.takeIf { it > 0 } ?: response.optInt("sampleRate", 0),
+                bpm = settings.bpm,
+                createdAt = System.currentTimeMillis()
+            )
+            saveMetadata(track)
+            onUpdate(EngineUpdate(1f, "音频已保存", outputFile.name))
+            track
+        } catch (error: Throwable) {
+            if (cancelRequested) throw CancellationException("已取消音乐生成") else throw error
+        } finally {
+            activeClients -= client
+            client.close()
         }
-        dlConn.disconnect()
-
-        onProgress(1.0f, "生成完成！音频已入库", "[YuE2-3B] Finished: ${outputFile.name} saved (${durationSec.toInt()}s, ${sampleRate}Hz, genuine vocals)")
-
-        MusicTrack(
-            id = trackId,
-            title = settings.title.ifBlank { "未命名曲目" },
-            style = settings.style,
-            lyrics = settings.lyrics,
-            cotMode = settings.cotMode,
-            abcScore = abcScore,
-            audioPath = outputFile.absolutePath,
-            durationSec = durationSec,
-            sampleRate = sampleRate,
-            bpm = settings.bpm,
-            createdAt = System.currentTimeMillis()
-        )
     }
+
+    private fun readAudioInfo(file: File): AudioInfo = runCatching {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(file.absolutePath)
+            val mimeType = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE).orEmpty()
+            val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO) == "yes"
+            require(mimeType.startsWith("audio/") || hasAudio) { "不是音频" }
+            AudioInfo(
+                valid = true,
+                durationSec = (retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toFloatOrNull() ?: 0f) / 1000,
+                sampleRate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)?.toIntOrNull() ?: 0
+            )
+        } finally {
+            retriever.release()
+        }
+    }.getOrDefault(AudioInfo())
+
+    private fun saveMetadata(track: MusicTrack) {
+        val audio = File(track.audioPath)
+        val target = metadataFile(audio)
+        val partial = File(audio.parentFile, "${audio.nameWithoutExtension}.json.part")
+        partial.writeText(track.toJson().toString())
+        if (target.exists() && !target.delete()) throw IOException("无法更新音频元数据")
+        if (!partial.renameTo(target)) throw IOException("无法保存音频元数据")
+    }
+
+    private fun metadataFile(audio: File) = File(audio.parentFile, "${audio.nameWithoutExtension}.json")
+
+    private data class AudioInfo(val valid: Boolean = false, val durationSec: Float = 0f, val sampleRate: Int = 0)
 
     /**
      * Preloads genuine YuE2 neural recordings (with full vocals) bundled in assets.
@@ -283,6 +332,7 @@ class MusicEngine(private val context: Context) : AutoCloseable {
             }
 
             if (targetFile.exists()) {
+                val info = readAudioInfo(targetFile)
                 tracks.add(
                     MusicTrack(
                         id = "preset_real_$idx",
@@ -292,21 +342,46 @@ class MusicEngine(private val context: Context) : AutoCloseable {
                         cotMode = CoTMode.Melody,
                         abcScore = if (idx == 0) SAMPLE_ABC_SCORE else null,
                         audioPath = targetFile.absolutePath,
-                        durationSec = meta.durationSec,
-                        sampleRate = 48000,
+                        durationSec = info.durationSec.takeIf { it > 0 } ?: meta.durationSec,
+                        sampleRate = info.sampleRate,
                         bpm = meta.bpm,
-                        createdAt = System.currentTimeMillis() - (4 - idx) * 3600000L
+                        createdAt = targetFile.lastModified()
                     )
                 )
             }
         }
-        return tracks
+
+        val bundledPaths = tracks.map { it.audioPath }.toSet()
+        val generated = musicDir.listFiles { file ->
+            file.isFile && file.extension.lowercase() in AUDIO_EXTENSIONS && file.absolutePath !in bundledPaths
+        }.orEmpty().mapNotNull { file ->
+            val restored = runCatching { MusicTrack.fromJson(JSONObject(metadataFile(file).readText())) }.getOrNull()
+            val info = readAudioInfo(file)
+            if (!info.valid) return@mapNotNull null
+            restored?.copy(
+                audioPath = file.absolutePath,
+                durationSec = info.durationSec.takeIf { it > 0 } ?: restored.durationSec,
+                sampleRate = info.sampleRate.takeIf { it > 0 } ?: restored.sampleRate
+            ) ?: MusicTrack(
+                id = file.nameWithoutExtension,
+                title = file.nameWithoutExtension,
+                style = "",
+                lyrics = "",
+                cotMode = CoTMode.Off,
+                audioPath = file.absolutePath,
+                durationSec = info.durationSec,
+                sampleRate = info.sampleRate,
+                createdAt = file.lastModified()
+            )
+        }
+        return (generated + tracks).sortedByDescending { it.createdAt }
     }
 
     override fun close() {
+        releasePlayer()
         handler.removeCallbacksAndMessages(null)
-        mediaPlayer?.release()
-        mediaPlayer = null
+        cancelGeneration()
+        _activeTrack.value = null
     }
 
     private data class TrackAssetMeta(
@@ -319,6 +394,7 @@ class MusicEngine(private val context: Context) : AutoCloseable {
     )
 
     companion object {
+        private val AUDIO_EXTENSIONS = setOf("wav", "mp3", "flac", "ogg", "m4a")
         private const val SAMPLE_ABC_SCORE = """X:1
 T:《夏夜晚风》(Summer Breeze)
 M:4/4

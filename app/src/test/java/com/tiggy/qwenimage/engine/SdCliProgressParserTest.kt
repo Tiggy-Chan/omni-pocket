@@ -29,7 +29,7 @@ class SdCliProgressParserTest {
             stages
         )
 
-        val textEncoder = events.first { it.finishedSeconds != null && it.stage == VideoStage.Denoising && it.step == 0 }
+        val textEncoder = events.first { it.finishedSeconds != null && it.stage == VideoStage.TextEncoding }
         assertEquals(81.43f, textEncoder.finishedSeconds!!, 0.001f)
         val done = events.last { it.completed }
         assertEquals(479.29f, done.finishedSeconds!!, 0.001f)
@@ -45,6 +45,7 @@ class SdCliProgressParserTest {
     @Test
     fun repeatedRedrawsOfTheSameStepCountOnce() {
         val parser = SdCliProgressParser()
+        parser.feed("sampling using Euler method\n")
         val bar = "  |====>      | 2/4 - 81.80s/it\u001B[K\r"
         val events = parser.feed(bar + bar + bar)
         assertEquals(1, events.size)
@@ -65,9 +66,18 @@ class SdCliProgressParserTest {
     @Test
     fun convertsItPerSecondToSecondsPerStep() {
         val parser = SdCliProgressParser()
-        val event = parser.feed("  |==| 1/8 - 2.00it/s\r").single()
+        val event = parser.feed("sampling using Euler method\n  |==| 1/8 - 2.00it/s\r").single()
         assertNotNull(event.secondsPerStep)
         assertEquals(0.5f, event.secondsPerStep!!, 0.0001f)
+    }
+
+    @Test
+    fun ignoresVaeTilingAfterSamplingCompletes() {
+        val parser = SdCliProgressParser()
+        parser.feed("sampling using Euler method\n  |==| 4/4 - 81.80s/it\r")
+        parser.feed("sampling completed, taking 340.44s\n")
+        val events = parser.feed("  |==| 1/10 - 2.00s/it\r  |==| 2/10 - 2.00s/it\r")
+        assertTrue(events.isEmpty())
     }
 
     @Test
