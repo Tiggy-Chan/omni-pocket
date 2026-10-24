@@ -50,6 +50,8 @@ class QwenEngine(private val modelDir: File, private val settings: EngineSetting
         return model.edit(prompt, input, input2, tier, steps, seed, output, onProgress)
     }
 
+    fun cancel() = model.cancel()
+
     override fun close() = model.close()
 
     companion object {

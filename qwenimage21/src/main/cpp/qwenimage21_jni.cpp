@@ -1,6 +1,7 @@
 // JNI bridge for com.scsonic.qwenimage21.QwenImage21 -> MNN QwenImage21Diffusion.
 #include <jni.h>
 #include <android/log.h>
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <new>
@@ -15,10 +16,18 @@ using namespace MNN::DIFFUSION;
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 namespace {
+constexpr jint kCancelled = 4;
+constexpr int kRunIdle = 0;
+constexpr int kRunActive = 1;
+constexpr int kRunCancelling = 2;
+struct GenerationCancelled {};
+struct JavaExceptionPending {};
+
 struct Handle {
     std::unique_ptr<Diffusion> model;
     QwenImage21Diffusion* qwen = nullptr;  // same object, typed
     std::mutex mutex;
+    std::atomic<int> runState{kRunIdle};
     int errorCode = 0;
     std::string error;
 };
@@ -57,7 +66,7 @@ Java_com_scsonic_qwenimage21_QwenImage21_nativeCreate(JNIEnv* env, jclass, jstri
     return reinterpret_cast<jlong>(handle);
 }
 
-// Returns QwenImage21Diffusion::ErrorCode (0 = ok); the message is available from nativeLastError.
+// Returns 0 = ok, 4 = cancelled, or QwenImage21Diffusion::ErrorCode; nativeLastError holds the detail.
 extern "C" JNIEXPORT jint JNICALL
 Java_com_scsonic_qwenimage21_QwenImage21_nativeGenerate(JNIEnv* env, jclass, jlong ptr, jstring prompt,
                                                         jstring inputImage, jstring inputImage2, jstring outputPng,
@@ -70,10 +79,25 @@ Java_com_scsonic_qwenimage21_QwenImage21_nativeGenerate(JNIEnv* env, jclass, jlo
     std::lock_guard<std::mutex> lock(handle->mutex);
     jmethodID onProgress = nullptr;
     if (listener) {
-        onProgress = env->GetMethodID(env->GetObjectClass(listener), "onProgress", "(I)V");
+        jclass listenerClass = env->GetObjectClass(listener);
+        if (!listenerClass) return QwenImage21Diffusion::kRuntimeError;
+        onProgress = env->GetMethodID(listenerClass, "onProgress", "(I)V");
+        env->DeleteLocalRef(listenerClass);
+        if (!onProgress) return QwenImage21Diffusion::kRuntimeError;
     }
-    auto cb = [env, listener, onProgress](int p) {
-        if (onProgress) env->CallVoidMethod(listener, onProgress, (jint)p);
+    int expected = kRunIdle;
+    if (!handle->runState.compare_exchange_strong(expected, kRunActive, std::memory_order_relaxed)) {
+        handle->errorCode = QwenImage21Diffusion::kRuntimeError;
+        handle->error = "generation already active";
+        return handle->errorCode;
+    }
+    auto cb = [env, listener, onProgress, handle](int p) {
+        if (handle->runState.load(std::memory_order_relaxed) == kRunCancelling) throw GenerationCancelled{};
+        if (onProgress) {
+            env->CallVoidMethod(listener, onProgress, (jint)p);
+            if (env->ExceptionCheck()) throw JavaExceptionPending{};
+        }
+        if (handle->runState.load(std::memory_order_relaxed) == kRunCancelling) throw GenerationCancelled{};
     };
     bool ok = false;
     try {
@@ -98,11 +122,22 @@ Java_com_scsonic_qwenimage21_QwenImage21_nativeGenerate(JNIEnv* env, jclass, jlo
             handle->errorCode = QwenImage21Diffusion::kRuntimeError;
             handle->error = "generation failed";
         }
+    } catch (const GenerationCancelled&) {
+        handle->errorCode = kCancelled;
+        handle->error = "Generation cancelled";
+    } catch (const JavaExceptionPending&) {
+        handle->runState.store(kRunIdle, std::memory_order_relaxed);
+        return QwenImage21Diffusion::kRuntimeError;
     } catch (const std::bad_alloc&) {
         handle->errorCode = QwenImage21Diffusion::kOutOfMemory;
         handle->error = "Out of memory (allocation failed)";
     }
-    LOGI("generate %s %s", ok ? "ok" : "failed", handle->error.c_str());
+    if (handle->runState.exchange(kRunIdle, std::memory_order_relaxed) == kRunCancelling) {
+        handle->errorCode = kCancelled;
+        handle->error = "Generation cancelled";
+    }
+    LOGI("generate %s %s", handle->errorCode == 0 ? "ok" : (handle->errorCode == kCancelled ? "cancelled" : "failed"),
+         handle->error.c_str());
     return handle->errorCode;
 }
 
@@ -114,6 +149,13 @@ Java_com_scsonic_qwenimage21_QwenImage21_nativeLastError(JNIEnv* env, jclass, jl
 
 extern "C" JNIEXPORT jint JNICALL Java_com_scsonic_qwenimage21_QwenImage21_nativeAvailableMemoryMB(JNIEnv*, jclass) {
     return QwenImage21Diffusion::availableMemoryMB();
+}
+
+extern "C" JNIEXPORT void JNICALL Java_com_scsonic_qwenimage21_QwenImage21_nativeCancel(JNIEnv*, jclass, jlong ptr) {
+    auto handle = reinterpret_cast<Handle*>(ptr);
+    if (!handle) return;
+    int expected = kRunActive;
+    handle->runState.compare_exchange_strong(expected, kRunCancelling, std::memory_order_relaxed);
 }
 
 extern "C" JNIEXPORT void JNICALL Java_com_scsonic_qwenimage21_QwenImage21_nativeRelease(JNIEnv*, jclass, jlong ptr) {

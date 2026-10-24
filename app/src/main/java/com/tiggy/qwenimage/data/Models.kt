@@ -62,19 +62,45 @@ data class GenerationJob(
     val outputPath: String? = null,
     val error: String? = null,
     val elapsedMs: Long = 0,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val outputWidth: Int = 0,
+    val outputHeight: Int = 0
 ) {
     fun toJson() = JSONObject().apply {
         put("id", id); put("settings", settings.toJson()); put("state", state); put("progress", progress)
         put("output", outputPath); put("error", error); put("elapsedMs", elapsedMs); put("createdAt", createdAt)
+        put("outputWidth", outputWidth); put("outputHeight", outputHeight)
     }
     companion object {
         fun fromJson(o: JSONObject) = GenerationJob(
-            o.getString("id"), GenerationSettings.fromJson(o.getJSONObject("settings")), o.getString("state"),
-            o.optInt("progress"), o.optString("output").takeIf { it.isNotBlank() && it != "null" },
-            o.optString("error").takeIf { it.isNotBlank() && it != "null" }, o.optLong("elapsedMs"), o.optLong("createdAt")
+            id = o.getString("id"),
+            settings = GenerationSettings.fromJson(o.getJSONObject("settings")),
+            state = o.getString("state"),
+            progress = o.optInt("progress"),
+            outputPath = o.optString("output").takeIf { it.isNotBlank() && it != "null" },
+            error = o.optString("error").takeIf { it.isNotBlank() && it != "null" },
+            elapsedMs = o.optLong("elapsedMs"),
+            createdAt = o.optLong("createdAt"),
+            outputWidth = o.optInt("outputWidth"),
+            outputHeight = o.optInt("outputHeight")
         )
     }
+}
+
+fun ModelManifest.hasVae(tiny: Boolean): Boolean {
+    val paths = artifacts.map { it.path }.toSet()
+    val required = if (tiny) listOf("vae_decoder_tiny.mnn", "vae_encoder_tiny.mnn")
+    else listOf("vae_decoder.mnn", "vae_encoder.mnn")
+    return paths.containsAll(required)
+}
+
+fun GenerationSettings.validateFor(manifest: ModelManifest) {
+    validate()
+    require(mode != GenerationMode.ImageEdit || "image-edit" in manifest.features) { "当前模型不支持图片编辑" }
+    require(!turbo || "turbo" in manifest.features) { "当前模型未安装 Turbo" }
+    require(!officialTurbo || "official-turbo" in manifest.features) { "当前模型未安装官方 Turbo" }
+    require(manifest.hasVae(useTinyVae)) { if (useTinyVae) "当前模型缺少 Tiny VAE" else "当前模型缺少完整 VAE" }
+    require(inputUri2 == null || inputUri != null) { "请先选择第一张参考图" }
 }
 
 data class ModelArtifact(val path: String, val size: Long, val sha256: String)
@@ -121,11 +147,17 @@ data class ModelManifest(
             }
             require(artifacts.map { it.path }.distinct().size == artifacts.size) { "清单中出现重复文件" }
             val featuresArray = json.getJSONArray("features")
-            val features = (0 until featuresArray.length()).map { featuresArray.getString(it) }.toSet()
+            val declaredFeatures = (0 until featuresArray.length()).map { featuresArray.getString(it) }.toSet()
             val paths = artifacts.map { it.path }.toSet()
+            val hasTinyVae = paths.containsAll(listOf("vae_decoder_tiny.mnn", "vae_encoder_tiny.mnn"))
+            val hasRealVae = paths.containsAll(listOf("vae_decoder.mnn", "vae_encoder.mnn"))
+            val features = declaredFeatures + buildSet {
+                if (hasTinyVae) add("tiny-vae")
+                if (hasRealVae) add("real-vae")
+            }
             require(paths.containsAll(SHARED_FILES)) { "缺少共享模型组件" }
             require(paths.containsAll(listOf("dit.mnn", "dit.mnn.weight"))) { "缺少 DiT 基础模型" }
-            require(paths.containsAll(listOf("vae_decoder_tiny.mnn", "vae_encoder_tiny.mnn"))) { "缺少 Tiny VAE" }
+            require(hasTinyVae || hasRealVae) { "缺少可用的 VAE" }
             if ("image-edit" in features) require(paths.containsAll(EDIT_FILES)) { "缺少视觉编码器" }
             if ("turbo" in features) {
                 require(json.optBoolean("turboValidated", false)) { "Turbo 尚未通过回归验证" }

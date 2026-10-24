@@ -4,6 +4,8 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 
 import java.io.File;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * On-device Qwen-Image-2.1 text-to-image and image editing (MNN, OpenCL).
@@ -282,7 +284,10 @@ public final class QwenImage21 implements AutoCloseable {
         void onProgress(int percent);
     }
 
+    private static final int NATIVE_CANCELLED = 4;
+
     private final Options options;
+    private final ReentrantReadWriteLock handleLock = new ReentrantReadWriteLock();
     private long handle;
 
     /** Loads the runtime; the heavy stages are loaded lazily during generation. */
@@ -354,24 +359,31 @@ public final class QwenImage21 implements AutoCloseable {
 
     private synchronized void run(String prompt, String input, String input2, int width, int height, int steps,
                                   int seed, File outputPng, ProgressListener listener, String settings) {
-        if (handle == 0) throw new IllegalStateException("closed");
-        File parent = outputPng.getAbsoluteFile().getParentFile();
-        if (parent != null) parent.mkdirs();
-        CrashMarker marker = new CrashMarker(options.crashMarkerFile, settings + ", " + describe(options));
-        marker.stage(0);
-        ProgressListener wrapped = p -> {
-            marker.stage(p);
-            if (listener != null) listener.onProgress(p);
-        };
-        int code;
+        ReentrantReadWriteLock.ReadLock lock = handleLock.readLock();
+        lock.lock();
         try {
-            code = nativeGenerate(handle, prompt, input, input2, outputPng.getAbsolutePath(), steps, seed, width,
-                    height, options.turbo, options.officialTurbo, options.refSize.scale, options.tinyVae,
-                    options.dit2Bit, wrapped);
+            if (handle == 0) throw new IllegalStateException("closed");
+            File parent = outputPng.getAbsoluteFile().getParentFile();
+            if (parent != null) parent.mkdirs();
+            CrashMarker marker = new CrashMarker(options.crashMarkerFile, settings + ", " + describe(options));
+            marker.stage(0);
+            ProgressListener wrapped = p -> {
+                marker.stage(p);
+                if (listener != null) listener.onProgress(p);
+            };
+            int code;
+            try {
+                code = nativeGenerate(handle, prompt, input, input2, outputPng.getAbsolutePath(), steps, seed, width,
+                        height, options.turbo, options.officialTurbo, options.refSize.scale, options.tinyVae,
+                        options.dit2Bit, wrapped);
+            } finally {
+                marker.clear();
+            }
+            if (code == NATIVE_CANCELLED) throw new CancellationException("Generation cancelled");
+            if (code != 0) throw new QwenImage21Exception(code, nativeLastError(handle));
         } finally {
-            marker.clear();
+            lock.unlock();
         }
-        if (code != 0) throw new QwenImage21Exception(code, nativeLastError(handle));
     }
 
     /** Returns null if every file for text-to-image with the standard model exists, else the missing ones. */
@@ -451,11 +463,31 @@ public final class QwenImage21 implements AutoCloseable {
                 + (o.keepModelsLoaded ? ", keep models loaded" : "");
     }
 
+    /**
+     * Requests cooperative cancellation of the active generation, observed at progress callbacks. May be called from
+     * another thread; a cancelled run throws {@link CancellationException}. Does nothing when idle or closed.
+     */
+    public void cancel() {
+        ReentrantReadWriteLock.ReadLock lock = handleLock.readLock();
+        lock.lock();
+        try {
+            if (handle != 0) nativeCancel(handle);
+        } finally {
+            lock.unlock();
+        }
+    }
+
     @Override
     public synchronized void close() {
-        if (handle != 0) {
-            nativeRelease(handle);
-            handle = 0;
+        ReentrantReadWriteLock.WriteLock lock = handleLock.writeLock();
+        lock.lock();
+        try {
+            if (handle != 0) {
+                nativeRelease(handle);
+                handle = 0;
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -471,6 +503,8 @@ public final class QwenImage21 implements AutoCloseable {
     private static native String nativeLastError(long handle);
 
     private static native int nativeAvailableMemoryMB();
+
+    private static native void nativeCancel(long handle);
 
     private static native void nativeRelease(long handle);
 }

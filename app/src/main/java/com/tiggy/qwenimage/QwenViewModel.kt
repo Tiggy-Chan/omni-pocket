@@ -21,16 +21,25 @@ import com.tiggy.qwenimage.data.VideoJob
 import com.tiggy.qwenimage.data.VideoSettings
 import com.tiggy.qwenimage.data.VideoStudioTab
 import com.tiggy.qwenimage.data.WorkspaceTab
+import com.tiggy.qwenimage.data.hasVae
+import com.tiggy.qwenimage.data.validateFor
 import com.tiggy.qwenimage.engine.EngineSettings
 import com.tiggy.qwenimage.engine.MusicEngine
 import com.tiggy.qwenimage.engine.QwenEngine
 import com.tiggy.qwenimage.engine.VideoEngine
+import com.scsonic.qwenimage21.QwenImage21
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -42,6 +51,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 data class QwenUiState(
     val domain: AppDomain = AppDomain.ImageStudio,
@@ -77,14 +87,17 @@ data class QwenUiState(
     val activeVideo: VideoItem? = null
 )
 
+@OptIn(kotlinx.coroutines.FlowPreview::class)
 class QwenViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ModelRepository(application)
     private val preferences = application.getSharedPreferences("qwen-pocket", Application.MODE_PRIVATE)
     private val restoredJobs = runCatching {
         val array = JSONArray(preferences.getString("jobs", "[]"))
-        (0 until array.length()).map { GenerationJob.fromJson(array.getJSONObject(it)) }
-            .filter { it.state != "running" }
-            .map { if (it.state == "running") it.copy(state = "queued") else it }
+        (0 until array.length()).mapNotNull { index ->
+            runCatching { GenerationJob.fromJson(array.getJSONObject(index)) }.getOrNull()
+        }.map { job ->
+            if (job.state == "running") job.copy(state = "interrupted", error = "应用退出，任务已中断") else job
+        }
     }.getOrDefault(emptyList())
     private val _state = MutableStateFlow(
         QwenUiState(repo = repository.sourceRepo, revision = repository.revision, jobs = restoredJobs,
@@ -93,21 +106,36 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<QwenUiState> = _state.asStateFlow()
     private val queue = Channel<GenerationJob>(Channel.UNLIMITED)
     private val engineMutex = Mutex()
+    private val cancelledJobIds = ConcurrentHashMap.newKeySet<String>()
     private var engine: QwenEngine? = null
     private var engineKey: String? = null
     private val musicEngine = MusicEngine(application)
     private val videoEngine = VideoEngine(application)
 
     init {
-        val initialTracks = musicEngine.preloadInitialTracks()
-        val initialVideos = videoEngine.preloadInitialVideos()
+        val crash = QwenImage21.readCrashMarker(File(application.filesDir, "generation.marker"))
+        val initialStatus = repository.status()
         _state.update {
             it.copy(
-                musicPlaylist = initialTracks,
-                activeMusicTrack = initialTracks.firstOrNull(),
-                videoGallery = initialVideos,
-                activeVideo = initialVideos.firstOrNull()
+                settings = compatibleSettings(it.settings, initialStatus),
+                modelStatus = initialStatus,
+                status = crash?.let { detail -> "上次图像任务中断：$detail" } ?: it.status
             )
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val initialTracks = musicEngine.preloadInitialTracks()
+            val initialVideos = videoEngine.preloadInitialVideos()
+            _state.update {
+                it.copy(
+                    musicPlaylist = initialTracks,
+                    activeMusicTrack = it.activeMusicTrack ?: initialTracks.firstOrNull(),
+                    videoGallery = initialVideos,
+                    activeVideo = it.activeVideo ?: initialVideos.firstOrNull()
+                )
+            }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            state.map { it.jobs }.distinctUntilChanged().debounce(250).collect { jobs -> persistJobs(jobs) }
         }
 
         viewModelScope.launch {
@@ -367,10 +395,14 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setMode(mode: GenerationMode) = _state.update { it.copy(settings = it.settings.copy(mode = mode)) }
+    fun setMode(mode: GenerationMode) = _state.update { state ->
+        val unsupported = mode == GenerationMode.ImageEdit && state.modelStatus?.let { it.total > 0 && "image-edit" !in it.manifest.features } == true
+        if (unsupported) state.copy(error = "当前模型不支持图片编辑")
+        else state.copy(settings = state.settings.copy(mode = mode), error = null)
+    }
     fun setPrompt(prompt: String) = _state.update { it.copy(settings = it.settings.copy(prompt = prompt)) }
     fun setNegativePrompt(prompt: String) = _state.update { it.copy(settings = it.settings.copy(negativePrompt = prompt)) }
-    fun setSteps(steps: Int) = _state.update { it.copy(settings = it.settings.copy(steps = steps.coerceIn(6, 40))) }
+    fun setSteps(steps: Int) = _state.update { it.copy(settings = it.settings.copy(steps = steps.coerceIn(1, 40))) }
     fun setSeed(seed: Int) = _state.update { it.copy(settings = it.settings.copy(seed = seed)) }
     fun setSize(width: Int, height: Int) = _state.update { it.copy(settings = it.settings.copy(width = width, height = height)) }
     fun setTurbo(value: Boolean) = _state.update { state ->
@@ -381,16 +413,29 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         val enabled = value && (state.modelStatus?.manifest?.features?.contains("official-turbo") == true)
         state.copy(settings = state.settings.copy(officialTurbo = enabled, turbo = false, steps = if (enabled) 8 else state.settings.steps.coerceAtLeast(20)))
     }
-    fun setTinyVae(value: Boolean) = _state.update { it.copy(settings = it.settings.copy(useTinyVae = value)) }
+    fun setTinyVae(value: Boolean) = _state.update { state ->
+        val unsupported = state.modelStatus?.let { it.total > 0 && !it.manifest.hasVae(value) } == true
+        if (unsupported) state.copy(error = if (value) "当前模型缺少 Tiny VAE" else "当前模型缺少完整 VAE")
+        else state.copy(settings = state.settings.copy(useTinyVae = value), error = null)
+    }
     fun setSecondReference(value: Boolean) = _state.update { it.copy(settings = it.settings.copy(secondReference = value)) }
-    fun setInput(uri: Uri?, second: Boolean = false) = _state.update {
+    fun setInput(uri: Uri?, second: Boolean = false) = _state.update { state ->
         if (uri != null) runCatching {
             getApplication<Application>().contentResolver.takePersistableUriPermission(
                 uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
         }
-        it.copy(settings = if (second) it.settings.copy(inputUri2 = uri)
-        else it.settings.copy(inputUri = uri, mode = GenerationMode.ImageEdit))
+        if (second && uri != null && state.settings.inputUri == null) {
+            state.copy(error = "请先选择第一张参考图")
+        } else {
+            val settings = if (second) state.settings.copy(inputUri2 = uri)
+            else state.settings.copy(
+                inputUri = uri,
+                inputUri2 = if (uri == null) null else state.settings.inputUri2,
+                mode = if (uri != null) GenerationMode.ImageEdit else state.settings.mode
+            )
+            state.copy(settings = settings, error = null)
+        }
     }
     fun setRepo(repo: String) = _state.update { it.copy(repo = repo) }
     fun setRevision(revision: String) = _state.update { it.copy(revision = revision) }
@@ -399,11 +444,15 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setTransparent(value: Boolean) = _state.update { it.copy(settings = it.settings.copy(transparent = value)) }
 
-    fun useSettings(settings: GenerationSettings) = _state.update {
-        it.copy(settings = settings, tab = WorkspaceTab.Generate)
+    fun useSettings(settings: GenerationSettings) = _state.update { state ->
+        val compatible = state.modelStatus?.let { compatibleSettings(settings, it) } ?: settings
+        state.copy(settings = compatible, tab = WorkspaceTab.Generate)
     }
 
-    fun refreshModelStatus() = _state.update { it.copy(modelStatus = repository.status()) }
+    fun refreshModelStatus() = _state.update { state ->
+        val status = repository.status()
+        state.copy(modelStatus = status, settings = compatibleSettings(state.settings, status))
+    }
 
     fun checkRuntime() {
         if (_state.value.isBusy || _state.value.jobs.any { it.state == "running" }) return
@@ -436,8 +485,18 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                     val percent = if (total > 0) ((done * 100) / total).toInt() else 0
                     _state.update { it.copy(progress = percent, status = "下载 $file · ${(done / 1_000_000_000.0).format1()} / ${(total / 1_000_000_000.0).format1()} GB") }
                 }
+                invalidateEngine()
             }.onSuccess {
-                _state.update { it.copy(isBusy = false, progress = 100, modelStatus = repository.status(), status = "模型已校验") }
+                val status = repository.status()
+                _state.update {
+                    it.copy(
+                        isBusy = false,
+                        progress = 100,
+                        modelStatus = status,
+                        settings = compatibleSettings(it.settings, status),
+                        status = "模型已校验"
+                    )
+                }
             }.onFailure { error ->
                 _state.update { it.copy(isBusy = false, status = "模型下载失败", error = error.message ?: error.toString()) }
             }
@@ -449,8 +508,17 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(isBusy = true, status = "导入模型…", error = null) }
             runCatching {
                 repository.importTree(uri) { text -> _state.update { it.copy(status = text) } }
+                invalidateEngine()
             }.onSuccess {
-                _state.update { it.copy(isBusy = false, modelStatus = repository.status(), status = "模型导入并校验完成") }
+                val status = repository.status()
+                _state.update {
+                    it.copy(
+                        isBusy = false,
+                        modelStatus = status,
+                        settings = compatibleSettings(it.settings, status),
+                        status = "模型导入并校验完成"
+                    )
+                }
             }.onFailure { error ->
                 _state.update { it.copy(isBusy = false, status = "模型导入失败", error = error.message ?: error.toString()) }
             }
@@ -459,7 +527,8 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
 
     fun enqueue() {
         val current = _state.value
-        if (current.modelStatus?.ready != true) {
+        val modelStatus = current.modelStatus
+        if (modelStatus?.ready != true) {
             _state.update { it.copy(error = "请先完成模型校验") }
             return
         }
@@ -468,7 +537,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             prompt = if (current.settings.transparent && !prompt.contains("transparent", ignoreCase = true))
                 "This is an RGBA image with transparency. $prompt The background is transparent." else prompt
         )
-        runCatching { prepared.validate() }.onFailure { error ->
+        runCatching { prepared.validateFor(modelStatus.manifest) }.onFailure { error ->
             _state.update { it.copy(error = error.message ?: "参数无效") }
             return
         }
@@ -485,7 +554,9 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             updateJob(id) { it.copy(state = "cancelled", error = "用户取消") }
             _state.update { it.copy(status = "任务已取消") }
         } else if (job.state == "running") {
-            _state.update { it.copy(error = "native 推理已经开始，本次会在当前步骤结束后完成；请等待结果") }
+            cancelledJobIds += id
+            engine?.cancel()
+            _state.update { it.copy(status = "正在取消，将在当前计算阶段结束后停止") }
         }
     }
 
@@ -493,23 +564,24 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun runJob(job: GenerationJob) {
         if (_state.value.jobs.firstOrNull { it.id == job.id }?.state != "queued") return
-        updateJob(job.id) { it.copy(state = "running", progress = 0) }
+        updateJob(job.id) { it.copy(state = "running", progress = 0, error = null) }
         val settings = job.settings
-        val output = File(getApplication<Application>().getExternalFilesDir(null), "outputs/${job.id}.png")
+        val outputRoot = getApplication<Application>().getExternalFilesDir(null) ?: getApplication<Application>().filesDir
+        val output = File(outputRoot, "outputs/${job.id}.png")
+        val partialOutput = File(outputRoot, "outputs/${job.id}.part.png")
         val startTime = System.currentTimeMillis()
+        var input: File? = null
+        var input2: File? = null
         try {
-            _state.update { it.copy(isBusy = true, progress = 0, status = "正在初始化生成任务…") }
-            appendLog("----------------------------------------")
-            appendLog("任务启动 [${job.id.take(8)}]：${settings.prompt.take(45)}")
-            appendLog("规格：${settings.width}x${settings.height} | 步数：${if (settings.officialTurbo) "8 (官方Turbo)" else if (settings.turbo) "6 (LoRA)" else "${settings.steps}"} | 种子：${settings.seed}")
-            appendLog("后端调度：DiT (Adreno 750 OpenCL) + 文本编码 (CPU 6线程)")
+            if (job.id in cancelledJobIds) throw CancellationException("已取消")
+            _state.update { it.copy(isBusy = true, progress = 0, status = "正在初始化图像任务") }
+            appendLog("图像任务 ${job.id.take(8)} · ${settings.width}×${settings.height} · seed ${settings.seed}")
 
-            engineMutex.withLock {
+            val dimensions = engineMutex.withLock {
                 withContext(Dispatchers.IO) {
-                    val source = repository.modelDir
                     val status = repository.status()
                     check(status.ready) { "模型尚未准备好：${status.message}" }
-                    appendLog("准备模型资源，检查运行时内存...")
+                    settings.validateFor(status.manifest)
                     val engineSettings = EngineSettings(
                         turbo = settings.turbo,
                         officialTurbo = settings.officialTurbo,
@@ -519,85 +591,171 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                         cpuThreads = _state.value.cpuThreads,
                         crashMarker = File(getApplication<Application>().filesDir, "generation.marker")
                     )
-                    if (engine == null || engineKey != engineSettings.key) {
-                        appendLog("载入 Native 引擎与着色器缓存 (.mnn_cl_cache)...")
-                        engine?.close()
-                        engine = QwenEngine(source, engineSettings)
-                        engineKey = engineSettings.key
+                    val modelGeneration = status.manifest.artifacts.joinToString("|") { "${it.path}:${it.sha256}" }
+                    val requiredKey = "${engineSettings.key}:$modelGeneration"
+                    if (engine == null || engineKey != requiredKey) {
+                        appendLog("正在载入图像引擎")
+                        val previous = engine
+                        engine = null
+                        engineKey = null
+                        previous?.close()
+                        val created = QwenEngine(status.directory, engineSettings)
+                        engine = created
+                        engineKey = requiredKey
                     }
-                    val input = settings.inputUri?.let { copyUriToCache(it, "${job.id}-input") }
-                    val input2 = settings.inputUri2?.let { copyUriToCache(it, "${job.id}-input2") }
-                    output.parentFile?.mkdirs()
+                    val activeEngine = requireNotNull(engine)
+                    if (job.id in cancelledJobIds) throw CancellationException("已取消")
+                    input = settings.inputUri?.let { copyUriToCache(it, "${job.id}-input") }
+                    input2 = settings.inputUri2?.let { copyUriToCache(it, "${job.id}-input2") }
+                    partialOutput.parentFile?.mkdirs()
 
-                    appendLog("执行文本编码 (Qwen3-VL-8B CPU int4)...")
                     var lastReportedStep = 0
                     val totalSteps = if (settings.officialTurbo) 8 else if (settings.turbo) 6 else settings.steps
                     val callback: (Int) -> Unit = { percent ->
-                        _state.update { it.copy(progress = percent, status = "任务 ${job.id.take(8)} · $percent%") }
+                        if (job.id in cancelledJobIds) throw CancellationException("已取消")
+                        _state.update { it.copy(progress = percent, status = "图像生成 · $percent%") }
                         updateJob(job.id) { it.copy(progress = percent) }
                         when {
-                            percent in 3..5 -> {
-                                appendLog("文本特征提取完成，卸载释放 CPU 编码器内存")
-                                appendLog("载入 DiT 扩散模型 (Adreno GPU / OpenCL)，构建 Prefix KV 缓存...")
-                            }
-                            percent == 10 -> {
-                                appendLog("Prefix 缓存就绪，开始去噪采样 (共 $totalSteps 步)...")
-                            }
+                            percent == 10 -> appendLog("开始 $totalSteps 步采样")
                             percent in 11..90 -> {
                                 val currentStep = (((percent - 10).toFloat() / 80f) * totalSteps).toInt().coerceIn(1, totalSteps)
                                 if (currentStep > lastReportedStep) {
                                     lastReportedStep = currentStep
-                                    appendLog("DiT 采样 步骤 $currentStep/$totalSteps (进度 $percent%)")
+                                    appendLog("采样 $currentStep/$totalSteps")
                                 }
                             }
-                            percent == 100 -> {
-                                appendLog("采样完成，Tiny VAE GPU 原生解码 RGBA 并落盘...")
-                            }
+                            percent == 100 -> appendLog("采样完成，正在解码")
                         }
                     }
-                    if (settings.mode == GenerationMode.TextToImage) {
-                        val prompt = if (settings.negativePrompt.isBlank()) settings.prompt
-                        else "${settings.prompt}\nAvoid: ${settings.negativePrompt}"
-                        engine!!.generate(prompt, settings.width, settings.height, settings.steps, settings.seed, output, callback)
+                    val prompt = if (settings.negativePrompt.isBlank()) settings.prompt
+                    else "${settings.prompt}\nAvoid: ${settings.negativePrompt}"
+                    val bitmap = if (settings.mode == GenerationMode.TextToImage) {
+                        activeEngine.generate(prompt, settings.width, settings.height, settings.steps, settings.seed, partialOutput, callback)
                     } else {
-                        val prompt = if (settings.negativePrompt.isBlank()) settings.prompt
-                        else "${settings.prompt}\nAvoid: ${settings.negativePrompt}"
-                        engine!!.edit(prompt, requireNotNull(input), input2, settings.width, settings.height, settings.steps, settings.seed, output, callback)
+                        activeEngine.edit(prompt, requireNotNull(input), input2, settings.width, settings.height, settings.steps, settings.seed, partialOutput, callback)
+                    }
+                    try {
+                        bitmap.width to bitmap.height
+                    } finally {
+                        bitmap.recycle()
                     }
                 }
             }
-            val elapsed = ((System.currentTimeMillis() - startTime) / 1000.0)
-            appendLog("生成完成，总耗时 ${"%.1f".format(elapsed)}s，已保存至 outputs/${output.name}")
-            updateJob(job.id) { it.copy(state = "done", progress = 100, outputPath = output.absolutePath, elapsedMs = System.currentTimeMillis() - startTime) }
-            _state.update { it.copy(resultPath = output.absolutePath, progress = 100, status = "生成完成：${output.name}") }
+            if (output.exists() && !output.delete()) throw IllegalStateException("无法替换旧结果")
+            if (!partialOutput.renameTo(output)) throw IllegalStateException("无法保存图像结果")
+            val elapsed = System.currentTimeMillis() - startTime
+            appendLog("图像已保存 · ${"%.1f".format(elapsed / 1000.0)}s")
+            updateJob(job.id) {
+                it.copy(
+                    state = "done",
+                    progress = 100,
+                    outputPath = output.absolutePath,
+                    elapsedMs = elapsed,
+                    outputWidth = dimensions.first,
+                    outputHeight = dimensions.second
+                )
+            }
+            _state.update { it.copy(resultPath = output.absolutePath, progress = 100, status = "图像已保存：${output.name}") }
+        } catch (error: CancellationException) {
+            val scopeCancelled = !currentCoroutineContext().isActive
+            appendLog("图像任务已取消")
+            updateJob(job.id) { it.copy(state = "cancelled", error = "用户取消") }
+            _state.update { it.copy(status = "图像生成已取消", error = null) }
+            if (scopeCancelled) throw error
         } catch (error: Throwable) {
             val errorMsg = error.message ?: error.toString()
-            appendLog("生成失败：$errorMsg")
+            appendLog("图像生成失败：$errorMsg")
             updateJob(job.id) { it.copy(state = "failed", error = errorMsg) }
-            _state.update { it.copy(status = "生成失败", error = errorMsg) }
+            _state.update { it.copy(status = "图像生成失败", error = errorMsg) }
         } finally {
+            partialOutput.delete()
+            input?.delete()
+            input2?.delete()
+            cancelledJobIds -= job.id
             _state.update { it.copy(isBusy = false) }
         }
     }
 
+    private fun compatibleSettings(settings: GenerationSettings, status: ModelStatus): GenerationSettings {
+        if (status.total == 0) return settings
+        val manifest = status.manifest
+        val canEdit = "image-edit" in manifest.features
+        val officialTurbo = settings.officialTurbo && "official-turbo" in manifest.features
+        val turbo = settings.turbo && "turbo" in manifest.features
+        val lostTurbo = (settings.officialTurbo && !officialTurbo) || (settings.turbo && !turbo)
+        val useTinyVae = when {
+            settings.useTinyVae && manifest.hasVae(true) -> true
+            !settings.useTinyVae && manifest.hasVae(false) -> false
+            else -> manifest.hasVae(true)
+        }
+        return settings.copy(
+            mode = if (canEdit) settings.mode else GenerationMode.TextToImage,
+            officialTurbo = officialTurbo,
+            turbo = turbo,
+            useTinyVae = useTinyVae,
+            secondReference = settings.secondReference && canEdit,
+            steps = if (lostTurbo) settings.steps.coerceAtLeast(20) else settings.steps
+        )
+    }
+
+    private suspend fun invalidateEngine() {
+        engineMutex.withLock {
+            withContext(Dispatchers.IO) {
+                val previous = engine
+                engine = null
+                engineKey = null
+                previous?.close()
+            }
+        }
+    }
+
+    private fun persistJobs(jobs: List<GenerationJob>, commit: Boolean = false) {
+        val editor = preferences.edit().putString("jobs", JSONArray(jobs.takeLast(100).map { it.toJson() }).toString())
+        if (commit) editor.commit() else editor.apply()
+    }
+
     private fun updateJob(id: String, transform: (GenerationJob) -> GenerationJob) = _state.update { state ->
-        val next = state.jobs.map { if (it.id == id) transform(it) else it }
-        preferences.edit().putString("jobs", JSONArray(next.takeLast(100).map { it.toJson() }).toString()).apply()
-        state.copy(jobs = next)
+        state.copy(jobs = state.jobs.map { if (it.id == id) transform(it) else it })
     }
 
     private suspend fun copyUriToCache(uri: Uri, name: String): File = withContext(Dispatchers.IO) {
         val target = File(getApplication<Application>().cacheDir, "$name.img")
-        getApplication<Application>().contentResolver.openInputStream(uri).use { input ->
-            requireNotNull(input) { "无法读取参考图" }
-            FileOutputStream(target).use { output -> input.copyTo(output) }
+        try {
+            getApplication<Application>().contentResolver.openInputStream(uri).use { input ->
+                requireNotNull(input) { "无法读取参考图" }
+                FileOutputStream(target).use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var total = 0L
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        if (total > 50L * 1024 * 1024) throw IllegalArgumentException("参考图不能超过 50 MB")
+                        output.write(buffer, 0, count)
+                    }
+                }
+            }
+            target
+        } catch (error: Throwable) {
+            target.delete()
+            throw error
         }
-        target
     }
 
     override fun onCleared() {
+        persistJobs(_state.value.jobs, commit = true)
         queue.close()
-        engine?.close()
+        engine?.cancel()
+        Thread({
+            kotlinx.coroutines.runBlocking {
+                engineMutex.withLock {
+                    val closing = engine
+                    engine = null
+                    engineKey = null
+                    closing?.close()
+                }
+            }
+        }, "qwen-engine-close").start()
         musicEngine.close()
         videoEngine.close()
         super.onCleared()
