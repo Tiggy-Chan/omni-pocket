@@ -16,6 +16,10 @@ import com.tiggy.qwenimage.data.MusicJob
 import com.tiggy.qwenimage.data.MusicSettings
 import com.tiggy.qwenimage.data.MusicStudioTab
 import com.tiggy.qwenimage.data.MusicTrack
+import com.tiggy.qwenimage.data.TaskDomain
+import com.tiggy.qwenimage.data.TaskStates
+import com.tiggy.qwenimage.data.TaskUiState
+import com.tiggy.qwenimage.data.VideoBackend
 import com.tiggy.qwenimage.data.VideoItem
 import com.tiggy.qwenimage.data.VideoJob
 import com.tiggy.qwenimage.data.VideoSettings
@@ -37,6 +41,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -61,15 +66,10 @@ data class QwenUiState(
     val modelStatus: ModelStatus? = null,
     val repo: String = "",
     val revision: String = "main",
-    val isBusy: Boolean = false,
-    val progress: Int = 0,
-    val status: String = "准备就绪",
-    val resultPath: String? = null,
-    val error: String? = null,
+    val tasks: TaskStates = TaskStates(),
+    val alert: String? = null,
     val cpuThreads: Int = 6,
     val keepModelsLoaded: Boolean = false,
-    val liveLogs: List<String> = emptyList(),
-    // Music Studio state
     val musicTab: MusicStudioTab = MusicStudioTab.Compose,
     val musicSettings: MusicSettings = MusicSettings(),
     val musicJobs: List<MusicJob> = emptyList(),
@@ -79,13 +79,32 @@ data class QwenUiState(
     val isMusicPlaying: Boolean = false,
     val musicPositionMs: Int = 0,
     val musicDurationMs: Int = 0,
-    // Video Studio state (MobileWan 3-Step Decoupled DMD)
     val videoTab: VideoStudioTab = VideoStudioTab.Compose,
     val videoSettings: VideoSettings = VideoSettings(),
     val videoJobs: List<VideoJob> = emptyList(),
     val videoGallery: List<VideoItem> = emptyList(),
     val activeVideo: VideoItem? = null
-)
+) {
+    val imageTask: TaskUiState get() = tasks.imageTask
+    val musicTask: TaskUiState get() = tasks.musicTask
+    val videoTask: TaskUiState get() = tasks.videoTask
+    val modelTask: TaskUiState get() = tasks.modelTask
+    val activeTask get() = tasks.activeTask
+
+    val currentTask: TaskUiState
+        get() = when (domain) {
+            AppDomain.ImageStudio -> imageTask
+            AppDomain.MusicStudio -> musicTask
+            AppDomain.VideoStudio -> videoTask
+        }
+
+    val isBusy: Boolean get() = currentTask.running
+    val progress: Int get() = currentTask.progress ?: 0
+    val status: String get() = currentTask.status
+    val liveLogs: List<String> get() = currentTask.logs
+    val resultPath: String? get() = currentTask.resultPath
+    val error: String? get() = currentTask.error
+}
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 class QwenViewModel(application: Application) : AndroidViewModel(application) {
@@ -115,11 +134,13 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     init {
         val crash = QwenImage21.readCrashMarker(File(application.filesDir, "generation.marker"))
         val initialStatus = repository.status()
-        _state.update {
-            it.copy(
-                settings = compatibleSettings(it.settings, initialStatus),
+        _state.update { state ->
+            state.copy(
+                settings = compatibleSettings(state.settings, initialStatus),
                 modelStatus = initialStatus,
-                status = crash?.let { detail -> "上次图像任务中断：$detail" } ?: it.status
+                tasks = state.tasks.updateTask(TaskDomain.Image) { task ->
+                    task.copy(status = crash?.let { detail -> "上次图像任务中断：$detail" } ?: task.status)
+                }
             )
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -153,7 +174,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             musicEngine.playbackError.collect { message ->
                 if (message != null) {
-                    _state.update { it.copy(error = message) }
+                    _state.update { it.copy(alert = message) }
                     musicEngine.clearPlaybackError()
                 }
             }
@@ -161,11 +182,27 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             val current = repository.status()
-            if (!current.ready && current.total > 0 && current.present == current.total) {
-                _state.update { it.copy(isBusy = true, modelStatus = current, status = "发现完整模型，正在手机端校验 SHA-256…") }
-                runCatching { repository.verify { file -> _state.update { it.copy(status = "校验 $file…") } } }
-                    .onSuccess { _state.update { it.copy(isBusy = false, modelStatus = repository.status(), status = "模型已校验，可以生成") } }
-                    .onFailure { error -> _state.update { it.copy(isBusy = false, status = "模型校验失败", error = error.message ?: error.toString()) } }
+            val taskId = "initial-model-verification"
+            if (!current.ready && current.total > 0 && current.present == current.total &&
+                beginTask(TaskDomain.Model, taskId, status = "发现完整模型，正在手机端校验 SHA-256…", alertOnConflict = false)
+            ) {
+                _state.update { it.copy(modelStatus = current) }
+                runCatching {
+                    repository.verify { file ->
+                        updateTask(TaskDomain.Model, taskId) { it.copy(progress = null, status = "校验 $file…") }
+                    }
+                }.onSuccess {
+                    val status = repository.status()
+                    _state.update {
+                        it.copy(modelStatus = status, settings = compatibleSettings(it.settings, status))
+                    }
+                    finishTask(TaskDomain.Model, taskId) { it.copy(status = "模型已校验，可以生成") }
+                }.onFailure { error ->
+                    val message = error.message ?: error.toString()
+                    finishTask(TaskDomain.Model, taskId, alert = message) {
+                        it.copy(status = "模型校验失败", error = message)
+                    }
+                }
             }
         }
         viewModelScope.launch {
@@ -174,11 +211,120 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun appendLog(line: String) {
-        val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-        _state.update {
-            it.copy(liveLogs = (it.liveLogs + "[$time] $line").takeLast(80))
+    private fun updateTask(domain: TaskDomain, id: String? = null, transform: (TaskUiState) -> TaskUiState) {
+        _state.update { state ->
+            if (id != null && !state.tasks.isActive(domain, id)) state
+            else state.copy(tasks = state.tasks.updateTask(domain, transform))
         }
+    }
+
+    private fun appendLog(domain: TaskDomain, line: String, id: String? = null) {
+        val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        _state.update { state ->
+            if (id != null && !state.tasks.isActive(domain, id)) state
+            else state.copy(tasks = state.tasks.appendLog(domain, "[$time] $line"))
+        }
+    }
+
+    private fun showTaskError(domain: TaskDomain, message: String) {
+        _state.update { state ->
+            state.copy(
+                alert = message,
+                tasks = state.tasks.updateTask(domain) { it.copy(error = message) }
+            )
+        }
+    }
+
+    private fun beginTask(
+        domain: TaskDomain,
+        id: String,
+        backend: VideoBackend? = null,
+        status: String,
+        progress: Int? = null,
+        alertOnConflict: Boolean = true
+    ): Boolean {
+        var started = false
+        _state.update { state ->
+            started = false
+            val activated = state.tasks.activate(domain, id, backend)
+            if (activated == null) {
+                val active = requireNotNull(state.activeTask)
+                val reason = if (active.domain == domain) {
+                    "已有${domain.displayName}任务正在进行，请等待完成"
+                } else {
+                    "${active.domain.displayName}任务正在进行，请等待完成后再启动${domain.displayName}任务"
+                }
+                state.copy(
+                    alert = if (alertOnConflict) reason else state.alert,
+                    tasks = state.tasks.updateTask(domain) { it.copy(error = reason) }
+                )
+            } else {
+                started = true
+                state.copy(
+                    tasks = activated.updateTask(domain) {
+                        it.copy(running = true, progress = progress, status = status, error = null)
+                    }
+                )
+            }
+        }
+        return started
+    }
+
+    private fun finishTask(
+        domain: TaskDomain,
+        id: String,
+        alert: String? = null,
+        transform: (TaskUiState) -> TaskUiState
+    ) {
+        _state.update { state ->
+            if (!state.tasks.isActive(domain, id)) {
+                state
+            } else {
+                state.copy(
+                    alert = alert ?: state.alert,
+                    tasks = state.tasks.updateTask(domain) { task -> transform(task.copy(running = false)) }
+                        .release(domain, id)
+                )
+            }
+        }
+    }
+
+    private suspend fun acquireImageTask(jobId: String): Boolean {
+        while (currentCoroutineContext().isActive) {
+            if (_state.value.jobs.firstOrNull { it.id == jobId }?.state != "queued") return false
+            if (beginTask(
+                    TaskDomain.Image,
+                    jobId,
+                    backend = VideoBackend.LocalQwen,
+                    status = "正在初始化图像任务",
+                    progress = 0,
+                    alertOnConflict = false
+                )
+            ) return true
+            state.first { snapshot ->
+                snapshot.activeTask == null || snapshot.jobs.firstOrNull { it.id == jobId }?.state != "queued"
+            }
+        }
+        return false
+    }
+
+    private fun rejectIfBusy(domain: TaskDomain): Boolean {
+        var rejected = false
+        _state.update { state ->
+            rejected = false
+            val active = state.activeTask ?: return@update state
+            rejected = true
+            val reason = if (active.domain == domain) {
+                "已有${domain.displayName}任务正在进行，请等待完成"
+            } else {
+                "${active.domain.displayName}任务正在进行，请等待完成后再启动${domain.displayName}任务"
+            }
+            state.copy(
+                alert = reason,
+                tasks = state.tasks.updateTask(domain) { it.copy(error = reason) }
+            )
+        }
+        return rejected
     }
 
     fun setDomain(domain: AppDomain) {
@@ -219,68 +365,126 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startVideoGeneration() {
-        if (_state.value.isBusy) return
-        val current = _state.value
-        val settings = current.videoSettings
-        runCatching { settings.validate() }.onFailure { error ->
-            _state.update { it.copy(error = error.message ?: "参数校验失败") }
+        if (rejectIfBusy(TaskDomain.Video)) return
+        val settings = _state.value.videoSettings
+        val backend = videoEngine.generationBackend()
+        runCatching { if (backend == VideoBackend.LocalWan) settings.validateOnDevice() else settings.validate() }.onFailure { error ->
+            showTaskError(TaskDomain.Video, error.message ?: "参数校验失败")
+            return
+        }
+        if (backend != VideoBackend.LocalWan && settings.inputImageUri != null) {
+            showTaskError(TaskDomain.Video, "图生视频需要本机 Wan 模型；当前工作站不支持参考图")
             return
         }
 
+        val initialStage = if (backend == VideoBackend.LocalWan) {
+            if (settings.inputImageUri != null) "准备 Wan2.2 图生视频..." else "准备 Wan2.2 文生视频..."
+        } else {
+            "准备连接视频工作站..."
+        }
         val job = VideoJob(
             id = UUID.randomUUID().toString(),
             settings = settings,
             state = "running",
-            stage = "准备端侧生成视频..."
+            stage = initialStage
         )
+        if (!beginTask(TaskDomain.Video, job.id, backend, initialStage)) return
 
-        _state.update {
-            it.copy(
-                isBusy = true,
-                error = null,
-                videoJobs = it.videoJobs + job,
-                status = if (settings.inputImageUri != null) "准备 Wan2.2 图生视频..." else "准备 Wan2.2 文生视频..."
-            )
+        _state.update { it.copy(videoJobs = it.videoJobs + job) }
+        appendLog(TaskDomain.Video, "----------------------------------------", job.id)
+        appendLog(TaskDomain.Video, "视频任务启动 [${job.id.take(8)}]：${if (backend == VideoBackend.LocalWan) "Wan2.2-TI2V-5B-Turbo" else "MobileWan 工作站"}", job.id)
+        appendLog(TaskDomain.Video, "提示词：${settings.prompt.take(60)}...", job.id)
+        appendLog(TaskDomain.Video, "模式：${if (settings.inputImageUri != null) "图生视频（App 所选参考首帧）" else "文生视频"}", job.id)
+        val specification = if (backend == VideoBackend.LocalWan) {
+            "${settings.width}×${settings.height} | ${settings.numFrames}帧 | ${settings.fps}fps | ${settings.steps}步 Euler"
+        } else {
+            "${settings.width}×${settings.height} | ${settings.numFrames}帧 | ${settings.fps}fps | ${settings.steps}步"
         }
-        appendLog("----------------------------------------")
-        appendLog("视频任务启动 [${job.id.take(8)}]：Wan2.2-TI2V-5B-Turbo")
-        appendLog("提示词：${settings.prompt.take(60)}...")
-        appendLog("模式：${if (settings.inputImageUri != null) "图生视频（App 所选参考首帧）" else "文生视频"}")
-        appendLog("规格：${settings.width}×${settings.height} | 实际最多25帧 | ${settings.fps}fps | ${settings.steps.coerceIn(1, 6)}步 Euler")
-        appendLog("执行设备：本机 Wan2.2 模型与原生推理 CLI；diffusion=GPUOpenCL, text encoder=CPU, VAE=CPU")
+        appendLog(TaskDomain.Video, "规格：$specification", job.id)
+        val execution = if (backend == VideoBackend.LocalWan) {
+            "执行设备：本机 Wan2.2 模型与原生推理 CLI；diffusion=GPUOpenCL, text encoder=CPU, VAE=CPU"
+        } else {
+            "执行设备：视频工作站 ${settings.serverUrl}（本机 Wan 组件未就绪）"
+        }
+        appendLog(TaskDomain.Video, execution, job.id)
 
         viewModelScope.launch(Dispatchers.Default) {
             runCatching {
-                videoEngine.executeGeneration(job) { update ->
+                videoEngine.executeGeneration(job, backend) { update ->
+                    updateTask(TaskDomain.Video, job.id) {
+                        it.copy(progress = update.progress?.let { value -> (value * 100).toInt() }, status = update.stage)
+                    }
                     _state.update { currentState ->
                         currentState.copy(
-                            progress = update.progress?.let { (it * 100).toInt() } ?: currentState.progress,
-                            status = update.stage
+                            videoJobs = currentState.videoJobs.map { item ->
+                                if (item.id == job.id) item.copy(
+                                    progress = update.progress ?: item.progress,
+                                    stage = update.stage
+                                ) else item
+                            }
                         )
                     }
-                    update.log?.let(::appendLog)
+                    update.log?.let { appendLog(TaskDomain.Video, it, job.id) }
                 }
             }.onSuccess { videoItem ->
-                _state.update {
-                    it.copy(
-                        isBusy = false,
-                        progress = 100,
-                        status = "视频已保存：${File(videoItem.videoPath).name}",
-                        videoGallery = listOf(videoItem) + it.videoGallery.filter { old -> old.id != videoItem.id },
+                val completedAt = System.currentTimeMillis()
+                _state.update { currentState ->
+                    currentState.copy(
+                        videoJobs = currentState.videoJobs.map { item ->
+                            if (item.id == job.id) item.copy(
+                                state = "completed",
+                                progress = 1f,
+                                stage = "已保存",
+                                resultPath = videoItem.videoPath,
+                                error = null,
+                                completedAt = completedAt
+                            ) else item
+                        },
+                        videoGallery = listOf(videoItem) + currentState.videoGallery.filter { old -> old.id != videoItem.id },
                         activeVideo = videoItem
                     )
                 }
-                appendLog("视频已存入作品库：${videoItem.videoPath}")
-            }.onFailure { error ->
-                val cancelled = error is kotlinx.coroutines.CancellationException
-                _state.update {
+                appendLog(TaskDomain.Video, "视频已存入作品库：${videoItem.videoPath}", job.id)
+                finishTask(TaskDomain.Video, job.id) {
                     it.copy(
-                        isBusy = false,
-                        status = if (cancelled) "视频生成已取消" else "视频生成失败",
-                        error = if (cancelled) null else error.message ?: error.toString()
+                        progress = 100,
+                        status = "视频已保存：${File(videoItem.videoPath).name}",
+                        error = null,
+                        resultPath = videoItem.videoPath
                     )
                 }
-                appendLog(if (cancelled) "视频生成已取消" else "视频生成异常: ${error.message}")
+            }.onFailure { error ->
+                val cancelled = error is CancellationException
+                val message = if (cancelled) null else (error.message ?: error.toString())
+                _state.update { currentState ->
+                    currentState.copy(
+                        videoJobs = currentState.videoJobs.map { item ->
+                            if (item.id == job.id) item.copy(
+                                state = if (cancelled) "cancelled" else "failed",
+                                stage = if (cancelled) "已取消" else "生成失败",
+                                error = message,
+                                completedAt = System.currentTimeMillis()
+                            ) else item
+                        }
+                    )
+                }
+                appendLog(TaskDomain.Video, if (cancelled) "视频生成已取消" else "视频生成异常: ${error.message}", job.id)
+                finishTask(TaskDomain.Video, job.id, alert = message) {
+                    it.copy(status = if (cancelled) "视频生成已取消" else "视频生成失败", error = message)
+                }
+            }
+        }
+    }
+
+    fun cancelVideoGeneration() {
+        videoEngine.cancelGeneration()
+        val active = _state.value.activeTask ?: return
+        if (active.domain == TaskDomain.Video) {
+            updateTask(TaskDomain.Video, active.id) { it.copy(status = "正在取消视频生成…") }
+            _state.update { state ->
+                state.copy(videoJobs = state.videoJobs.map {
+                    if (it.id == active.id) it.copy(stage = "正在取消") else it
+                })
             }
         }
     }
@@ -313,14 +517,26 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
 
     fun seekMusic(positionMs: Int) = musicEngine.seekTo(positionMs)
     fun stopMusic() = musicEngine.stopPlayback()
-    fun cancelMusicGeneration() = musicEngine.cancelGeneration()
+    fun cancelMusicGeneration() {
+        musicEngine.cancelGeneration()
+        val active = _state.value.activeTask ?: return
+        if (active.domain == TaskDomain.Music) {
+            updateTask(TaskDomain.Music, active.id) { it.copy(status = "正在取消音乐生成…") }
+            _state.update { state ->
+                state.copy(musicJobs = state.musicJobs.map {
+                    if (it.id == active.id) it.copy(stageDescription = "正在取消") else it
+                })
+            }
+        }
+    }
+
     fun setActiveTrack(track: MusicTrack) = _state.update { it.copy(activeMusicTrack = track) }
 
     fun startMusicGeneration() {
-        if (_state.value.isBusy) return
+        if (rejectIfBusy(TaskDomain.Music)) return
         val settings = _state.value.musicSettings
         runCatching { settings.validate() }.onFailure { error ->
-            _state.update { it.copy(error = error.message ?: "参数校验失败") }
+            showTaskError(TaskDomain.Music, error.message ?: "参数校验失败")
             return
         }
 
@@ -331,24 +547,19 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             state = "running",
             stageDescription = "等待工作站"
         )
+        if (!beginTask(TaskDomain.Music, job.id, VideoBackend.Workstation, "正在连接 YuE2 工作站")) return
 
-        _state.update {
-            it.copy(
-                isBusy = true,
-                error = null,
-                musicJobs = it.musicJobs + job,
-                status = "正在连接 YuE2 工作站"
-            )
-        }
-        appendLog("音乐任务 ${job.id.take(8)} · ${settings.bpm} BPM · ${settings.cotMode.tag} · ${settings.odeSteps} 步")
+        _state.update { it.copy(musicJobs = it.musicJobs + job) }
+        appendLog(TaskDomain.Music, "音乐任务 ${job.id.take(8)} · ${settings.bpm} BPM · ${settings.cotMode.tag} · ${settings.odeSteps} 步", job.id)
 
         viewModelScope.launch {
             runCatching {
                 musicEngine.executeGeneration(job) { update ->
+                    updateTask(TaskDomain.Music, job.id) {
+                        it.copy(progress = update.progress?.let { value -> (value * 100).toInt() }, status = update.stage)
+                    }
                     _state.update { currentState ->
                         currentState.copy(
-                            progress = update.progress?.let { (it * 100).toInt() } ?: currentState.progress,
-                            status = update.stage,
                             musicJobs = currentState.musicJobs.map { item ->
                                 if (item.id == job.id) item.copy(
                                     progress = update.progress ?: item.progress,
@@ -357,48 +568,59 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         )
                     }
-                    update.log?.let(::appendLog)
+                    update.log?.let { appendLog(TaskDomain.Music, it, job.id) }
                 }
             }.onSuccess { track ->
                 _state.update { currentState ->
                     currentState.copy(
-                        isBusy = false,
-                        progress = 100,
-                        status = "音乐已保存：${track.title}",
                         musicJobs = currentState.musicJobs.map { item ->
-                            if (item.id == job.id) item.copy(state = "completed", progress = 1f, stageDescription = "已保存", resultAudioPath = track.audioPath) else item
+                            if (item.id == job.id) item.copy(
+                                state = "completed",
+                                progress = 1f,
+                                stageDescription = "已保存",
+                                resultAudioPath = track.audioPath,
+                                error = null
+                            ) else item
                         },
                         musicPlaylist = listOf(track) + currentState.musicPlaylist.filter { old -> old.id != track.id },
                         activeMusicTrack = track
                     )
                 }
-                appendLog("音频已存入曲库：${track.title}")
+                appendLog(TaskDomain.Music, "音频已存入曲库：${track.title}", job.id)
+                finishTask(TaskDomain.Music, job.id) {
+                    it.copy(progress = 100, status = "音乐已保存：${track.title}", error = null, resultPath = track.audioPath)
+                }
                 musicEngine.playTrack(track)
             }.onFailure { error ->
-                val cancelled = error is kotlinx.coroutines.CancellationException
+                val cancelled = error is CancellationException
+                val message = if (cancelled) null else (error.message ?: error.toString())
                 _state.update { currentState ->
                     currentState.copy(
-                        isBusy = false,
-                        status = if (cancelled) "音乐生成已取消" else "音乐生成失败",
-                        error = if (cancelled) null else error.message ?: error.toString(),
                         musicJobs = currentState.musicJobs.map { item ->
                             if (item.id == job.id) item.copy(
                                 state = if (cancelled) "cancelled" else "failed",
                                 stageDescription = if (cancelled) "已取消" else "生成失败",
-                                error = if (cancelled) null else error.message
+                                error = message
                             ) else item
                         }
                     )
                 }
-                appendLog(if (cancelled) "音乐生成已取消" else "音乐生成异常：${error.message}")
+                appendLog(TaskDomain.Music, if (cancelled) "音乐生成已取消" else "音乐生成异常：${error.message}", job.id)
+                finishTask(TaskDomain.Music, job.id, alert = message) {
+                    it.copy(status = if (cancelled) "音乐生成已取消" else "音乐生成失败", error = message)
+                }
             }
         }
     }
 
     fun setMode(mode: GenerationMode) = _state.update { state ->
         val unsupported = mode == GenerationMode.ImageEdit && state.modelStatus?.let { it.total > 0 && "image-edit" !in it.manifest.features } == true
-        if (unsupported) state.copy(error = "当前模型不支持图片编辑")
-        else state.copy(settings = state.settings.copy(mode = mode), error = null)
+        val message = if (unsupported) "当前模型不支持图片编辑" else null
+        state.copy(
+            settings = if (unsupported) state.settings else state.settings.copy(mode = mode),
+            alert = message,
+            tasks = state.tasks.updateTask(TaskDomain.Image) { it.copy(error = message) }
+        )
     }
     fun setPrompt(prompt: String) = _state.update { it.copy(settings = it.settings.copy(prompt = prompt)) }
     fun setNegativePrompt(prompt: String) = _state.update { it.copy(settings = it.settings.copy(negativePrompt = prompt)) }
@@ -415,8 +637,16 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun setTinyVae(value: Boolean) = _state.update { state ->
         val unsupported = state.modelStatus?.let { it.total > 0 && !it.manifest.hasVae(value) } == true
-        if (unsupported) state.copy(error = if (value) "当前模型缺少 Tiny VAE" else "当前模型缺少完整 VAE")
-        else state.copy(settings = state.settings.copy(useTinyVae = value), error = null)
+        val message = if (unsupported) {
+            if (value) "当前模型缺少 Tiny VAE" else "当前模型缺少完整 VAE"
+        } else {
+            null
+        }
+        state.copy(
+            settings = if (unsupported) state.settings else state.settings.copy(useTinyVae = value),
+            alert = message,
+            tasks = state.tasks.updateTask(TaskDomain.Image) { it.copy(error = message) }
+        )
     }
     fun setSecondReference(value: Boolean) = _state.update { it.copy(settings = it.settings.copy(secondReference = value)) }
     fun setInput(uri: Uri?, second: Boolean = false) = _state.update { state ->
@@ -426,7 +656,11 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         if (second && uri != null && state.settings.inputUri == null) {
-            state.copy(error = "请先选择第一张参考图")
+            val message = "请先选择第一张参考图"
+            state.copy(
+                alert = message,
+                tasks = state.tasks.updateTask(TaskDomain.Image) { it.copy(error = message) }
+            )
         } else {
             val settings = if (second) state.settings.copy(inputUri2 = uri)
             else state.settings.copy(
@@ -434,7 +668,11 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                 inputUri2 = if (uri == null) null else state.settings.inputUri2,
                 mode = if (uri != null) GenerationMode.ImageEdit else state.settings.mode
             )
-            state.copy(settings = settings, error = null)
+            state.copy(
+                settings = settings,
+                alert = null,
+                tasks = state.tasks.updateTask(TaskDomain.Image) { it.copy(error = null) }
+            )
         }
     }
     fun setRepo(repo: String) = _state.update { it.copy(repo = repo) }
@@ -455,9 +693,10 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun checkRuntime() {
-        if (_state.value.isBusy || _state.value.jobs.any { it.state == "running" }) return
+        if (rejectIfBusy(TaskDomain.Model)) return
+        val taskId = UUID.randomUUID().toString()
         viewModelScope.launch {
-            _state.update { it.copy(isBusy = true, status = "检查 MNN/OpenCL 推理引擎…", error = null) }
+            if (!beginTask(TaskDomain.Model, taskId, status = "检查 MNN/OpenCL 推理引擎…")) return@launch
             val result = runCatching {
                 withContext(Dispatchers.IO) {
                     check(repository.status().ready) { "请先完成模型校验" }
@@ -467,60 +706,77 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             result.onSuccess { memory ->
-                _state.update { it.copy(isBusy = false, status = "MNN 推理引擎已初始化，可用内存 ${memory}MB") }
+                finishTask(TaskDomain.Model, taskId) {
+                    it.copy(status = "MNN 推理引擎已初始化，可用内存 ${memory}MB")
+                }
             }.onFailure { error ->
-                _state.update { it.copy(isBusy = false, error = error.message ?: error.toString(), status = "推理引擎检查失败") }
+                val message = error.message ?: error.toString()
+                finishTask(TaskDomain.Model, taskId, alert = message) {
+                    it.copy(status = "推理引擎检查失败", error = message)
+                }
             }
         }
     }
 
     fun downloadModels() {
+        if (rejectIfBusy(TaskDomain.Model)) return
         val snapshot = _state.value
-        repository.sourceRepo = snapshot.repo
-        repository.revision = snapshot.revision
+        val taskId = UUID.randomUUID().toString()
         viewModelScope.launch {
-            _state.update { it.copy(isBusy = true, progress = 0, status = "读取模型清单…", error = null) }
+            if (!beginTask(TaskDomain.Model, taskId, status = "读取模型清单…", progress = 0)) return@launch
+            repository.sourceRepo = snapshot.repo
+            repository.revision = snapshot.revision
             runCatching {
                 repository.download { file, done, total ->
-                    val percent = if (total > 0) ((done * 100) / total).toInt() else 0
-                    _state.update { it.copy(progress = percent, status = "下载 $file · ${(done / 1_000_000_000.0).format1()} / ${(total / 1_000_000_000.0).format1()} GB") }
+                    val percent = if (total > 0) ((done * 100) / total).toInt() else null
+                    updateTask(TaskDomain.Model, taskId) {
+                        it.copy(
+                            progress = percent,
+                            status = "下载 $file · ${(done / 1_000_000_000.0).format1()} / ${(total / 1_000_000_000.0).format1()} GB"
+                        )
+                    }
                 }
                 invalidateEngine()
             }.onSuccess {
                 val status = repository.status()
                 _state.update {
-                    it.copy(
-                        isBusy = false,
-                        progress = 100,
-                        modelStatus = status,
-                        settings = compatibleSettings(it.settings, status),
-                        status = "模型已校验"
-                    )
+                    it.copy(modelStatus = status, settings = compatibleSettings(it.settings, status))
+                }
+                finishTask(TaskDomain.Model, taskId) {
+                    it.copy(progress = 100, status = "模型已校验", error = null)
                 }
             }.onFailure { error ->
-                _state.update { it.copy(isBusy = false, status = "模型下载失败", error = error.message ?: error.toString()) }
+                val message = error.message ?: error.toString()
+                finishTask(TaskDomain.Model, taskId, alert = message) {
+                    it.copy(status = "模型下载失败", error = message)
+                }
             }
         }
     }
 
     fun importModels(uri: Uri) {
+        if (rejectIfBusy(TaskDomain.Model)) return
+        val taskId = UUID.randomUUID().toString()
         viewModelScope.launch {
-            _state.update { it.copy(isBusy = true, status = "导入模型…", error = null) }
+            if (!beginTask(TaskDomain.Model, taskId, status = "导入模型…")) return@launch
             runCatching {
-                repository.importTree(uri) { text -> _state.update { it.copy(status = text) } }
+                repository.importTree(uri) { text ->
+                    updateTask(TaskDomain.Model, taskId) { it.copy(progress = null, status = text) }
+                }
                 invalidateEngine()
             }.onSuccess {
                 val status = repository.status()
                 _state.update {
-                    it.copy(
-                        isBusy = false,
-                        modelStatus = status,
-                        settings = compatibleSettings(it.settings, status),
-                        status = "模型导入并校验完成"
-                    )
+                    it.copy(modelStatus = status, settings = compatibleSettings(it.settings, status))
+                }
+                finishTask(TaskDomain.Model, taskId) {
+                    it.copy(progress = 100, status = "模型导入并校验完成", error = null)
                 }
             }.onFailure { error ->
-                _state.update { it.copy(isBusy = false, status = "模型导入失败", error = error.message ?: error.toString()) }
+                val message = error.message ?: error.toString()
+                finishTask(TaskDomain.Model, taskId, alert = message) {
+                    it.copy(status = "模型导入失败", error = message)
+                }
             }
         }
     }
@@ -529,7 +785,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         val current = _state.value
         val modelStatus = current.modelStatus
         if (modelStatus?.ready != true) {
-            _state.update { it.copy(error = "请先完成模型校验") }
+            showTaskError(TaskDomain.Image, "请先完成模型校验")
             return
         }
         val prompt = current.settings.prompt.trim()
@@ -538,25 +794,58 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                 "This is an RGBA image with transparency. $prompt The background is transparent." else prompt
         )
         runCatching { prepared.validateFor(modelStatus.manifest) }.onFailure { error ->
-            _state.update { it.copy(error = error.message ?: "参数无效") }
+            showTaskError(TaskDomain.Image, error.message ?: "参数无效")
             return
         }
         val job = GenerationJob(UUID.randomUUID().toString(), prepared)
-        _state.update { it.copy(jobs = it.jobs + job, error = null, status = "任务已加入队列") }
-        queue.trySend(job)
+        var accepted = false
+        _state.update { state ->
+            accepted = false
+            val active = state.activeTask
+            if (active != null && active.domain != TaskDomain.Image) {
+                val reason = "${active.domain.displayName}任务正在进行，请等待完成后再启动图像任务"
+                state.copy(
+                    alert = reason,
+                    tasks = state.tasks.updateTask(TaskDomain.Image) { it.copy(error = reason) }
+                )
+            } else {
+                accepted = true
+                state.copy(
+                    jobs = state.jobs + job,
+                    alert = null,
+                    tasks = state.tasks.updateTask(TaskDomain.Image) { task ->
+                        if (task.running) task.copy(error = null)
+                        else task.copy(error = null, status = "任务已加入队列")
+                    }
+                )
+            }
+        }
+        if (accepted) queue.trySend(job)
     }
 
-    fun clearError() = _state.update { it.copy(error = null) }
+    fun clearError() = _state.update { state ->
+        val domain = when (state.domain) {
+            AppDomain.ImageStudio -> TaskDomain.Image
+            AppDomain.MusicStudio -> TaskDomain.Music
+            AppDomain.VideoStudio -> TaskDomain.Video
+        }
+        state.copy(
+            alert = null,
+            tasks = state.tasks.updateTask(domain) { it.copy(error = null) }
+        )
+    }
 
     fun cancelJob(id: String) {
         val job = _state.value.jobs.firstOrNull { it.id == id } ?: return
         if (job.state == "queued") {
             updateJob(id) { it.copy(state = "cancelled", error = "用户取消") }
-            _state.update { it.copy(status = "任务已取消") }
+            updateTask(TaskDomain.Image) { task ->
+                if (task.running) task else task.copy(status = "任务已取消", error = null)
+            }
         } else if (job.state == "running") {
             cancelledJobIds += id
             engine?.cancel()
-            _state.update { it.copy(status = "正在取消，将在当前计算阶段结束后停止") }
+            updateTask(TaskDomain.Image, id) { it.copy(status = "正在取消，将在当前计算阶段结束后停止") }
         }
     }
 
@@ -564,18 +853,24 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun runJob(job: GenerationJob) {
         if (_state.value.jobs.firstOrNull { it.id == job.id }?.state != "queued") return
-        updateJob(job.id) { it.copy(state = "running", progress = 0, error = null) }
         val settings = job.settings
         val outputRoot = getApplication<Application>().getExternalFilesDir(null) ?: getApplication<Application>().filesDir
         val output = File(outputRoot, "outputs/${job.id}.png")
         val partialOutput = File(outputRoot, "outputs/${job.id}.part.png")
+        if (!acquireImageTask(job.id)) return
+        updateJob(job.id) { current ->
+            if (current.state == "queued") current.copy(state = "running", progress = 0, error = null) else current
+        }
+        if (_state.value.jobs.firstOrNull { it.id == job.id }?.state != "running") {
+            finishTask(TaskDomain.Image, job.id) { it.copy(status = "图像生成已取消", error = null) }
+            return
+        }
         val startTime = System.currentTimeMillis()
         var input: File? = null
         var input2: File? = null
         try {
             if (job.id in cancelledJobIds) throw CancellationException("已取消")
-            _state.update { it.copy(isBusy = true, progress = 0, status = "正在初始化图像任务") }
-            appendLog("图像任务 ${job.id.take(8)} · ${settings.width}×${settings.height} · seed ${settings.seed}")
+            appendLog(TaskDomain.Image, "图像任务 ${job.id.take(8)} · ${settings.width}×${settings.height} · seed ${settings.seed}", job.id)
 
             val dimensions = engineMutex.withLock {
                 withContext(Dispatchers.IO) {
@@ -594,7 +889,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                     val modelGeneration = status.manifest.artifacts.joinToString("|") { "${it.path}:${it.sha256}" }
                     val requiredKey = "${engineSettings.key}:$modelGeneration"
                     if (engine == null || engineKey != requiredKey) {
-                        appendLog("正在载入图像引擎")
+                        appendLog(TaskDomain.Image, "正在载入图像引擎", job.id)
                         val previous = engine
                         engine = null
                         engineKey = null
@@ -613,18 +908,20 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                     val totalSteps = if (settings.officialTurbo) 8 else if (settings.turbo) 6 else settings.steps
                     val callback: (Int) -> Unit = { percent ->
                         if (job.id in cancelledJobIds) throw CancellationException("已取消")
-                        _state.update { it.copy(progress = percent, status = "图像生成 · $percent%") }
+                        updateTask(TaskDomain.Image, job.id) {
+                            it.copy(progress = percent, status = "图像生成 · $percent%")
+                        }
                         updateJob(job.id) { it.copy(progress = percent) }
                         when {
-                            percent == 10 -> appendLog("开始 $totalSteps 步采样")
+                            percent == 10 -> appendLog(TaskDomain.Image, "开始 $totalSteps 步采样", job.id)
                             percent in 11..90 -> {
                                 val currentStep = (((percent - 10).toFloat() / 80f) * totalSteps).toInt().coerceIn(1, totalSteps)
                                 if (currentStep > lastReportedStep) {
                                     lastReportedStep = currentStep
-                                    appendLog("采样 $currentStep/$totalSteps")
+                                    appendLog(TaskDomain.Image, "采样 $currentStep/$totalSteps", job.id)
                                 }
                             }
-                            percent == 100 -> appendLog("采样完成，正在解码")
+                            percent == 100 -> appendLog(TaskDomain.Image, "采样完成，正在解码", job.id)
                         }
                     }
                     val prompt = if (settings.negativePrompt.isBlank()) settings.prompt
@@ -644,7 +941,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             if (output.exists() && !output.delete()) throw IllegalStateException("无法替换旧结果")
             if (!partialOutput.renameTo(output)) throw IllegalStateException("无法保存图像结果")
             val elapsed = System.currentTimeMillis() - startTime
-            appendLog("图像已保存 · ${"%.1f".format(elapsed / 1000.0)}s")
+            appendLog(TaskDomain.Image, "图像已保存 · ${"%.1f".format(elapsed / 1000.0)}s", job.id)
             updateJob(job.id) {
                 it.copy(
                     state = "done",
@@ -652,27 +949,31 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                     outputPath = output.absolutePath,
                     elapsedMs = elapsed,
                     outputWidth = dimensions.first,
-                    outputHeight = dimensions.second
+                    outputHeight = dimensions.second,
+                    error = null
                 )
             }
-            _state.update { it.copy(resultPath = output.absolutePath, progress = 100, status = "图像已保存：${output.name}") }
+            finishTask(TaskDomain.Image, job.id) {
+                it.copy(progress = 100, status = "图像已保存：${output.name}", error = null, resultPath = output.absolutePath)
+            }
         } catch (error: CancellationException) {
             val scopeCancelled = !currentCoroutineContext().isActive
-            appendLog("图像任务已取消")
+            appendLog(TaskDomain.Image, "图像任务已取消", job.id)
             updateJob(job.id) { it.copy(state = "cancelled", error = "用户取消") }
-            _state.update { it.copy(status = "图像生成已取消", error = null) }
+            finishTask(TaskDomain.Image, job.id) { it.copy(status = "图像生成已取消", error = null) }
             if (scopeCancelled) throw error
         } catch (error: Throwable) {
             val errorMsg = error.message ?: error.toString()
-            appendLog("图像生成失败：$errorMsg")
+            appendLog(TaskDomain.Image, "图像生成失败：$errorMsg", job.id)
             updateJob(job.id) { it.copy(state = "failed", error = errorMsg) }
-            _state.update { it.copy(status = "图像生成失败", error = errorMsg) }
+            finishTask(TaskDomain.Image, job.id, alert = errorMsg) {
+                it.copy(status = "图像生成失败", error = errorMsg)
+            }
         } finally {
             partialOutput.delete()
             input?.delete()
             input2?.delete()
             cancelledJobIds -= job.id
-            _state.update { it.copy(isBusy = false) }
         }
     }
 

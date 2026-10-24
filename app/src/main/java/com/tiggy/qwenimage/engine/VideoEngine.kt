@@ -89,19 +89,31 @@ class VideoEngine(private val context: Context) : AutoCloseable {
         return items.sortedByDescending { it.createdAt }
     }
 
+    fun generationBackend(): VideoBackend =
+        if (runtimeStatus().localReady) VideoBackend.LocalWan else VideoBackend.Workstation
+
     suspend fun executeGeneration(
         job: VideoJob,
+        backend: VideoBackend = generationBackend(),
         onUpdate: (EngineUpdate) -> Unit
     ): VideoItem = withContext(Dispatchers.IO) {
-        cancelRequested = false
-        job.settings.validate()
-        if (runtimeStatus().localReady) {
-            executeOnDevice(job, onUpdate)
-        } else {
-            require(job.settings.inputImageUri == null) {
-                "图生视频需要本机 Wan 模型；当前工作站不支持参考图"
+        try {
+            job.settings.validate()
+            if (cancelRequested) throw CancellationException("已取消视频生成")
+            if (backend == VideoBackend.LocalWan) {
+                executeOnDevice(job, onUpdate)
+            } else {
+                require(job.settings.inputImageUri == null) {
+                    "图生视频需要本机 Wan 模型；当前工作站不支持参考图"
+                }
+                executeWorkstation(job, onUpdate)
             }
-            executeWorkstation(job, onUpdate)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            if (cancelRequested) throw CancellationException("已取消视频生成") else throw error
+        } finally {
+            cancelRequested = false
         }
     }
 
@@ -155,6 +167,7 @@ class VideoEngine(private val context: Context) : AutoCloseable {
             builder.redirectErrorStream(true)
             process = builder.start()
             activeProcess = process
+            if (cancelRequested) throw CancellationException("已取消视频生成")
 
             val parser = SdCliProgressParser()
             val input = process.inputStream
@@ -202,6 +215,7 @@ class VideoEngine(private val context: Context) : AutoCloseable {
         val client = WorkstationClient(settings.serverUrl)
         activeClients += client
         try {
+            if (cancelRequested) throw CancellationException("已取消视频生成")
             onUpdate(EngineUpdate(null, "正在连接视频工作站"))
             if (!client.isHealthy()) {
                 throw IOException("无法连接视频工作站。请启动服务；USB 连接可运行 adb reverse tcp:8998 tcp:8998")
@@ -230,6 +244,8 @@ class VideoEngine(private val context: Context) : AutoCloseable {
             val outputFile = File(videoDir, "$videoId.$extension")
             onUpdate(EngineUpdate(null, "正在接收视频"))
             client.download(reference, outputFile, 2L * 1024 * 1024 * 1024, "video")
+            currentCoroutineContext().ensureActive()
+            if (cancelRequested) throw CancellationException("已取消视频生成")
             val item = createItem(
                 file = outputFile,
                 settings = settings,

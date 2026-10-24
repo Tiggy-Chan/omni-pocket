@@ -125,7 +125,7 @@ fun QwenApp(viewModel: QwenViewModel) {
     var previewImagePath by remember { mutableStateOf<String?>(null) }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    if (state.error != null && showError == null) showError = state.error
+    if (state.alert != null && showError == null) showError = state.alert
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -188,9 +188,9 @@ fun QwenApp(viewModel: QwenViewModel) {
                                     status = state.modelStatus,
                                     repo = state.repo,
                                     revision = state.revision,
-                                    busy = state.isBusy,
-                                    progress = state.progress,
-                                    message = state.status
+                                    busy = state.modelTask.running,
+                                    progress = state.modelTask.progress ?: 0,
+                                    message = state.modelTask.status
                                 )
                                 WorkspaceTab.Settings -> SettingsScreen(
                                     viewModel = viewModel,

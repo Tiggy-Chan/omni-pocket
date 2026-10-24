@@ -68,7 +68,7 @@ data class VideoSettings(
     }
 }
 
-enum class VideoBackend { LocalWan, Workstation }
+typealias VideoBackend = GenerationBackend
 
 data class VideoRuntimeStatus(
     val localReady: Boolean,
