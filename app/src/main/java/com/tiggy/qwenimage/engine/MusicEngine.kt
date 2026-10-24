@@ -287,7 +287,7 @@ class MusicEngine(private val context: Context) : AutoCloseable {
         val assetList = listOf(
             TrackAssetMeta(
                 filename = "sample_ballad.mp3",
-                title = "《夏夜晚风》(Summer Breeze)",
+                title = "夏夜晚风",
                 style = "At 110 BPM, emotional anime cyberpunk ballad, soaring passionate female vocal, rich expressive singing, gentle melancholic piano intro building into powerful cinematic strings and pulsating analog synths",
                 lyrics = "[Verse]\n晚风吹过街角的灯\n城市慢慢安静下来\n我把今天写进旋律\n留给明天的自己\n\n[Chorus]\n唱吧 让心跳跟着节拍\n唱吧 把烦恼留在窗外",
                 durationSec = 144.92f,
@@ -295,7 +295,7 @@ class MusicEngine(private val context: Context) : AutoCloseable {
             ),
             TrackAssetMeta(
                 filename = "miku_jp.mp3",
-                title = "《初音未来 · 电子之海》(Miku Electro JP)",
+                title = "电子之海",
                 style = "At 136 BPM, Vocaloid J-pop electro-pop, iconic Hatsune Miku bright synthetic high-pitched anime female vocal, sparkling synth pads, fast electronic beats",
                 lyrics = "[Verse]\n電子の海を飛び越えて\nキミの心に響くメロディ\n初音ミクだよ！\n今日も元気に歌おう！",
                 durationSec = 28.0f,
@@ -303,7 +303,7 @@ class MusicEngine(private val context: Context) : AutoCloseable {
             ),
             TrackAssetMeta(
                 filename = "miku_zh.mp3",
-                title = "《初音未来 · 穿越屏幕微蓝的光线》(Miku Future Bass ZH)",
+                title = "穿越屏幕的微蓝光线",
                 style = "At 128 BPM, upbeat Vocaloid Chinese anime electro-pop, sweet high-pitched synthetic female vocal, Hatsune Miku style, sparkling future bass synths, punchy rhythm",
                 lyrics = "[Verse]\n穿越屏幕微蓝的光线\n我的歌声飞到你身边\n你好呀我是初音未来\n今天也要元气满满向前！",
                 durationSec = 30.0f,
@@ -311,7 +311,7 @@ class MusicEngine(private val context: Context) : AutoCloseable {
             ),
             TrackAssetMeta(
                 filename = "a_cappella.mp3",
-                title = "《纯人声清唱》(A cappella)",
+                title = "纯人声清唱",
                 style = "A cappella, pure solo female vocal, completely unaccompanied, silence background, no music, no instruments, clear gentle singing",
                 lyrics = "[Verse]\n晚风吹过街角的灯\n城市慢慢安静下来\n我把今天写进旋律\n留给明天的自己\n\n[Chorus]\n唱吧 让心跳跟着节拍\n唱吧 把烦恼留在窗外",
                 durationSec = 22.0f,

@@ -6,21 +6,21 @@ import java.io.File
 import java.util.UUID
 
 enum class AppDomain(val title: String, val subtitle: String) {
-    ImageStudio("绘卷 · 生图工坊", "Qwen-Image-2.1 Turbo (8-step)"),
-    MusicStudio("乐坊 · 音乐工坊", "YuE2-3B 48kHz 端侧全乐章"),
-    VideoStudio("影坊 · 动效工坊", "Wan2.2-TI2V 端侧图生视频")
+    ImageStudio("图像", "Qwen 本机 / MOSS 工作站"),
+    MusicStudio("音乐", "YuE2 工作站"),
+    VideoStudio("视频", "Wan 本机 / 工作站")
 }
 
 enum class MusicStudioTab(val label: String) {
-    Compose("创作编曲"),
-    Playlist("成果曲库"),
-    Score("乐理简谱")
+    Compose("创作"),
+    Playlist("曲库"),
+    Score("乐谱")
 }
 
 enum class CoTMode(val tag: String, val label: String, val description: String) {
-    Melody("melody", "旋律线规划 (melody)", "推荐：YuE2推演符号旋律，音节精准对齐，绝无漏唱"),
-    Full("full", "和声全规划 (full)", "生成旋律线及和弦走向，配器丰富度高"),
-    Off("off", "直接声学 (off)", "跳过乐理规划直接自回归生成音频，生成迅速")
+    Melody("melody", "旋律", "先规划旋律"),
+    Full("full", "旋律与和声", "规划旋律及和弦"),
+    Off("off", "直接生成", "跳过符号规划")
 }
 
 data class MusicSettings(
@@ -80,7 +80,7 @@ data class MusicTrack(
     val abcScore: String? = null,
     val audioPath: String,
     val durationSec: Float,
-    val sampleRate: Int = 48000,
+    val sampleRate: Int = 0,
     val bpm: Int = 112,
     val createdAt: Long = System.currentTimeMillis()
 ) {
@@ -108,7 +108,7 @@ data class MusicTrack(
             abcScore = o.optString("abcScore").takeIf { it.isNotBlank() },
             audioPath = o.optString("audioPath", ""),
             durationSec = o.optDouble("durationSec", 0.0).toFloat(),
-            sampleRate = o.optInt("sampleRate", 48000),
+            sampleRate = o.optInt("sampleRate", 0),
             bpm = o.optInt("bpm", 112),
             createdAt = o.optLong("createdAt", System.currentTimeMillis())
         )

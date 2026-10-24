@@ -1,23 +1,19 @@
 package com.tiggy.qwenimage.ui
 
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
-import android.widget.ImageView
-import android.widget.MediaController
 import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,152 +24,98 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.ExpandLess
-import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Movie
-import androidx.compose.material.icons.outlined.MovieCreation
 import androidx.compose.material.icons.outlined.PlayArrow
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Share
-import androidx.compose.material.icons.outlined.Speed
-import androidx.compose.material.icons.outlined.Terminal
-import androidx.compose.material.icons.outlined.Timer
-import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.VideoLibrary
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.content.FileProvider
 import com.tiggy.qwenimage.QwenUiState
 import com.tiggy.qwenimage.QwenViewModel
+import com.tiggy.qwenimage.data.VideoBackend
 import com.tiggy.qwenimage.data.VideoItem
+import com.tiggy.qwenimage.data.VideoSettings
 import com.tiggy.qwenimage.data.VideoStudioTab
+import kotlinx.coroutines.launch
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
-import kotlin.random.Random
-
-private val Ink = Color(0xFFF8F6FF)
-private val Muted = Color(0xFF9E9AA9)
-private val Subtle = Color(0xFF6B6678)
-private val CardBorder = Color(0x22FFFFFF)
-private val CardBg = Color(0x33171729)
-private val Amber = Color(0xFFF59E0B)
-private val Sunset = Color(0xFFFB923C)
-private val Mint = Color(0xFF8CE7D3)
-private val Rose = Color(0xFFFFAEC5)
+import kotlin.math.roundToInt
 
 @Composable
 fun VideoStudioScreen(
     state: QwenUiState,
     viewModel: QwenViewModel
 ) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-    ) {
-        // Top Tab Segment
-        VideoTabSegment(
-            selectedTab = state.videoTab,
-            onSelect = viewModel::selectVideoTab
-        )
-
-        Spacer(Modifier.height(12.dp))
-
-        when (state.videoTab) {
-            VideoStudioTab.Compose -> VideoComposeView(state = state, viewModel = viewModel)
-            VideoStudioTab.Gallery -> VideoGalleryView(state = state, viewModel = viewModel)
-        }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val showNotice: (String) -> Unit = { message ->
+        scope.launch { snackbarHostState.showSnackbar(message) }
     }
-}
 
-@Composable
-private fun VideoTabSegment(
-    selectedTab: VideoStudioTab,
-    onSelect: (VideoStudioTab) -> Unit
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(CardBg)
-            .border(1.dp, CardBorder, RoundedCornerShape(14.dp))
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        VideoStudioTab.entries.forEach { tab ->
-            val isSelected = tab == selectedTab
-            Box(
-                Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(if (isSelected) Amber.copy(alpha = 0.22f) else Color.Transparent)
-                    .border(
-                        1.dp,
-                        if (isSelected) Amber.copy(alpha = 0.6f) else Color.Transparent,
-                        RoundedCornerShape(10.dp)
-                    )
-                    .clickable { onSelect(tab) }
-                    .padding(vertical = 9.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        when (tab) {
-                            VideoStudioTab.Compose -> Icons.Outlined.MovieCreation
-                            VideoStudioTab.Gallery -> Icons.Outlined.VideoLibrary
-                        },
-                        null,
-                        tint = if (isSelected) Amber else Muted,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        tab.label,
-                        color = if (isSelected) Ink else Muted,
-                        fontSize = 13.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                    )
-                }
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+        ) {
+            OmniTabs(
+                items = VideoStudioTab.entries,
+                selected = state.videoTab,
+                accent = OmniColors.Violet,
+                label = { tab ->
+                    when (tab) {
+                        VideoStudioTab.Compose -> "创作"
+                        VideoStudioTab.Gallery -> "媒体库"
+                    }
+                },
+                onSelect = viewModel::selectVideoTab
+            )
+            Spacer(Modifier.height(12.dp))
+            when (state.videoTab) {
+                VideoStudioTab.Compose -> VideoComposeView(state, viewModel)
+                VideoStudioTab.Gallery -> VideoGalleryView(state, viewModel, showNotice)
             }
         }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(24.dp)
+        )
     }
 }
 
@@ -182,588 +124,584 @@ private fun VideoComposeView(
     state: QwenUiState,
     viewModel: QwenViewModel
 ) {
-    val scrollState = rememberScrollState()
-    val videoSettings = state.videoSettings
-    var showAdvanced by remember { mutableStateOf(false) }
+    val settings = state.videoSettings
+    val task = state.videoTask
+    val backend = viewModel.videoBackend()
+    val workstation = backend == VideoBackend.Workstation
+    val firstFrameBlocked = workstation && settings.inputImageUri != null
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        viewModel.setVideoInputImage(uri)
+        if (uri != null) viewModel.setVideoInputImage(uri)
     }
-
+    val localParameterError = when {
+        backend == VideoBackend.LocalWan && settings.numFrames !in 5..25 -> "本机最多 25 帧，请调整帧数。"
+        backend == VideoBackend.LocalWan && settings.steps !in 1..6 -> "本机最多 6 步，请调整步数。"
+        else -> null
+    }
     Column(
         Modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. Wan2.2 TI2V architecture banner
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(Amber.copy(alpha = 0.15f), Sunset.copy(alpha = 0.08f))
-                    )
-                )
-                .border(1.dp, Amber.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
-                .padding(14.dp)
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Movie, null, tint = Amber, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Wan2.2-TI2V 端侧视频生成", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    Box(
-                        Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Amber.copy(alpha = 0.2f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+            Text(
+                "当前后端",
+                color = OmniColors.Muted,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f)
+            )
+            VideoBackendBadge(backend)
+        }
+
+        ContentCard {
+            OmniTextField(
+                value = settings.prompt,
+                onValueChange = viewModel::setVideoPrompt,
+                label = "提示词",
+                placeholder = "描述主体、动作和镜头运动",
+                minLines = 3,
+                maxLines = 6,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        ContentCard(title = "首帧（可选）") {
+            if (settings.inputImageUri != null) {
+                FirstFramePreview(settings.inputImageUri)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { imagePicker.launch(arrayOf("image/*")) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                ) {
+                    Icon(
+                        Icons.Outlined.AddPhotoAlternate,
+                        contentDescription = if (settings.inputImageUri == null) "选择首帧" else "更换首帧",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (settings.inputImageUri == null) "选择首帧" else "更换首帧")
+                }
+                if (settings.inputImageUri != null) {
+                    OutlinedButton(
+                        onClick = { viewModel.setVideoInputImage(null) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
                     ) {
-                        Text("4步 Turbo 推理", color = Amber, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = "移除首帧",
+                            tint = OmniColors.Rose,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("移除", color = OmniColors.Rose)
                     }
                 }
+            }
+            if (firstFrameBlocked) {
                 Text(
-                    "Wan2.2-TI2V-5B-Turbo 在手机端执行推理；可选参考首帧图像并结合动态提示词生成视频。",
-                    color = Muted,
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp
+                    "工作站不支持首帧，请移除后再生成。",
+                    color = OmniColors.Amber,
+                    style = MaterialTheme.typography.bodySmall
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("• 480×832 竖屏", color = Amber, fontSize = 11.sp)
-                    Text("• 最多 25 帧", color = Amber, fontSize = 11.sp)
-                    Text("• 16 FPS", color = Amber, fontSize = 11.sp)
-                }
             }
         }
 
-        // 2. Prompt Input Card
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(CardBg)
-                .border(1.dp, CardBorder, RoundedCornerShape(18.dp))
-                .padding(14.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.MovieCreation, null, tint = Amber, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("视频场景与运镜提示词 (Prompt)", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                }
+        OmniPrimaryButton(
+            text = if (task.running) "正在生成" else "生成视频",
+            onClick = viewModel::startVideoGeneration,
+            enabled = !task.running && settings.prompt.isNotBlank() &&
+                !firstFrameBlocked && localParameterError == null,
+            busy = task.running,
+            accent = OmniColors.VioletDeep
+        )
+        localParameterError?.let { message ->
+            Text(message, color = OmniColors.Amber, style = MaterialTheme.typography.bodySmall)
+        }
 
-                OutlinedTextField(
-                    value = videoSettings.prompt,
-                    onValueChange = { viewModel.setVideoPrompt(it) },
-                    label = { Text("视频动态提示词") },
-                    placeholder = {
-                        Text("输入镜头运动、主体动态与光影，例如: A cinematic shot of a golden retriever running through a sunny backyard, weaving between flower beds...")
-                    },
-                    minLines = 3,
-                    maxLines = 6,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Ink,
-                        unfocusedTextColor = Ink,
-                        focusedBorderColor = Amber,
-                        unfocusedBorderColor = CardBorder
-                    ),
+        ContentCard(title = "任务状态") {
+            OmniTaskStatus(task = task, onCancel = viewModel::cancelVideoGeneration)
+            OmniLogDisclosure(logs = task.logs)
+        }
+
+        ContentCard(title = "生成参数") {
+            VideoParameters(
+                settings = settings,
+                workstation = workstation,
+                onFramesChange = viewModel::setVideoNumFrames,
+                onFpsChange = viewModel::setVideoFps,
+                onStepsChange = viewModel::setVideoSteps
+            )
+            if (workstation) {
+                OmniTextField(
+                    value = settings.serverUrl,
+                    onValueChange = viewModel::setVideoServerUrl,
+                    label = "工作站地址",
+                    placeholder = "http://电脑IP:8998",
                     modifier = Modifier.fillMaxWidth()
                 )
             }
         }
-
-        // Optional first-frame reference image for image-to-video generation.
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(CardBg)
-                .border(1.dp, CardBorder, RoundedCornerShape(18.dp))
-                .padding(14.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("参考图（可选）", color = Ink, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "选择一张图片作为视频首帧，Wan2.2 将基于该图生成动态画面。未选择时使用纯文生视频。",
-                    color = Muted, fontSize = 11.sp, lineHeight = 15.sp
-                )
-                videoSettings.inputImageUri?.let { imageUri ->
-                    AndroidView(
-                        factory = { viewContext ->
-                            ImageView(viewContext).apply {
-                                scaleType = ImageView.ScaleType.CENTER_CROP
-                                setImageURI(imageUri)
-                                contentDescription = "视频生成参考首帧"
-                            }
-                        },
-                        update = { it.setImageURI(imageUri) },
-                        modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp))
-                    )
-                    Text("已选择参考图；本次端侧生成将使用该首帧。", color = Mint, fontSize = 11.sp)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { imagePicker.launch(arrayOf("image/*")) }) {
-                        Text(if (videoSettings.inputImageUri == null) "选择参考图" else "更换参考图")
-                    }
-                    if (videoSettings.inputImageUri != null) {
-                        Button(onClick = { viewModel.setVideoInputImage(null) }) {
-                            Text("移除")
-                        }
-                    }
-                }
-            }
-        }
-
-        // 3. Advanced Parameters Toggle
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(CardBg)
-                .border(1.dp, CardBorder, RoundedCornerShape(14.dp))
-                .clickable { showAdvanced = !showAdvanced }
-                .padding(14.dp)
-        ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.Tune, null, tint = Amber, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("高级推理参数配置 (Advanced)", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                }
-                Icon(
-                    if (showAdvanced) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                    null,
-                    tint = Muted
-                )
-            }
-        }
-
-        AnimatedVisibility(visible = showAdvanced) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(CardBg)
-                    .border(1.dp, CardBorder, RoundedCornerShape(16.dp))
-                    .padding(14.dp)
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    // Random Seed
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("随机种子 (Seed)", color = Ink, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                            Text(videoSettings.seed.toString(), color = Subtle, fontSize = 11.sp)
-                        }
-                        IconButton(onClick = { viewModel.setVideoSeed(Random.nextLong(1, 99999999L)) }) {
-                            Icon(Icons.Outlined.Refresh, "随机种子", tint = Amber)
-                        }
-                    }
-
-                    // Steps Selector
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("DMD 扩散步数: ${videoSettings.steps} 步", color = Muted, fontSize = 12.sp)
-                        Spacer(Modifier.weight(1f))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(2 to "2 步极速", 3 to "3 步推荐", 4 to "4 步精细").forEach { (step, name) ->
-                                val sel = videoSettings.steps == step
-                                Box(
-                                    Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (sel) Amber.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.05f))
-                                        .border(1.dp, if (sel) Amber else CardBorder, RoundedCornerShape(8.dp))
-                                        .clickable { viewModel.setVideoSteps(step) }
-                                        .padding(horizontal = 10.dp, vertical = 6.dp)
-                                ) {
-                                    Text(name, color = if (sel) Ink else Muted, fontSize = 11.sp)
-                                }
-                            }
-                        }
-                    }
-
-                    // Workstation Server URL
-                    OutlinedTextField(
-                        value = videoSettings.serverUrl,
-                        onValueChange = { viewModel.setVideoServerUrl(it) },
-                        label = { Text("仅文生视频时的工作站地址") },
-                        placeholder = { Text("http://127.0.0.1:8998 或 http://电脑局域网IP:8998") },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Ink,
-                            unfocusedTextColor = Ink,
-                            focusedBorderColor = Amber,
-                            unfocusedBorderColor = CardBorder
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Text(
-                        "工作站桥接仅支持文生视频；选择参考图后需要端侧 Wan2.2 模型文件已就绪，避免将图生视频误送到不支持图片的桥接服务。",
-                        color = Subtle,
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp
-                    )
-                }
-            }
-        }
-
-        // 4. CTA Action Button
-        Button(
-            onClick = { viewModel.startVideoGeneration() },
-            enabled = !state.isBusy && videoSettings.prompt.isNotBlank(),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Amber,
-                disabledContainerColor = Color.White.copy(alpha = 0.08f)
-            )
-        ) {
-            if (state.isBusy) {
-                CircularProgressIndicator(
-                    color = Color.Black,
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp
-                )
-                Spacer(Modifier.width(10.dp))
-                Text("正在求解视频扩散方程...", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            } else {
-                Icon(Icons.Outlined.AutoAwesome, null, tint = Color.Black, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(if (videoSettings.inputImageUri != null) "开始图生视频" else "开始文生视频", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-
-        // 5. Status & Progress Feedback
-        if (state.isBusy) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(state.status, color = Amber, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                    Text("${state.progress}%", color = Muted, fontSize = 12.sp)
-                }
-                LinearProgressIndicator(
-                    progress = { state.progress / 100f },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(CircleShape),
-                    color = Amber,
-                    trackColor = Color.White.copy(alpha = 0.08f)
-                )
-            }
-        }
-
-        // Error Banner
-        state.error?.let { err ->
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Rose.copy(alpha = 0.15f))
-                    .border(1.dp, Rose.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
-                    .padding(12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.ErrorOutline, null, tint = Rose, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(err, color = Rose, fontSize = 12.sp)
-                }
-            }
-        }
-
-        // 6. Terminal Console (Engineering Live Logs)
-        VideoTerminalConsoleCard(logs = state.liveLogs)
     }
 }
 
 @Composable
-private fun VideoTerminalConsoleCard(logs: List<String>) {
-    var expanded by remember { mutableStateOf(true) }
-    val scrollState = rememberScrollState()
-
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFF0D0E18))
-            .border(1.dp, Color(0xFF27293D), RoundedCornerShape(18.dp))
+private fun VideoBackendBadge(backend: VideoBackend) {
+    val label = when (backend) {
+        VideoBackend.LocalWan -> "本机 Wan"
+        VideoBackend.Workstation -> "工作站"
+        else -> "未知"
+    }
+    val accent = if (backend == VideoBackend.Workstation) OmniColors.Amber else OmniColors.Mint
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = accent.copy(alpha = 0.12f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.35f))
     ) {
-        Column {
-            // Terminal Header
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = !expanded }
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(Amber)
-                    )
-                    Icon(Icons.Outlined.Terminal, null, tint = Muted, modifier = Modifier.size(14.dp))
-                    Text(
-                        "计算调度与推理控制台 (Terminal Live Log)",
-                        color = Ink,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                Icon(
-                    if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                    null,
-                    tint = Muted,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
+        Text(
+            label,
+            color = accent,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
+    }
+}
 
-            AnimatedVisibility(visible = expanded) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 100.dp, max = 220.dp)
-                        .background(Color(0xFF07080F))
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                ) {
-                    if (logs.isEmpty()) {
-                        Text(
-                            "> Wan2.2-TI2V 原生端侧推理已就绪...\n> 图像扩散 OpenCL GPU 后端 / UMT5 文本编码 CPU 后端\n> 可选择首帧图像进行图生视频，或直接输入提示词进行文生视频...",
-                            color = Color(0xFF5B6078),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp
-                        )
-                    } else {
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .verticalScroll(scrollState),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            logs.forEach { line ->
-                                val color = when {
-                                    line.contains("异常") || line.contains("失败") || line.contains("错误") -> Rose
-                                    line.contains("完成") || line.contains("Finished") || line.contains("Complete") -> Mint
-                                    line.contains("MobileWan") || line.contains("DMD") -> Amber
-                                    else -> Color(0xFF9EAAAF)
-                                }
-                                Text(
-                                    line,
-                                    color = color,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 10.5.sp,
-                                    lineHeight = 15.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+@Composable
+private fun FirstFramePreview(uri: Uri) {
+    val bitmap = rememberUriBitmap(uri, maxDimension = 768)
+    val modifier = Modifier
+        .fillMaxWidth()
+        .height(180.dp)
+        .clip(RoundedCornerShape(14.dp))
+        .background(Color.Black)
+    if (bitmap == null) {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            OmniEmptyState(icon = Icons.Outlined.Image, title = "首帧预览")
         }
+    } else {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "已选视频首帧",
+            modifier = modifier,
+            contentScale = ContentScale.Crop
+        )
+    }
+}
+
+@Composable
+private fun VideoParameters(
+    settings: VideoSettings,
+    workstation: Boolean,
+    onFramesChange: (Int) -> Unit,
+    onFpsChange: (Int) -> Unit,
+    onStepsChange: (Int) -> Unit
+) {
+    if (workstation) {
+        VideoIntSlider(
+            label = "帧数",
+            value = settings.numFrames,
+            range = 5..81,
+            valueSuffix = "帧",
+            onValueChange = onFramesChange
+        )
+    } else {
+        Text("帧数", color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
+        OmniTabs(
+            items = listOf(9, 17, 25),
+            selected = settings.numFrames,
+            accent = OmniColors.Violet,
+            label = { "$it 帧" },
+            onSelect = onFramesChange
+        )
+    }
+
+    VideoIntSlider(
+        label = "帧率",
+        value = settings.fps,
+        range = 8..30,
+        valueSuffix = "FPS",
+        onValueChange = onFpsChange
+    )
+
+    if (workstation) {
+        VideoIntSlider(
+            label = "步数",
+            value = settings.steps,
+            range = 1..10,
+            valueSuffix = "步",
+            onValueChange = onStepsChange
+        )
+    } else {
+        Text("步数", color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
+        OmniTabs(
+            items = listOf(3, 4, 5, 6),
+            selected = settings.steps,
+            accent = OmniColors.Violet,
+            label = { "$it 步" },
+            onSelect = onStepsChange
+        )
+    }
+}
+
+@Composable
+private fun VideoIntSlider(
+    label: String,
+    value: Int,
+    range: IntRange,
+    valueSuffix: String,
+    onValueChange: (Int) -> Unit
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                label,
+                color = OmniColors.Muted,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                "$value $valueSuffix",
+                color = OmniColors.Ink,
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
+        Slider(
+            value = value.toFloat().coerceIn(range.first.toFloat(), range.last.toFloat()),
+            onValueChange = { onValueChange(it.roundToInt()) },
+            valueRange = range.first.toFloat()..range.last.toFloat(),
+            steps = (range.last - range.first - 1).coerceAtLeast(0),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            colors = SliderDefaults.colors(
+                thumbColor = OmniColors.Violet,
+                activeTrackColor = OmniColors.Violet,
+                inactiveTrackColor = OmniColors.ContentStrong
+            )
+        )
     }
 }
 
 @Composable
 private fun VideoGalleryView(
     state: QwenUiState,
-    viewModel: QwenViewModel
+    viewModel: QwenViewModel,
+    showNotice: (String) -> Unit
 ) {
     val context = LocalContext.current
     val activeVideo = state.activeVideo
-    val scrollState = rememberScrollState()
+        ?.takeIf { active -> state.videoGallery.any { it.id == active.id } }
+        ?: state.videoGallery.firstOrNull()
+    var pendingDelete by remember { mutableStateOf<VideoItem?>(null) }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 1. Video Player Card
-        if (activeVideo != null && File(activeVideo.videoPath).exists()) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(CardBg)
-                    .border(1.dp, Amber.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
-                    .padding(14.dp)
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // Video View with bounded height
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(380.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(Color.Black),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AndroidView(
-                            factory = { ctx ->
-                                VideoView(ctx).apply {
-                                    setVideoURI(Uri.fromFile(File(activeVideo.videoPath)))
-                                    val mediaController = MediaController(ctx)
-                                    mediaController.setAnchorView(this)
-                                    setMediaController(mediaController)
-                                    setOnPreparedListener { mp ->
-                                        mp.isLooping = true
-                                        start()
-                                    }
-                                }
-                            },
-                            update = { view ->
-                                view.setVideoURI(Uri.fromFile(File(activeVideo.videoPath)))
-                                view.start()
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-
-                    // Metadata
-                    Text(
-                        activeVideo.prompt,
-                        color = Ink,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+        activeVideo?.let { video ->
+            item(key = "active-video-player") {
+                VideoPlayerCard(
+                    video = video,
+                    onShare = { shareVideo(context, video)?.let(showNotice) },
+                    onDelete = { pendingDelete = video }
+                )
+            }
+        }
+        if (state.videoGallery.isEmpty()) {
+            item(key = "gallery-empty") {
+                ContentCard {
+                    OmniEmptyState(
+                        icon = Icons.Outlined.VideoLibrary,
+                        title = "还没有视频",
+                        subtitle = "生成后可在这里播放和分享"
                     )
-
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "${activeVideo.resolution} · ${activeVideo.durationSec}s · ${activeVideo.fps} FPS · ${activeVideo.fileSizeBytes / 1024} KB",
-                            color = Amber,
-                            fontSize = 11.sp
-                        )
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            IconButton(onClick = { shareVideo(context, activeVideo.videoPath) }) {
-                                Icon(Icons.Outlined.Share, "分享视频", tint = Amber)
-                            }
-                            IconButton(onClick = { viewModel.deleteVideo(activeVideo) }) {
-                                Icon(Icons.Outlined.Delete, "删除", tint = Rose)
-                            }
-                        }
-                    }
                 }
             }
         } else {
-            // Empty State
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(200.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(CardBg)
-                    .border(1.dp, CardBorder, RoundedCornerShape(18.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(Icons.Outlined.MovieCreation, null, tint = Subtle, modifier = Modifier.size(36.dp))
-                    Text("暂无渲染视频，请在「创意渲染」中生成", color = Muted, fontSize = 13.sp)
-                }
+            item(key = "gallery-heading") {
+                Text(
+                    "全部视频 (${state.videoGallery.size})",
+                    color = OmniColors.Ink,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            items(
+                items = state.videoGallery,
+                key = { "video-${it.id}" }
+            ) { video ->
+                VideoGalleryItem(
+                    video = video,
+                    selected = video.id == activeVideo?.id,
+                    onClick = { viewModel.setActiveVideo(video) }
+                )
             }
         }
+    }
 
-        // 2. Video Gallery List
-        Text(
-            "渲染成品列表 (${state.videoGallery.size})",
-            color = Ink,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-
-        Column(
-            Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            state.videoGallery.forEach { item ->
-                val isSelected = item.id == activeVideo?.id
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (isSelected) Amber.copy(alpha = 0.15f) else CardBg)
-                        .border(
-                            1.dp,
-                            if (isSelected) Amber.copy(alpha = 0.5f) else CardBorder,
-                            RoundedCornerShape(14.dp)
-                        )
-                        .clickable { viewModel.setActiveVideo(item) }
-                        .padding(12.dp)
+    pendingDelete?.let { video ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("删除视频？") },
+            text = { Text("将删除视频及关联文件，此操作无法撤销。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDelete = null
+                        viewModel.deleteVideo(video)
+                        if (viewModel.state.value.videoGallery.none { it.id == video.id }) {
+                            showNotice("视频已删除")
+                        }
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Box(
-                            Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Amber.copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Outlined.PlayArrow, null, tint = Amber, modifier = Modifier.size(24.dp))
-                        }
-
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                item.prompt,
-                                color = Ink,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                "${item.resolution} · ${item.durationSec}s · ${SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()).format(Date(item.createdAt))}",
-                                color = Subtle,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
+                    Text("删除", color = OmniColors.Rose)
                 }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingDelete = null },
+                    modifier = Modifier.heightIn(min = 48.dp)
+                ) {
+                    Text("取消")
+                }
+            },
+            containerColor = OmniColors.ContentStrong,
+            titleContentColor = OmniColors.Ink,
+            textContentColor = OmniColors.Muted
+        )
+    }
+}
+
+@Composable
+private fun VideoPlayerCard(
+    video: VideoItem,
+    onShare: () -> Unit,
+    onDelete: () -> Unit
+) {
+    ContentCard(title = "当前视频") {
+        VideoPlayer(video.videoPath)
+        Text(
+            videoDisplayName(video),
+            color = OmniColors.Ink,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        VideoMetadata(video)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            IconButton(onClick = onShare, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Outlined.Share, contentDescription = "分享视频", tint = OmniColors.Violet)
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Outlined.Delete, contentDescription = "删除视频", tint = OmniColors.Rose)
             }
         }
     }
 }
 
-private fun shareVideo(context: Context, filePath: String) {
-    runCatching {
-        val file = File(filePath)
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = if (file.extension.equals("webm", ignoreCase = true)) "video/webm" else "video/mp4"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+@Composable
+private fun VideoPlayer(videoPath: String) {
+    var loadedPath by remember { mutableStateOf<String?>(null) }
+    var playing by remember { mutableStateOf(false) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
+    val playerRef = remember { arrayOfNulls<VideoView>(1) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        AndroidView(
+            factory = { context ->
+                VideoView(context).also { view ->
+                    playerRef[0] = view
+                    view.setOnPreparedListener { player ->
+                        player.isLooping = false
+                        playbackError = null
+                    }
+                    view.setOnCompletionListener { playing = false }
+                    view.setOnErrorListener { _, _, _ ->
+                        playing = false
+                        playbackError = "无法播放此视频"
+                        true
+                    }
+                }
+            },
+            update = { view ->
+                if (loadedPath != videoPath) {
+                    view.stopPlayback()
+                    playing = false
+                    playbackError = null
+                    loadedPath = videoPath
+                    view.setVideoURI(Uri.fromFile(File(videoPath)))
+                }
+            },
+            onRelease = { view ->
+                view.stopPlayback()
+                view.setOnPreparedListener(null)
+                view.setOnCompletionListener(null)
+                view.setOnErrorListener(null)
+                if (playerRef[0] === view) playerRef[0] = null
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(300.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Color.Black)
+        )
+        OmniPrimaryButton(
+            text = if (playing) "暂停" else "播放",
+            onClick = {
+                playerRef[0]?.let { player ->
+                    if (playing) {
+                        player.pause()
+                        playing = false
+                    } else {
+                        playbackError = null
+                        player.start()
+                        playing = true
+                    }
+                }
+            },
+            accent = OmniColors.VioletDeep
+        )
+        playbackError?.let { message ->
+            Text(message, color = OmniColors.Rose, style = MaterialTheme.typography.bodySmall)
         }
-        context.startActivity(Intent.createChooser(intent, "分享视频"))
     }
+}
+
+@Composable
+private fun VideoGalleryItem(
+    video: VideoItem,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val title = videoDisplayName(video)
+    ContentCard(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            VideoThumbnail(video, title)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title,
+                    color = OmniColors.Ink,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(4.dp))
+                VideoMetadata(video)
+            }
+            Icon(
+                imageVector = if (selected) Icons.Outlined.CheckCircle else Icons.Outlined.PlayArrow,
+                contentDescription = if (selected) "已载入播放器" else "载入播放器",
+                tint = if (selected) OmniColors.Mint else OmniColors.Dim,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun VideoThumbnail(video: VideoItem, title: String) {
+    val modifier = Modifier
+        .width(104.dp)
+        .height(78.dp)
+        .clip(RoundedCornerShape(12.dp))
+        .background(Color.Black)
+    val thumbnailPath = video.thumbnailPath
+    if (thumbnailPath.isNullOrBlank()) {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            Icon(
+                Icons.Outlined.Movie,
+                contentDescription = "$title 的视频缩略图不可用",
+                tint = OmniColors.Dim,
+                modifier = Modifier.size(28.dp)
+            )
+        }
+    } else {
+        OmniAsyncImage(
+            path = thumbnailPath,
+            contentDescription = "$title 的视频缩略图",
+            modifier = modifier,
+            maxDimension = 256
+        )
+    }
+}
+
+@Composable
+private fun VideoMetadata(video: VideoItem) {
+    val metadata = videoMetadata(video)
+    if (metadata.isNotEmpty()) {
+        Text(
+            metadata,
+            color = OmniColors.Muted,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private fun videoDisplayName(video: VideoItem): String =
+    video.prompt.ifBlank { File(video.videoPath).name }
+
+private fun videoMetadata(video: VideoItem): String = buildList {
+    video.resolution
+        .takeIf { it.isNotBlank() && !it.equals("未知", ignoreCase = true) }
+        ?.let(::add)
+    video.durationSec
+        .takeIf { it.isFinite() && it > 0f }
+        ?.let { add(formatMediaDuration(it)) }
+    video.fps.takeIf { it > 0 }?.let { add("$it FPS") }
+    video.fileSizeBytes.takeIf { it > 0L }?.let { add(formatFileSize(it)) }
+}.joinToString(" · ")
+
+private fun formatFileSize(bytes: Long): String {
+    val size = bytes.toDouble()
+    val kb = 1024.0
+    val mb = kb * 1024.0
+    val gb = mb * 1024.0
+    return when {
+        size >= gb -> String.format(Locale.getDefault(), "%.1f GB", size / gb)
+        size >= mb -> String.format(Locale.getDefault(), "%.1f MB", size / mb)
+        size >= kb -> String.format(Locale.getDefault(), "%.1f KB", size / kb)
+        else -> "$bytes B"
+    }
+}
+
+private fun shareVideo(context: Context, video: VideoItem): String? {
+    val file = File(video.videoPath)
+    if (!file.isFile) return "视频文件不存在，无法分享"
+    val mimeType = when (file.extension.lowercase()) {
+        "webm" -> "video/webm"
+        "mp4" -> "video/mp4"
+        else -> return "暂不支持分享此格式"
+    }
+    return runCatching {
+        shareMediaFile(context, file, mimeType, "分享视频")
+    }.fold(
+        onSuccess = { null },
+        onFailure = { error -> "分享失败：${error.message ?: "无法打开分享面板"}" }
+    )
 }

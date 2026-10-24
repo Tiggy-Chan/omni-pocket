@@ -1,11 +1,9 @@
 package com.tiggy.qwenimage.ui
 
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,12 +21,8 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -47,14 +41,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -79,22 +70,13 @@ private val MossMuted = Color(0xFFAAA6B2)
 
 @Composable
 fun ImageBackendSelector(selected: ImageGenerationBackend, onSelect: (ImageGenerationBackend) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        ImageGenerationBackend.entries.forEach { backend ->
-            FilterChip(
-                selected = selected == backend,
-                onClick = { onSelect(backend) },
-                label = {
-                    Text(
-                        if (backend == ImageGenerationBackend.QwenLocal) "Qwen · 本机" else "MOSS · 工作站",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                modifier = Modifier.weight(1f)
-            )
-        }
-    }
+    OmniTabs(
+        items = ImageGenerationBackend.entries,
+        selected = selected,
+        accent = OmniColors.Violet,
+        label = { if (it == ImageGenerationBackend.QwenLocal) "Qwen · 本机" else "MOSS · 工作站" },
+        onSelect = onSelect
+    )
 }
 
 @Composable
@@ -102,11 +84,10 @@ fun MossStudioScreen(state: QwenUiState, viewModel: QwenViewModel) {
     val settings = state.mossSettings
     val update: ((MossSettings) -> MossSettings) -> Unit = viewModel::updateMossSettings
     var showAdvanced by remember { mutableStateOf(false) }
-    var showLogs by remember { mutableStateOf(false) }
     val task = state.imageTask
 
     LazyColumn(
-        Modifier.fillMaxSize(),
+        Modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -152,9 +133,14 @@ fun MossStudioScreen(state: QwenUiState, viewModel: QwenViewModel) {
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(512 to 512, 1024 to 1024, 1024 to 768, 768 to 1024).forEach { (width, height) ->
+                    listOf(
+                        Triple(512, 512, "512²"),
+                        Triple(1024, 1024, "1024²"),
+                        Triple(1024, 768, "横屏"),
+                        Triple(768, 1024, "竖屏")
+                    ).forEach { (width, height, label) ->
                         MossChoice(
-                            if (width == height && width == 512) "512²" else "$width×$height",
+                            label,
                             settings.width == width && settings.height == height,
                             Modifier.weight(1f)
                         ) { update { it.copy(width = width, height = height) } }
@@ -222,58 +208,35 @@ fun MossStudioScreen(state: QwenUiState, viewModel: QwenViewModel) {
         }
 
         item {
-            if (task.running) {
-                if (task.progress == null) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                } else {
-                    LinearProgressIndicator(progress = { task.progress / 100f }, modifier = Modifier.fillMaxWidth())
-                }
-                Spacer(Modifier.height(6.dp))
-            }
-            task.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            Text(task.status, color = MossMuted, style = MaterialTheme.typography.bodySmall)
+            OmniPrimaryButton(
+                text = if (task.running) "加入图像队列" else "生成图像",
+                onClick = viewModel::enqueue,
+                enabled = settings.prompt.isNotBlank(),
+                busy = task.running
+            )
             Spacer(Modifier.height(8.dp))
-            Button(onClick = viewModel::enqueue, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                if (task.running) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
-                }
-                Text(if (task.running) "加入图像队列" else "生成图像")
-            }
             val active = state.activeTask
-            if (task.running && active?.domain == TaskDomain.Image && active.backend == GenerationBackend.Workstation) {
-                TextButton(onClick = { viewModel.cancelJob(active.id) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("取消当前 MOSS 任务")
-                }
-            }
-            if (task.logs.isNotEmpty()) {
-                TextButton(onClick = { showLogs = !showLogs }, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (showLogs) "隐藏日志" else "运行日志")
-                }
-                if (showLogs) {
-                    Column {
-                        task.logs.takeLast(20).forEach { line ->
-                            Text(line, color = MossMuted, style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                }
-            }
+            OmniTaskStatus(
+                task = task,
+                onCancel = if (task.running && active?.domain == TaskDomain.Image && active.backend == GenerationBackend.Workstation) {
+                    { viewModel.cancelJob(active.id) }
+                } else null
+            )
+            if (task.logs.isNotEmpty()) OmniLogDisclosure(task.logs)
         }
 
         task.resultPath?.let { path ->
             item {
-                val bitmap = remember(path) { BitmapFactory.decodeFile(path) }
-                if (bitmap != null) {
-                    MossSection {
-                        Text("最新图像", color = MossText, style = MaterialTheme.typography.titleSmall)
-                        Spacer(Modifier.height(8.dp))
-                        Image(
-                            bitmap = bitmap.asImageBitmap(),
-                            contentDescription = "生成结果",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Text(File(path).name, color = MossMuted, style = MaterialTheme.typography.labelSmall)
-                    }
+                MossSection {
+                    Text("最新图像", color = MossText, style = MaterialTheme.typography.titleSmall)
+                    Spacer(Modifier.height(8.dp))
+                    OmniAsyncImage(
+                        path = path,
+                        contentDescription = "生成结果",
+                        modifier = Modifier.fillMaxWidth(),
+                        maxDimension = 1440
+                    )
+                    Text(File(path).name, color = MossMuted, style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -283,7 +246,7 @@ fun MossStudioScreen(state: QwenUiState, viewModel: QwenViewModel) {
 @Composable
 private fun MossSection(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         color = MossSurface,
         tonalElevation = 0.dp

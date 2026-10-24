@@ -343,10 +343,13 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     fun selectMusicTab(tab: MusicStudioTab) = _state.update { it.copy(musicTab = tab) }
     fun selectVideoTab(tab: VideoStudioTab) = _state.update { it.copy(videoTab = tab) }
 
+    fun videoBackend(): VideoBackend = videoEngine.generationBackend()
+
     // Video settings modifiers
     fun setVideoPrompt(prompt: String) = _state.update { it.copy(videoSettings = it.videoSettings.copy(prompt = prompt)) }
     fun setVideoSeed(seed: Long) = _state.update { it.copy(videoSettings = it.videoSettings.copy(seed = seed)) }
     fun setVideoFps(fps: Int) = _state.update { it.copy(videoSettings = it.videoSettings.copy(fps = fps.coerceIn(8, 30))) }
+    fun setVideoNumFrames(numFrames: Int) = _state.update { it.copy(videoSettings = it.videoSettings.copy(numFrames = numFrames.coerceIn(5, 81))) }
     fun setVideoSteps(steps: Int) = _state.update { it.copy(videoSettings = it.videoSettings.copy(steps = steps.coerceIn(1, 10))) }
     fun setVideoShift(shift: Float) = _state.update { it.copy(videoSettings = it.videoSettings.copy(shift = shift.coerceIn(1.0f, 10.0f))) }
     fun setVideoServerUrl(url: String) = _state.update { it.copy(videoSettings = it.videoSettings.copy(serverUrl = url)) }
@@ -360,13 +363,28 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun setActiveVideo(video: VideoItem) = _state.update { it.copy(activeVideo = video) }
     fun deleteVideo(video: VideoItem) {
-        runCatching { File(video.videoPath).delete() }
-        video.thumbnailPath?.let { runCatching { File(it).delete() } }
+        val videoFile = File(video.videoPath)
+        val deletion = runCatching {
+            if (videoFile.exists() && !videoFile.delete() && videoFile.exists()) {
+                error("无法删除 ${videoFile.name}")
+            }
+        }
+        deletion.exceptionOrNull()?.let { exception ->
+            _state.update { it.copy(alert = "删除视频失败：${exception.message ?: "无法删除视频"}") }
+            return
+        }
+
+        val sidecar = File(videoFile.parentFile, "${videoFile.nameWithoutExtension}.json")
+        val cleanupFailed = listOfNotNull(sidecar, video.thumbnailPath?.let(::File)).filter { file ->
+            runCatching { file.exists() && !file.delete() && file.exists() }.getOrDefault(true)
+        }
         _state.update { state ->
             val nextList = state.videoGallery.filter { it.id != video.id }
             state.copy(
                 videoGallery = nextList,
-                activeVideo = if (state.activeVideo?.id == video.id) nextList.firstOrNull() else state.activeVideo
+                activeVideo = if (state.activeVideo?.id == video.id) nextList.firstOrNull() else state.activeVideo,
+                alert = if (cleanupFailed.isEmpty()) state.alert
+                else "视频已删除，但关联文件清理失败：${cleanupFailed.joinToString { it.name }}"
             )
         }
     }
