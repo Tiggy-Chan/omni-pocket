@@ -64,12 +64,16 @@ data class GenerationJob(
     val elapsedMs: Long = 0,
     val createdAt: Long = System.currentTimeMillis(),
     val outputWidth: Int = 0,
-    val outputHeight: Int = 0
+    val outputHeight: Int = 0,
+    val backend: ImageGenerationBackend = ImageGenerationBackend.QwenLocal,
+    val mossSettings: MossSettings? = null
 ) {
     fun toJson() = JSONObject().apply {
         put("id", id); put("settings", settings.toJson()); put("state", state); put("progress", progress)
         put("output", outputPath); put("error", error); put("elapsedMs", elapsedMs); put("createdAt", createdAt)
         put("outputWidth", outputWidth); put("outputHeight", outputHeight)
+        put("backend", backend.name)
+        put("mossSettings", mossSettings?.toJson() ?: JSONObject.NULL)
     }
     companion object {
         fun fromJson(o: JSONObject) = GenerationJob(
@@ -82,7 +86,9 @@ data class GenerationJob(
             elapsedMs = o.optLong("elapsedMs"),
             createdAt = o.optLong("createdAt"),
             outputWidth = o.optInt("outputWidth"),
-            outputHeight = o.optInt("outputHeight")
+            outputHeight = o.optInt("outputHeight"),
+            backend = runCatching { ImageGenerationBackend.valueOf(o.optString("backend")) }.getOrDefault(ImageGenerationBackend.QwenLocal),
+            mossSettings = o.optJSONObject("mossSettings")?.let(MossSettings::fromJson)
         )
     }
 }

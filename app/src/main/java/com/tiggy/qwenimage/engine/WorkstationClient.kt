@@ -27,20 +27,27 @@ class WorkstationClient(serverUrl: String, private val maxResponseBytes: Long = 
         }
     }
 
-    fun postJson(path: String, payload: JSONObject, readTimeoutMs: Int): JSONObject {
+    fun postJson(path: String, payload: JSONObject, readTimeoutMs: Int): JSONObject =
+        JSONObject(postText(path, payload.toString(), readTimeoutMs))
+
+    fun postText(
+        path: String,
+        payload: String = "",
+        readTimeoutMs: Int = 10_000,
+        contentType: String = "application/json; charset=utf-8"
+    ): String {
         val connection = open(path, "POST", 10_000, readTimeoutMs).apply {
             doOutput = true
-            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Content-Type", contentType)
         }
         return try {
-            connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
+            connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
             val code = connection.responseCode
             if (code != HttpURLConnection.HTTP_OK) {
                 val message = connection.errorStream?.let { readLimited(it, 64 * 1024) } ?: "HTTP $code"
                 throw IOException("工作站请求失败 ($code)：$message")
             }
-            val body = connection.inputStream.use { readLimited(it, maxResponseBytes) }
-            JSONObject(body)
+            connection.inputStream.use { readLimited(it, maxResponseBytes) }
         } finally {
             release(connection)
         }

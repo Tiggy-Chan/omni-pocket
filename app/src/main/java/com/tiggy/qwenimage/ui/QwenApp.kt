@@ -164,23 +164,32 @@ fun QwenApp(viewModel: QwenViewModel) {
                         AppDomain.VideoStudio -> VideoStudioScreen(state = state, viewModel = viewModel)
                         AppDomain.ImageStudio -> {
                             when (state.tab) {
-                                WorkspaceTab.Generate -> GenerateScreen(
-                                    viewModel = viewModel,
-                                    settings = state.settings,
-                                    busy = state.isBusy,
-                                    progress = state.progress,
-                                    status = state.status,
-                                    resultPath = state.resultPath,
-                                    liveLogs = state.liveLogs,
-                                    jobs = state.jobs,
-                                    officialTurboAvailable = state.modelStatus?.manifest?.features?.contains("official-turbo") == true,
-                                    modelReady = state.modelStatus?.ready == true,
-                                    onPreviewImage = { previewImagePath = it }
-                                )
+                                WorkspaceTab.Generate -> Column(Modifier.fillMaxSize()) {
+                                    Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                        ImageBackendSelector(state.imageBackend, viewModel::setImageBackend)
+                                    }
+                                    if (state.imageBackend == com.tiggy.qwenimage.data.ImageGenerationBackend.MossWorkstation) {
+                                        MossStudioScreen(state, viewModel)
+                                    } else {
+                                        GenerateScreen(
+                                            viewModel = viewModel,
+                                            settings = state.settings,
+                                            busy = state.isBusy,
+                                            progress = state.progress,
+                                            status = state.status,
+                                            resultPath = state.resultPath,
+                                            liveLogs = state.liveLogs,
+                                            jobs = state.jobs,
+                                            officialTurboAvailable = state.modelStatus?.manifest?.features?.contains("official-turbo") == true,
+                                            modelReady = state.modelStatus?.ready == true,
+                                            onPreviewImage = { previewImagePath = it }
+                                        )
+                                    }
+                                }
                                 WorkspaceTab.Queue -> QueueScreen(
                                     jobs = state.jobs,
                                     cancel = viewModel::cancelJob,
-                                    onReuseSettings = viewModel::useSettings,
+                                    onReuseSettings = viewModel::reuseJob,
                                     onPreviewImage = { previewImagePath = it }
                                 )
                                 WorkspaceTab.Models -> ModelsScreen(
@@ -696,7 +705,7 @@ private fun GenerateScreen(
 private fun QueueScreen(
     jobs: List<GenerationJob>,
     cancel: (String) -> Unit,
-    onReuseSettings: (GenerationSettings) -> Unit,
+    onReuseSettings: (GenerationJob) -> Unit,
     onPreviewImage: (String) -> Unit
 ) {
     if (jobs.isEmpty()) return EmptyState(Icons.Outlined.Queue, "队列还是空的", "提交一个 prompt，作品会在这里排队")
@@ -792,7 +801,7 @@ private fun QueueScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(file.name, color = Dim, style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp))
-                                TextButton(onClick = { onReuseSettings(job.settings) }) {
+                                TextButton(onClick = { onReuseSettings(job) }) {
                                     Icon(Icons.Outlined.ContentCopy, null, Modifier.size(15.dp), tint = Violet)
                                     Spacer(Modifier.width(4.dp))
                                     Text("复用此参数", color = Violet, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
