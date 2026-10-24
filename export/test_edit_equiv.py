@@ -34,6 +34,10 @@ with torch.no_grad():
     P = prefix.shape[1]
     kv = list(dit(prefix, torch.tensor([0.0]), cos[:P], sin[:P], mask,
                   *[torch.zeros(2, 1, 32, 128) for _ in range(LAYERS)])[1:])
-    print("prefix K err", (kv[1, 0:1] - cache.get_layer(1).k).abs().max().item(), "ref", cache.get_layer(1).k.abs().max().item())
+    prefix_error = (kv[1, 0:1] - cache.get_layer(1).k).abs().max().item()
+    print("prefix K err", prefix_error, "ref", cache.get_layer(1).k.abs().max().item())
+    assert prefix_error < 2e-4, prefix_error
     out = dit(img_in(lat), torch.tensor([sigma]), cos[P:], sin[P:], torch.zeros(1, 1, H * W, P + H * W), *kv)[0]
-    print("step out err", (out - out_ref).abs().max().item(), "ref", out_ref.abs().max().item())
+    step_error = (out - out_ref).abs().max().item()
+    print("step out err", step_error, "ref", out_ref.abs().max().item())
+    assert step_error < 2e-4, step_error

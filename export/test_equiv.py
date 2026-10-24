@@ -34,9 +34,13 @@ with torch.no_grad():
     present = list(mine(txt_in(text), torch.tensor([0.0]), cos[:L], sin[:L], Q.prefix_mask(L),
                         *[torch.zeros(2, 1, 32, 128) for _ in range(LAYERS)])[1:])
     kref = cache.get_layer(1).k
-    print("prefix K max err", (present[1][0:1] - kref).abs().max().item(), "ref max", kref.abs().max().item())
+    prefix_error = (present[1][0:1] - kref).abs().max().item()
+    print("prefix K max err", prefix_error, "ref max", kref.abs().max().item())
+    assert prefix_error < 2e-4, prefix_error
     out = mine(img_in(lat), torch.tensor([sigma]), cos[L:], sin[L:], torch.zeros(1, 1, N, L + N), *present)[0]
-    print("step out max err", (out - out_ref).abs().max().item(), "ref max", out_ref.abs().max().item())
+    step_error = (out - out_ref).abs().max().item()
+    print("step out max err", step_error, "ref max", out_ref.abs().max().item())
+    assert step_error < 2e-4, step_error
 
 # scheduler vs diffusers
 from diffusers import FlowMatchEulerDiscreteScheduler
@@ -47,5 +51,7 @@ sch = FlowMatchEulerDiscreteScheduler(**cfg)
 steps = 20
 m = (0.9 - 0.5) / (8192 - 256); mu = 1024 * m + 0.5 - m * 256
 sch.set_timesteps(sigmas=np.linspace(1.0, 1 / steps, steps), mu=mu)
-print("sigma err", np.abs(np.array(sch.sigmas.tolist()) - np.array(Q.sigmas_schedule(steps))).max())
+sigma_error = np.abs(np.array(sch.sigmas.tolist()) - np.array(Q.sigmas_schedule(steps))).max()
+print("sigma err", sigma_error)
+assert sigma_error < 1e-6, sigma_error
 print("sigmas", [round(float(s), 4) for s in sch.sigmas])

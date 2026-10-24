@@ -43,7 +43,9 @@ with torch.no_grad():
     kv = list(dit(prefix, torch.tensor([0.0]), cos[:P], sin[:P], mask,
                   *[torch.zeros(2, 1, 32, 128) for _ in range(LAYERS)])[1:])
     out = dit(img_in(lat), torch.tensor([sigma]), cos[P:], sin[P:], torch.zeros(1, 1, H * W, P + H * W), *kv)[0]
-    print("step out err", (out - out_ref).abs().max().item(), "ref", out_ref.abs().max().item())
+    step_error = (out - out_ref).abs().max().item()
+    print("step out err", step_error, "ref", out_ref.abs().max().item())
+    assert step_error < 2e-4, step_error
 
 # Sanity: edit_layout_n with a single image must reproduce edit_layout's own (cos, sin, mask) exactly.
 hc, wc = 12, 16
@@ -51,5 +53,8 @@ is_pad1 = [False] * 5 + [True] * (hc * wc // 4) + [False] * 9
 t1_, t2_, cos1, sin1, mask1 = Q.edit_layout(is_pad1, hc, wc, H, W)
 P1, cos1n, sin1n, mask1n = Q.edit_layout_n(is_pad1, [(hc, wc)], H, W)
 assert P1 == t1_ + hc * wc + t2_
-print("single-image reduction: cos", (cos1 - cos1n).abs().max().item(), "sin", (sin1 - sin1n).abs().max().item(),
-      "mask", (mask1 - mask1n).abs().max().item())
+cos_error = (cos1 - cos1n).abs().max().item()
+sin_error = (sin1 - sin1n).abs().max().item()
+mask_error = (mask1 - mask1n).abs().max().item()
+print("single-image reduction: cos", cos_error, "sin", sin_error, "mask", mask_error)
+assert cos_error < 1e-6 and sin_error < 1e-6 and mask_error < 1e-6, (cos_error, sin_error, mask_error)

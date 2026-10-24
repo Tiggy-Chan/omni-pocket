@@ -2,7 +2,8 @@
 # input  : latent [1, 64, h, w]   (normalized DiT latents, unpacked to NCHW)
 # output : image  [1, 4, 16h, 16w] RGBA in [-1, 1]
 # usage: python export_vae.py --vae models/Qwen-Image-2.1/vae --out models/mnn [--random]
-import argparse, json, os, subprocess, sys
+import argparse, json, os, sys
+from conversion_utils import run_mnnconvert
 import torch
 import torch.nn as nn
 from diffusers.models.autoencoders.autoencoder_kl_qwenimage21 import (
@@ -83,8 +84,7 @@ def convert(onnx_path, mnn_path, fp16):
     # fp16 weights are kept inside the .mnn: the fp16 + --saveExternalData combination fails to load.
     args.append("--fp16" if fp16 else "--saveExternalData")
     print(" ".join(args))
-    r = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    print(r.stdout[-600:])
+    run_mnnconvert(args, mnn_path, onnx_path)
 
 
 def main():

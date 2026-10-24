@@ -10,7 +10,8 @@
 #
 # Architecture copied verbatim from github.com/madebyollin/taesd/blob/main/taesd.py (MIT), F16Encoder/F16Decoder.
 # usage: python export_vae_tiny.py --weights taeqi2_1.safetensors --out models/mnn
-import argparse, os, subprocess
+import argparse, os
+from conversion_utils import run_mnnconvert
 import torch
 import torch.nn as nn
 import safetensors.torch as stt
@@ -95,8 +96,7 @@ def convert(onnx_path, mnn_path, fp16):
     args = [MNNCONVERT, "-f", "ONNX", "--modelFile", onnx_path, "--MNNModel", mnn_path, "--bizCode", "qwen_image21"]
     args.append("--fp16" if fp16 else "--saveExternalData")
     print(" ".join(args))
-    r = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    print(r.stdout[-600:])
+    run_mnnconvert(args, mnn_path, onnx_path)
 
 
 def main():

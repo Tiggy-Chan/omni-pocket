@@ -50,6 +50,9 @@ jobs:
           fi
           echo "hash=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Run unit tests
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
+
       - name: Build APK and AAR
         run: ./gradlew :app:assembleDebug :demo:assembleDebug :qwenimage21:assembleRelease --no-daemon
 

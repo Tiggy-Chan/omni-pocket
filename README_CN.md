@@ -1,138 +1,119 @@
 # Omni Pocket
 
-<p align="center">
-  <a href="README.md">English</a> | <b>简体中文</b>
-</p>
+[English](README.md) | [简体中文](README_CN.md)
 
-<p align="center">
-  <strong>面向 Android 平台的端侧全模态 AIGC 随身创作工坊</strong><br>
-  集成本地 Diffusion 图像绘制与 48kHz 全乐章人声音乐生成，基于 MNN 与 OpenCL 硬件加速。
-</p>
+Omni Pocket 是一个 Android 图像、音乐和视频创作应用。界面会明确区分本机推理与工作站请求，不把工作站任务写成端侧生成。
 
----
+## 各模态运行位置
 
-## 🌟 项目简介
+- **Qwen-Image-2.1 · 本机**：使用 MNN、CPU int4 文本/视觉编码与 OpenCL DiT 推理。支持文生图、单/双参考图编辑、完整/Tiny VAE 和官方 8 步 Turbo。支持队列、协作式取消、模型校验、真实输出尺寸与作品恢复。
+- **MOSS-Image · ComfyUI 工作站**：支持 SFT/Base、长提示词、可选提示词增强和原生 JSON 布局。布局编辑器支持文字/对象元素、拖动、缩放和删除，并生成官方 `abs_centralized` / `yxyx` 格式。此路径不使用 Qwen MNN，也不宣称手机本地运行 MOSS。
+- **YuE2 音乐 · 工作站**：向外部 YuE2 服务提交标题、风格、歌词、BPM、种子、时长、CoT、ODE 步数和 guidance。应用内支持生成曲目与示例曲目的播放、拖动、分享及 ABC 乐谱查看。当前没有端侧 YuE2 推理引擎。
+- **Wan2.2 视频 · 本机**：通过 `libsd_cli` 运行 Wan2.2-TI2V-5B-Turbo、UMT5 文本编码器和 TAE 解码器。文生视频与首帧图生视频会使用界面真实的 seed、FPS、帧数和步数，本机输出 WebM。当前本机限制为 480×832、最多 25 帧；已验证默认值为 4 步、16 FPS。
+- **MobileWan · 工作站**：通过外部桥接进行文生视频。桥接不接收首帧，选择首帧但本机模型未就绪时，App 会在提交前明确提示，不会静默丢弃图片。
 
-**Omni Pocket** 是一款面向现代 Android 设备（`arm64-v8a`）的开源端侧全模态生成式 AI 创作工坊。项目旨在让移动设备离线具备前沿多模态大模型的创作能力，将两大旗舰开源模型融合至统一的应用架构中：
+应用使用“图像 / 音乐 / 视频”三个全局入口、独立任务状态与默认折叠的高级参数和日志。Android 12/API 31+ 的悬浮导航使用背景玻璃效果，旧版本使用高不透明降级材质；重推理时降低装饰效果开销。
 
-1. **🎨 绘卷 · 生图工坊 (Image Studio)**：基于 **Qwen-Image-2.1**（通过阿里 MNN 框架量化为 Q4_K_M DiT 模型，结合 Adreno/Mali OpenCL 硬件加速与官方 8 步 Turbo 采样调度）。
-2. **🎵 乐坊 · 音乐工坊 (Music Studio)**：基于 **YuE2-3B**（30 亿参数 AR–NAR 混合架构音乐大模型，输出 48 kHz 双声道高保真立体声全乐章人声演唱，支持 ABC 符号乐理规划）。
-3. **🎬 影坊 · 动效工坊 (Video Studio)**：基于 **Wan2.2-TI2V-5B-Turbo** 端侧推理，支持 App 中选择参考首帧进行图生视频，或使用提示词进行文生视频；实际端侧视频长度受设备内存预算限制。工作站桥接当前仅支持文生视频。
+## 编译与验证
 
----
-
-## 🚀 核心功能特性
-
-### 🎨 绘卷 · 生图工坊 (`Qwen-Image-2.1`)
-- **文生图与图生图智能编辑**：支持 128×128 至 1024×1024 全分辨率生成，支持单图及双参考图特征迁移与局部重绘。
-- **官方 8 步 Turbo 原生加速**：集成官方 Turbo 调度算法，相比 20 步标准采样提速超 2.5 倍，兼顾卓越画质与移动端极速出图。
-- **轻量化硬件协同**：CPU int4 运行文本与视觉编码器，OpenCL GPU 原生加速 DiT 去噪扩散网络，配合 Tiny VAE FP16 原生显存级解码。
-
-### 🎵 乐坊 · 音乐工坊 (`YuE2-3B`)
-- **48 kHz 双声道超高清立体声**：原生输出完整全乐章人声歌唱与丰富器乐编曲，彻底告别传统移动端 TTS 机械拼接。
-- **YuE2 独创符号乐理规划（Symbolic CoT）**：
-  - `melody`（推荐）：先推演符号旋律线与节拍时值，汉字/假名发音音节精准绑定，保障长曲演唱绝不漏词。
-  - `full`：同步规划旋律线与和弦级数走向，提供丰富的管弦乐与电声编曲织体。
-  - `off`：直接进行声学语义自回归生成，适合快速音乐小样试听。
-- **结构化歌词排版**：支持 `[Intro]`, `[Verse]`, `[Pre-Chorus]`, `[Chorus]`, `[Bridge]`, `[Outro]` 乐段标记一键插入、BPM 节拍滑块调节与实时歌词字数统计。
-- **内置高保真播放器与简谱检视**：动态波形跳动动效、进度条拖拽控制、高保真立体声播放，以及正规 ABC 乐理简谱检视与一键剪贴板导出。
-- **双模引擎架构**：
-  - **工作站直连桥接模式**：通过 USB（`adb reverse tcp:8999 tcp:8999`）或局域网 Wi-Fi 直连运行真实 YuE2-3B 的本地电脑或服务器，流式回传真实 Token 日志并接收 48kHz 完整歌声母带。
-  - **端侧离线模型**：面向未来高内存移动设备全量离线量化与算子移植设计。
-
-### 🎬 影坊 · 动效工坊 (`Wan2.2-TI2V`)
-- **端侧图生视频**：可在 App 中选择视频首帧；图片会复制到应用缓存，并通过 Wan2.2-TI2V 原生 `-i` 参数参与推理。未选参考图时运行文生视频。
-- **模型与执行后端**：Wan2.2-TI2V 5B Turbo、UMT5-XXL 与 TAEHV；扩散模型使用 OpenCL GPU，文本编码器与 VAE 使用 CPU。
-- **受设备内存约束的输出**：当前端侧最多生成 25 帧、480×832 视频；实际耗时取决于设备负载及推理参数。
-- **工作站桥接限制**：现有桥接接口仅支持文生视频，不接收参考图片。若选择参考图但端侧模型未就绪，App 会明确报错，不会静默丢弃图片后退化为文生视频。
-- **应用内作品展映**：预览生成视频，并通过 Android 系统分享菜单导出。
-
-### 🧭 全局液态流光视觉与架构
-- **左侧全局抽屉栏 (Navigation Drawer)**：平滑在生图工坊与音乐工坊之间一键切换。
-- **生命周期内存互斥保护**：切换创作业务时自动释放非活跃模型资源，峰值内存严控在系统安全阈值内，杜绝 Android LMK 闪退。
-- **持久化极客控制台**：推理日志实时滚动，生成完毕后原地保留，完整展示各阶段耗时、采样步数与落盘文件，支持随时回溯查验。
-
----
-
-## 📱 硬件要求与设备兼容性
-
-Omni Pocket 面向各主流厂商的现代 Android 移动设备设计：
-- **操作系统**：Android 9.0 或更高版本（API 28+，推荐 Android 13+）。
-- **架构支持**：`arm64-v8a`（64 位 ARM 处理器）。
-- **硬件加速**：支持 OpenCL 2.0+ 的移动 GPU（Qualcomm Adreno、ARM Mali 等）。
-- **运行内存建议**：
-  - 生图模块：建议 6 GB 以上可用物理 RAM（8GB / 12GB / 16GB / 24GB 设备均可顺畅运行）。
-  - 音乐模块：工作站桥接模式适配所有网络互通机型；端侧全量大模型运算推荐旗舰大内存机型。
-
----
-
-## 🛠️ 编译与安装指南
-
-### 环境准备
-- JDK 17（如 OpenJDK 17）
-- Android SDK 35（Platform Tools 及 Build-Tools 35.0.0+）
-- Android NDK `28.2.13676358`（或 NDK 26+）
-
-### 编译生成 APK
+环境：JDK 17、Android SDK 35、NDK `28.2.13676358`（或兼容的 NDK 26+）。
 
 ```bash
-# 克隆仓库
-git clone https://github.com/Tiggy-Chan/omni-pocket.git
-cd omni-pocket
-
-# 编译 Debug APK
-./gradlew :app:assembleDebug
-
-# 通过 ADB 安装至已连接的手机
+./gradlew :app:testDebugUnitTest :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
----
+支持 Android 9/API 28+、`arm64-v8a`。考虑到当前本机模型大小，建议使用支持 OpenCL、至少 12 GB RAM 的旗舰设备；主要真机验证目标为 24 GB RAM。
 
-## 📦 模型转换与导入说明
-
-### Qwen Image 2.1 (MNN 格式)
-在 PC / Mac 端将 GGUF 权重转换为 MNN 模型：
+## Qwen 模型准备
 
 ```bash
 git submodule update --init --depth 1 third_party/MNN
 python3 -m pip install -r export/requirements.txt
 scripts/build_mnnconvert_mac.sh
 
-# 转换 UC Q4_K_M 基础模型
 QWEN_SOURCE_REPO=abenzerps/Qwen-Image-2.1-Uncensored-GGUF \
 QWEN_GGUF=qwen-image-2.1-UC-Q4_K_M.gguf \
 OUT=models/qwen_image21_uc_q4km \
 scripts/convert_models.sh
 
-# 转换官方 8 步 Turbo 模型
+# 添加官方 Turbo DiT；仅转换不代表已通过真机验证。
 scripts/convert_official_turbo.sh
+
+# 只有转换结果实际通过真机回归后才设置此标记。
+QWEN_TURBO_VALIDATED=1 scripts/convert_official_turbo.sh
+
+adb push models/qwen_image21_uc_q4km \
+  /sdcard/Android/data/com.tiggy.qwenimage/files/models/
 ```
 
-通过 ADB 将模型推送至手机内部存储：
+Qwen 生成依赖有效的 `manifest.json`。应用会校验文件大小和 SHA-256，校验完成前不会开放生成。MNNConvert 返回失败、产物缺失或产物未更新都会中止转换脚本。
+
+## Wan 模型准备
+
+将以下文件放入 `models/wan22_turbo`：
+
+- `Wan2_2-TI2V-5B-Turbo-Q4_0.gguf`
+- `umt5-xxl-encoder-Q3_K_S.gguf`
+- `taew2_2.safetensors`
+
+然后推送：
+
 ```bash
-adb push models/qwen_image21_uc_q4km /sdcard/Android/data/com.tiggy.qwenimage/files/models/
+adb push models/wan22_turbo \
+  /sdcard/Android/data/com.tiggy.qwenimage/files/models/
 ```
 
-### YuE2-3B 音乐推理工作站搭建
-若需在本地电脑运行全精度 YuE2-3B 并为手机 App 提供后端推理：
+## 使用 ComfyUI 运行 MOSS-Image
+
+需要 ComfyUI 0.42 或更新版本，并包含原生 MOSS 节点。App 会在提交前检查所需节点与所选权重文件。
+
+```text
+ComfyUI/models/
+├── diffusion_models/
+│   ├── moss_image_sft_int8_convrot.safetensors
+│   └── moss_image_base_int8_convrot.safetensors  # 可选 Base
+├── text_encoders/
+│   └── qwen3.5_9b_w4a8_gptq.safetensors
+└── vae/
+    └── flux2-vae_small.safetensors
+```
+
+启动 ComfyUI 后，建立 USB 反向映射：
 
 ```bash
-# 在已配置好 YuE2 环境的终端运行
-python3 -m pip install fastapi soundfile
-python3 /path/to/yue2/server.py
-
-# 通过 USB 为手机建立反向端口映射
-adb reverse tcp:8999 tcp:8999
+adb reverse tcp:8188 tcp:8188
 ```
 
-在 Omni Pocket 手机端打开“音乐工坊”的高级设置，确认工作站地址为 `http://127.0.0.1:8999`（或电脑的局域网 IP `http://192.168.x.x:8999`）即可畅享真正的全乐章人声演唱生成。
+在图像页选择 **MOSS · 工作站**。USB 使用 `http://127.0.0.1:8188`，局域网则填写电脑地址。客户端提交原生 ComfyUI API 工作流，读取真实队列和历史，并从同源下载图片；服务器没有进度流时只显示不确定状态，不虚构采样百分比。
 
----
+官方资料：[MOSS-Image](https://github.com/OpenMOSS/MOSS-Image)、[SFT 模型卡](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT)、[ComfyUI 教程](https://docs.comfy.org/tutorials/image/moss-image/moss-image)、[Comfy-Org 权重](https://huggingface.co/Comfy-Org/MOSS-Image)。
 
-## 📜 上游鸣谢与开源许可
+## 外部音乐与视频服务
 
-- **MNN 计算框架**：由阿里巴巴集团开源 ([MNN GitHub](https://github.com/alibaba/MNN))，采用 Apache-2.0 协议。
-- **Qwen-Image 移动端运行时**：参考并基于 [scsonic/libQwenImage21](https://github.com/scsonic/libQwenImage21)，采用 Apache-2.0 协议；模型权重遵守 Qwen Research License。
-- **YuE2-3B 音乐大模型**：由 Multimodal Art Projection 团队研发 ([YuE2 GitHub](https://github.com/multimodal-art-projection/YuE))，采用 CC-BY-NC-4.0 许可。
-- **Omni Pocket 应用代码**：遵循 **Apache-2.0 开源协议**。
+YuE2 和 MobileWan 服务端不在本仓库中。App 使用现有的 `/health`、`/generate` 接口，并下载同源返回的 `audioUrl` 或 `videoUrl`。下载有大小限制、媒体校验与原子落盘。
+
+```bash
+adb reverse tcp:8999 tcp:8999   # YuE2
+adb reverse tcp:8998 tcp:8998   # MobileWan
+```
+
+只有服务器提供真实进度时才展示对应进度；否则显示不确定工作状态，不伪造步骤。
+
+## 转换与部署检查
+
+```bash
+python3 -m unittest discover -s export -p 'test_conversion_utils.py'
+bash -n scripts/push_models.sh scripts/convert_official_turbo.sh
+```
+
+`scripts/push_models.sh` 使用 SHA-256 判断内容是否一致，不再把同大小视为同文件；上传校验通过后才替换远端文件。数值导出测试具有明确误差阈值。CI 在打包 APK/AAR 前运行 Android 单元测试。
+
+## 上游与许可
+
+- [MNN](https://github.com/alibaba/MNN)：Apache-2.0。
+- [Qwen-Image 运行时](https://github.com/scsonic/libQwenImage21)：Apache-2.0；模型权重遵循各自许可。
+- [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image)：Apache-2.0。
+- [YuE2](https://github.com/multimodal-art-projection/YuE)：CC-BY-NC-4.0。
+- [Haze](https://github.com/chrisbanes/haze)：Apache-2.0。
+- Omni Pocket 应用代码：Apache-2.0。

@@ -30,4 +30,6 @@ E.to_mnn(os.path.join(out, "l.onnx"), os.path.join(out, "l.mnn"), {name: m.l}, l
 x = torch.randn(1, 37, ic)
 y = to_np(load(os.path.join(out, "l.mnn"), ["x"], ["y"]).forward([var(x)])[0])
 yr = (x @ torch.from_numpy(ref).T).numpy()
-print("q2k linear MNN vs float rel/corr", rel(y, yr))
+error, correlation = rel(y, yr)
+print("q2k linear MNN vs float rel/corr", (error, correlation))
+assert error < 0.03 and correlation > 0.999, (error, correlation)

@@ -46,15 +46,21 @@ test -s "$GGUF_PATH"
 
 rm -rf "$OUT/onnx"
 
-"$PY" "$ROOT/tools/model-convert/make_manifest.py" \
-  --root "$OUT" \
-  --model-id qwen-image-2.1-uc-q4km \
-  --source-repo abenzerps/Qwen-Image-2.1-Uncensored-GGUF \
-  --revision main \
-  --features text-to-image,image-edit,tiny-vae,official-turbo \
-  --official-turbo-source-repo "$SOURCE_REPO" \
-  --official-turbo-revision "$REVISION" \
-  --official-turbo-schedule 1.0,0.978453,0.95418,0.926626,0.89508,0.845148,0.704534,0.414568 \
-  --official-turbo-validated
+manifest_args=(
+  --root "$OUT"
+  --model-id qwen-image-2.1-uc-q4km
+  --source-repo abenzerps/Qwen-Image-2.1-Uncensored-GGUF
+  --revision main
+  --features text-to-image,image-edit,tiny-vae,official-turbo
+  --official-turbo-source-repo "$SOURCE_REPO"
+  --official-turbo-revision "$REVISION"
+  --official-turbo-schedule 1.0,0.978453,0.95418,0.926626,0.89508,0.845148,0.704534,0.414568
+)
+if [ "${QWEN_TURBO_VALIDATED:-0}" = "1" ]; then
+  manifest_args+=(--official-turbo-validated)
+else
+  echo "official Turbo is not marked as validated; set QWEN_TURBO_VALIDATED=1 only after device regression"
+fi
+"$PY" "$ROOT/tools/model-convert/make_manifest.py" "${manifest_args[@]}"
 
 du -sh "$OUT"

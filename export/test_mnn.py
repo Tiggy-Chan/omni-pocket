@@ -65,9 +65,11 @@ def main():
     m = load(os.path.join(a.dir, "txt_in.mnn"), ["txt"], ["txt_h"], precision=a.precision)
     txt_h = to_np(m.forward([var(text)])[0])
     print("txt_in  rel/corr", rel(txt_h, ref_txt))
+    assert rel(txt_h, ref_txt)[0] < 0.03 and rel(txt_h, ref_txt)[1] > 0.999
     m = load(os.path.join(a.dir, "img_in.mnn"), ["lat"], ["img_h"], precision=a.precision)
     img_h = to_np(m.forward([var(lat)])[0])
     print("img_in  rel/corr", rel(img_h, ref_img))
+    assert rel(img_h, ref_img)[0] < 0.03 and rel(img_h, ref_img)[1] > 0.999
 
     past_names = [f"past_kv_{i}" for i in range(a.layers)]
     names = ["hidden", "timestep", "rope_cos", "rope_sin", "attn_mask"] + past_names
@@ -79,12 +81,14 @@ def main():
     kv = [to_np(k).reshape(ref_kv[i].shape) for i, k in enumerate(kv)]
     worst = max(range(a.layers), key=lambda i: rel(kv[i], ref_kv[i])[0])
     print(f"prefix  rel/corr {rel(kv[worst], ref_kv[worst])} (worst of {a.layers} layers)  {time.time()-t0:.2f}s")
+    assert rel(kv[worst], ref_kv[worst])[0] < 0.03 and rel(kv[worst], ref_kv[worst])[1] > 0.999
     step = load(os.path.join(a.dir, "dit.mnn"), names, ["out"], precision=a.precision)
     t0 = time.time()
     out = step.forward([var(ref_img), var(torch.tensor([sigma])), var(cos[L:]), var(sin[L:]),
                         var(torch.zeros(1, 1, N, L + N))] + [var(k) for k in ref_kv])[0]
     out = to_np(out)
     print(f"step    rel/corr {rel(out, ref_out)}  {time.time()-t0:.2f}s")
+    assert rel(out, ref_out)[0] < 0.03 and rel(out, ref_out)[1] > 0.999
 
 
 if __name__ == "__main__":
