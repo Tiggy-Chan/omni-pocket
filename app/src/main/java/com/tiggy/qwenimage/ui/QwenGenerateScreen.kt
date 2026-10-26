@@ -52,6 +52,7 @@ import com.tiggy.qwenimage.QwenViewModel
 import com.tiggy.qwenimage.data.GenerationBackend
 import com.tiggy.qwenimage.data.GenerationMode
 import com.tiggy.qwenimage.data.TaskDomain
+import com.tiggy.qwenimage.data.displayName
 import com.tiggy.qwenimage.data.hasVae
 import java.io.File
 
@@ -226,7 +227,7 @@ fun QwenGenerateScreen(state: QwenUiState, viewModel: QwenViewModel, onPreviewIm
                             )
                             Text(job.settings.prompt, color = OmniColors.Ink, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                if (job.backend == com.tiggy.qwenimage.data.ImageGenerationBackend.MossWorkstation) "MOSS" else "Qwen",
+                                job.backend.displayName(),
                                 color = OmniColors.Muted,
                                 style = MaterialTheme.typography.labelSmall
                             )

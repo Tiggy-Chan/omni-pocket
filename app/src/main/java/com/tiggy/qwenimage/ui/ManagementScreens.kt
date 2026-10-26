@@ -17,18 +17,35 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.tiggy.qwenimage.QwenViewModel
 import com.tiggy.qwenimage.data.ModelStatus
+import com.tiggy.qwenimage.data.MossModelStatus
 import com.tiggy.qwenimage.data.TaskUiState
 
 @Composable
-fun ModelsScreen(viewModel: QwenViewModel, status: ModelStatus?, repo: String, revision: String, task: TaskUiState) {
-    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+fun ModelsScreen(
+    viewModel: QwenViewModel,
+    status: ModelStatus?,
+    repo: String,
+    revision: String,
+    task: TaskUiState,
+    mossStatus: MossModelStatus?,
+    mossTaskActive: Boolean
+) {
+    val qwenFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) viewModel.importModels(uri)
+    }
+    val mossFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) viewModel.importMossModels(uri)
+    }
+    LaunchedEffect(Unit) {
+        viewModel.refreshModelStatus()
+        viewModel.refreshMossModelStatus()
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -38,12 +55,39 @@ fun ModelsScreen(viewModel: QwenViewModel, status: ModelStatus?, repo: String, r
         item {
             ContentCard(title = "Qwen 模型") {
                 Text(status?.message ?: "尚未找到模型", color = if (status?.ready == true) OmniColors.Mint else OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
-                OmniTaskStatus(task)
+                if (!mossTaskActive) OmniTaskStatus(task)
                 OutlinedButton(
                     onClick = viewModel::checkRuntime,
                     enabled = status?.ready == true && !task.running,
                     modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) { Text("检查推理引擎") }
+            }
+        }
+        item {
+            ContentCard(title = "MOSS 模型") {
+                Text(
+                    mossStatus?.message ?: "尚未找到模型",
+                    color = if (mossStatus?.ready == true) OmniColors.Mint else OmniColors.Muted,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                if (mossTaskActive) OmniTaskStatus(task)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = viewModel::downloadMossModels,
+                        enabled = !task.running,
+                        modifier = Modifier.weight(1f).height(48.dp)
+                    ) { Text("下载") }
+                    OutlinedButton(
+                        onClick = { mossFolderPicker.launch(null) },
+                        enabled = !task.running,
+                        modifier = Modifier.weight(1f).height(48.dp)
+                    ) { Text("导入") }
+                }
+                OutlinedButton(
+                    onClick = viewModel::verifyMossModels,
+                    enabled = !task.running && mossStatus?.let { it.total > 0 && it.present == it.total } == true,
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text("校验模型") }
             }
         }
         item {
@@ -68,12 +112,11 @@ fun ModelsScreen(viewModel: QwenViewModel, status: ModelStatus?, repo: String, r
                         modifier = Modifier.weight(1f).height(48.dp)
                     ) { Text("下载") }
                     OutlinedButton(
-                        onClick = { folderPicker.launch(null) },
+                        onClick = { qwenFolderPicker.launch(null) },
                         enabled = !task.running,
                         modifier = Modifier.weight(1f).height(48.dp)
                     ) { Text("导入") }
                 }
-                Text("MOSS 使用图像创作页的 ComfyUI 工作站，不安装到这里。", color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
@@ -109,7 +152,7 @@ fun SettingsScreen(viewModel: QwenViewModel, threads: Int, keepLoaded: Boolean, 
                 Text("Qwen：MNN · OpenCL", color = OmniColors.Muted)
                 Text("视频：Wan CLI · OpenCL / CPU", color = OmniColors.Muted)
                 Text("音乐：YuE2 工作站", color = OmniColors.Muted)
-                Text("MOSS：ComfyUI 工作站", color = OmniColors.Muted)
+                Text("MOSS：本机 / ComfyUI 工作站", color = OmniColors.Muted)
                 Text(if (modelReady) "Qwen 模型已校验" else "Qwen 模型未校验", color = if (modelReady) OmniColors.Mint else OmniColors.Dim)
             }
         }

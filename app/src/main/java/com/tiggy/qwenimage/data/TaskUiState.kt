@@ -7,7 +7,7 @@ enum class TaskDomain(val displayName: String) {
     Model("模型")
 }
 
-enum class GenerationBackend { LocalQwen, LocalWan, Workstation }
+enum class GenerationBackend { LocalQwen, LocalMoss, LocalWan, Workstation }
 
 data class TaskUiState(
     val running: Boolean = false,

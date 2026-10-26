@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tiggy.qwenimage.data.GenerationJob
 import com.tiggy.qwenimage.data.ImageGenerationBackend
+import com.tiggy.qwenimage.data.displayName
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -70,7 +71,7 @@ fun ImageQueueScreen(
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        if (job.backend == ImageGenerationBackend.MossWorkstation) "MOSS · 工作站" else "Qwen · 本机",
+                        job.backend.displayName(),
                         color = OmniColors.Muted,
                         style = MaterialTheme.typography.labelSmall
                     )

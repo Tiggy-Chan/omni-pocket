@@ -13,6 +13,8 @@ import com.tiggy.qwenimage.data.ImageGenerationBackend
 import com.tiggy.qwenimage.data.ModelManifest
 import com.tiggy.qwenimage.data.ModelRepository
 import com.tiggy.qwenimage.data.ModelStatus
+import com.tiggy.qwenimage.data.MossModelRepository
+import com.tiggy.qwenimage.data.MossModelStatus
 import com.tiggy.qwenimage.data.MossSettings
 import com.tiggy.qwenimage.data.MusicJob
 import com.tiggy.qwenimage.data.MusicSettings
@@ -28,8 +30,10 @@ import com.tiggy.qwenimage.data.VideoSettings
 import com.tiggy.qwenimage.data.VideoStudioTab
 import com.tiggy.qwenimage.data.WorkspaceTab
 import com.tiggy.qwenimage.data.hasVae
+import com.tiggy.qwenimage.data.isMoss
 import com.tiggy.qwenimage.data.validateFor
 import com.tiggy.qwenimage.engine.EngineSettings
+import com.tiggy.qwenimage.engine.LocalMossEngine
 import com.tiggy.qwenimage.engine.MusicEngine
 import com.tiggy.qwenimage.engine.QwenEngine
 import com.tiggy.qwenimage.engine.VideoEngine
@@ -68,6 +72,7 @@ data class QwenUiState(
     val mossSettings: MossSettings = MossSettings(),
     val jobs: List<GenerationJob> = emptyList(),
     val modelStatus: ModelStatus? = null,
+    val mossModelStatus: MossModelStatus? = null,
     val repo: String = "",
     val revision: String = "main",
     val tasks: TaskStates = TaskStates(),
@@ -113,6 +118,7 @@ data class QwenUiState(
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 class QwenViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ModelRepository(application)
+    private val mossRepository = MossModelRepository(application)
     private val preferences = application.getSharedPreferences("qwen-pocket", Application.MODE_PRIVATE)
     private val restoredJobs = runCatching {
         val array = JSONArray(preferences.getString("jobs", "[]"))
@@ -124,7 +130,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     }.getOrDefault(emptyList())
     private val _state = MutableStateFlow(
         QwenUiState(repo = repository.sourceRepo, revision = repository.revision, jobs = restoredJobs,
-            modelStatus = repository.status())
+            modelStatus = repository.status(), mossModelStatus = mossRepository.status())
     )
     val state: StateFlow<QwenUiState> = _state.asStateFlow()
     private val queue = Channel<GenerationJob>(Channel.UNLIMITED)
@@ -135,12 +141,17 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     private val musicEngine = MusicEngine(application)
     private val videoEngine = VideoEngine(application)
     private val mossEngine = com.tiggy.qwenimage.engine.ComfyMossEngine(application)
+    private val localMossEngine = LocalMossEngine(application, mossRepository)
 
     init {
         val crash = QwenImage21.readCrashMarker(File(application.filesDir, "generation.marker"))
         val initialStatus = repository.status()
+        val restoredMossSettings = runCatching {
+            MossSettings.fromJson(org.json.JSONObject(preferences.getString("mossSettings", "{}")))
+        }.getOrDefault(MossSettings())
         _state.update { state ->
             state.copy(
+                mossSettings = restoredMossSettings,
                 settings = compatibleSettings(state.settings, initialStatus),
                 modelStatus = initialStatus,
                 tasks = state.tasks.updateTask(TaskDomain.Image) { task ->
@@ -298,13 +309,22 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         while (currentCoroutineContext().isActive) {
             val job = _state.value.jobs.firstOrNull { it.id == jobId } ?: return false
             if (job.state != "queued") return false
-            val moss = job.backend == ImageGenerationBackend.MossWorkstation
+            val backend = when (job.backend) {
+                ImageGenerationBackend.QwenLocal -> VideoBackend.LocalQwen
+                ImageGenerationBackend.MossLocal -> VideoBackend.LocalMoss
+                ImageGenerationBackend.MossWorkstation -> VideoBackend.Workstation
+            }
+            val status = when (job.backend) {
+                ImageGenerationBackend.QwenLocal -> "正在初始化图像任务"
+                ImageGenerationBackend.MossLocal -> "正在准备 MOSS 本机"
+                ImageGenerationBackend.MossWorkstation -> "正在连接 MOSS 工作站"
+            }
             if (beginTask(
                     TaskDomain.Image,
                     jobId,
-                    backend = if (moss) VideoBackend.Workstation else VideoBackend.LocalQwen,
-                    status = if (moss) "正在连接 MOSS 工作站" else "正在初始化图像任务",
-                    progress = if (moss) null else 0,
+                    backend = backend,
+                    status = status,
+                    progress = if (job.backend == ImageGenerationBackend.MossWorkstation) null else 0,
                     alertOnConflict = false
                 )
             ) return true
@@ -713,11 +733,14 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun reuseJob(job: GenerationJob) {
-        if (job.backend == ImageGenerationBackend.MossWorkstation) {
+        if (job.backend.isMoss) {
+            val settings = job.mossSettings ?: MossSettings()
+            preferences.edit().putString("mossSettings", settings.toJson().toString()).apply()
             _state.update {
                 it.copy(
-                    imageBackend = ImageGenerationBackend.MossWorkstation,
-                    mossSettings = job.mossSettings ?: MossSettings(),
+                    imageBackend = job.backend,
+                    mossSettings = settings,
+                    mossModelStatus = if (job.backend == ImageGenerationBackend.MossLocal) mossRepository.status() else it.mossModelStatus,
                     tab = WorkspaceTab.Generate
                 )
             }
@@ -729,6 +752,10 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     fun refreshModelStatus() = _state.update { state ->
         val status = repository.status()
         state.copy(modelStatus = status, settings = compatibleSettings(state.settings, status))
+    }
+
+    fun refreshMossModelStatus() = _state.update { state ->
+        state.copy(mossModelStatus = mossRepository.status())
     }
 
     fun checkRuntime() {
@@ -820,15 +847,63 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun downloadMossModels() = runMossModelTask("下载 MOSS 模型") { taskId ->
+        mossRepository.download { file, done, total ->
+            val percent = if (total > 0) ((done * 100) / total).toInt() else null
+            updateTask(TaskDomain.Model, taskId) {
+                it.copy(
+                    progress = percent,
+                    status = "下载 $file · ${(done / 1_000_000_000.0).format1()} / ${(total / 1_000_000_000.0).format1()} GB"
+                )
+            }
+        }
+    }
+
+    fun importMossModels(uri: Uri) = runMossModelTask("导入 MOSS 模型") { taskId ->
+        mossRepository.importTree(uri) { text ->
+            updateTask(TaskDomain.Model, taskId) { it.copy(progress = null, status = text) }
+        }
+    }
+
+    fun verifyMossModels() = runMossModelTask("校验 MOSS 模型") { taskId ->
+        mossRepository.verify { text ->
+            updateTask(TaskDomain.Model, taskId) { it.copy(progress = null, status = "校验 $text") }
+        }
+    }
+
+    private fun runMossModelTask(initialStatus: String, action: suspend (String) -> Unit) {
+        if (rejectIfBusy(TaskDomain.Model)) return
+        val taskId = UUID.randomUUID().toString()
+        viewModelScope.launch {
+            if (!beginTask(TaskDomain.Model, taskId, backend = VideoBackend.LocalMoss, status = initialStatus, progress = 0)) return@launch
+            val result = runCatching { action(taskId) }
+            val status = mossRepository.status()
+            _state.update { it.copy(mossModelStatus = status) }
+            result.onSuccess {
+                finishTask(TaskDomain.Model, taskId) {
+                    it.copy(progress = if (status.ready) 100 else null, status = if (status.ready) "MOSS 模型已校验" else status.message, error = null)
+                }
+            }.onFailure { error ->
+                val message = error.message ?: error.toString()
+                finishTask(TaskDomain.Model, taskId, alert = message) {
+                    it.copy(status = "MOSS 模型任务失败", error = message)
+                }
+            }
+        }
+    }
+
     fun setImageBackend(backend: ImageGenerationBackend) = _state.update { state ->
         state.copy(
             imageBackend = backend,
+            mossModelStatus = if (backend == ImageGenerationBackend.MossLocal) mossRepository.status() else state.mossModelStatus,
             tasks = state.tasks.updateTask(TaskDomain.Image) { it.copy(error = null) }
         )
     }
 
     fun updateMossSettings(transform: (MossSettings) -> MossSettings) = _state.update {
-        it.copy(mossSettings = transform(it.mossSettings))
+        val settings = transform(it.mossSettings)
+        preferences.edit().putString("mossSettings", settings.toJson().toString()).apply()
+        it.copy(mossSettings = settings)
     }
 
     fun enqueue() {
@@ -851,24 +926,29 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 GenerationJob(UUID.randomUUID().toString(), prepared)
             }
-            ImageGenerationBackend.MossWorkstation -> {
+            ImageGenerationBackend.MossLocal, ImageGenerationBackend.MossWorkstation -> {
                 val settings = current.mossSettings
-                runCatching { settings.validate() }.onFailure { error ->
+                val local = current.imageBackend == ImageGenerationBackend.MossLocal
+                if (local && current.mossModelStatus?.ready != true) {
+                    showTaskError(TaskDomain.Image, "请先下载并校验 MOSS 本机模型")
+                    return
+                }
+                runCatching { if (local) settings.validateLocal() else settings.validate() }.onFailure { error ->
                     showTaskError(TaskDomain.Image, error.message ?: "MOSS 参数无效")
                     return
                 }
                 val displaySettings = GenerationSettings(
                     prompt = settings.prompt,
                     negativePrompt = settings.negativePrompt,
-                    steps = settings.steps,
+                    steps = if (local) settings.local.steps else settings.steps,
                     seed = settings.seed.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                    width = settings.width,
-                    height = settings.height
+                    width = if (local) settings.local.width else settings.width,
+                    height = if (local) settings.local.height else settings.height
                 )
                 GenerationJob(
                     id = UUID.randomUUID().toString(),
                     settings = displaySettings,
-                    backend = ImageGenerationBackend.MossWorkstation,
+                    backend = current.imageBackend,
                     mossSettings = settings
                 )
             }
@@ -919,7 +999,11 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             }
         } else if (job.state == "running") {
             cancelledJobIds += id
-            if (job.backend == ImageGenerationBackend.MossWorkstation) mossEngine.cancelGeneration() else engine?.cancel()
+            when (job.backend) {
+                ImageGenerationBackend.QwenLocal -> engine?.cancel()
+                ImageGenerationBackend.MossLocal -> localMossEngine.cancelGeneration()
+                ImageGenerationBackend.MossWorkstation -> mossEngine.cancelGeneration()
+            }
             updateTask(TaskDomain.Image, id) { it.copy(status = "正在取消，将在当前计算阶段结束后停止") }
         }
     }
@@ -927,7 +1011,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     fun exportPreset(): String = _state.value.settings.toJson().toString(2)
 
     private suspend fun runJob(job: GenerationJob) {
-        if (job.backend == ImageGenerationBackend.MossWorkstation) {
+        if (job.backend.isMoss) {
             runMossJob(job)
             return
         }
@@ -1071,16 +1155,20 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             finishTask(TaskDomain.Image, job.id) { it.copy(status = "图像生成已取消", error = null) }
             return
         }
+        val local = job.backend == ImageGenerationBackend.MossLocal
         val startTime = System.currentTimeMillis()
         try {
             if (job.id in cancelledJobIds) throw CancellationException("已取消")
-            appendLog(TaskDomain.Image, "MOSS ${settings.checkpoint.name} · ${settings.width}×${settings.height} · ${settings.steps} 步", job.id)
-            val result = mossEngine.executeGeneration(job.id, settings) { update ->
-                updateTask(TaskDomain.Image, job.id) {
-                    it.copy(progress = update.progress?.let { value -> (value * 100).toInt() }, status = update.stage)
-                }
-                if (update.progress != null) updateJob(job.id) { it.copy(progress = (update.progress * 100).toInt()) }
-                update.log?.let { appendLog(TaskDomain.Image, it, job.id) }
+            if (local) invalidateEngine()
+            val steps = if (local) settings.local.steps else settings.steps
+            val width = if (local) settings.local.width else settings.width
+            val height = if (local) settings.local.height else settings.height
+            val location = if (local) "本机" else "工作站"
+            appendLog(TaskDomain.Image, "MOSS ${settings.checkpoint.name} · $location · $width×$height · $steps 步", job.id)
+            val result = if (local) {
+                localMossEngine.executeGeneration(job.id, settings) { update -> handleMossUpdate(job.id, update) }
+            } else {
+                mossEngine.executeGeneration(job.id, settings) { update -> handleMossUpdate(job.id, update) }
             }
             val elapsed = System.currentTimeMillis() - startTime
             updateJob(job.id) {
@@ -1113,6 +1201,14 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         } finally {
             cancelledJobIds -= job.id
         }
+    }
+
+    private fun handleMossUpdate(jobId: String, update: com.tiggy.qwenimage.engine.EngineUpdate) {
+        updateTask(TaskDomain.Image, jobId) {
+            it.copy(progress = update.progress?.let { value -> (value * 100).toInt() }, status = update.stage)
+        }
+        if (update.progress != null) updateJob(jobId) { it.copy(progress = (update.progress * 100).toInt()) }
+        update.log?.let { appendLog(TaskDomain.Image, it, jobId) }
     }
 
     private fun compatibleSettings(settings: GenerationSettings, status: ModelStatus): GenerationSettings {
@@ -1196,6 +1292,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             }
         }, "qwen-engine-close").start()
         mossEngine.close()
+        localMossEngine.close()
         musicEngine.close()
         videoEngine.close()
         super.onCleared()

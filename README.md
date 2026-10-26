@@ -7,7 +7,7 @@ Omni Pocket is an Android studio for local and workstation-backed image, music, 
 ## What runs where
 
 - **Qwen-Image-2.1 on the phone**: MNN with CPU int4 text/vision encoding and OpenCL DiT inference. Text-to-image, one- or two-reference editing, real or Tiny VAE, and the official 8-step Turbo schedule. Includes queued generation, cooperative cancellation, model verification, and persistent results.
-- **MOSS-Image on a ComfyUI workstation**: SFT and Base checkpoints, long prompts, optional prompt upsampling, and native JSON layout control. The layout editor supports text/object elements, draggable and resizable boxes, and exact export to MOSS's `abs_centralized` / `yxyx` format. This path does not use the Qwen MNN runtime and is not advertised as on-device inference.
+- **MOSS-Image on the phone or a ComfyUI workstation**: a separate `libmoss_cli.so` runs SFT locally through stable-diffusion.cpp with long prompts, native JSON layouts, Euler, the discrete scheduler, and negative-branch layer-22 skipping. The workstation supports SFT/Base and optional prompt upsampling with the same layout editor; prompt upsampling is not part of the local path. Layout coordinates use MOSS's `abs_centralized` / `yxyx` format.
 - **YuE2 music on a workstation**: the app submits lyrics, style, BPM, seed, duration, CoT mode, ODE steps, and guidance to an external YuE2 service. Generated tracks, bundled examples, playback, seeking, sharing, and ABC score inspection work in the app. There is currently no on-device YuE2 inference engine.
 - **Wan2.2 video on the phone**: `libsd_cli` with a Wan2.2-TI2V-5B-Turbo GGUF DiT, UMT5 text encoder, and TAE decoder. Text-to-video and first-frame image-to-video use the actual seed, FPS, frame count, and step count shown in the UI. Local output is WebM. Local generation is limited to 25 frames at 480×832; 4 steps and 16 FPS are the current verified defaults.
 - **MobileWan on a workstation**: text-to-video through the external bridge. The bridge does not accept a first frame, and the app rejects that combination before submission instead of silently dropping the image.
@@ -16,14 +16,17 @@ The interface uses three global destinations (Image, Music, Video), short task s
 
 ## Build and test
 
-Requirements: JDK 17, Android SDK 35, and NDK `28.2.13676358` (or a compatible NDK 26+).
+Requirements: JDK 17, Android SDK 35, and NDK `28.2.13676358`.
 
 ```bash
+git submodule update --init --depth 1 third_party/stable-diffusion.cpp
+git -C third_party/stable-diffusion.cpp submodule update --init --depth 1 ggml
+bash scripts/build_moss_android.sh
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The app supports Android 9/API 28+ on `arm64-v8a`. A flagship device with OpenCL support and at least 12 GB RAM is recommended for the current local model sizes; the main device validation target has 24 GB RAM.
+The app supports Android 9/API 28+ on `arm64-v8a`. At least 16 GB RAM is recommended for local MOSS; the main device validation target has 24 GB RAM.
 
 ## Qwen model preparation
 
@@ -63,6 +66,17 @@ Then push the directory:
 adb push models/wan22_turbo \
   /sdcard/Android/data/com.tiggy.qwenimage/files/models/
 ```
+
+## MOSS-Image on the phone
+
+Local mode does not need ComfyUI or a workstation. It installs the SFT Q4_0 DiT, Qwen3.5-9B Q4_K_M text encoder, FLUX.2 small VAE, and official tokenizer. Defaults are 512×512 and CFG 3, with the native CPU backend using Euler/discrete and negative-branch layer-22 skipping.
+
+```bash
+bash scripts/download_moss_models.sh
+bash scripts/push_moss_models.sh <serial>  # replace with your device serial
+```
+
+The downloader resumes partial files and verifies each SHA-256. The models require about 9GB. Set `MOSS_HF_ROOT` to use a mirror root; pinned hashes still enforce identical files. After pushing, tap **Verify model** in the app's model manager, then select **MOSS · Local**. You can also download or import them in the app. Local and workstation dimensions, steps, and CFG are stored separately. Prompt upsampling remains workstation-only.
 
 ## MOSS-Image with ComfyUI
 
@@ -114,6 +128,7 @@ bash -n scripts/push_models.sh scripts/convert_official_turbo.sh
 - [MNN](https://github.com/alibaba/MNN), Apache-2.0.
 - [Qwen-Image runtime](https://github.com/scsonic/libQwenImage21), Apache-2.0; model weights have their own licenses.
 - [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image), Apache-2.0.
+- [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) and [ggml](https://github.com/leejet/ggml), MIT.
 - [YuE2](https://github.com/multimodal-art-projection/YuE), CC-BY-NC-4.0.
 - [Haze](https://github.com/chrisbanes/haze), Apache-2.0.
 - Omni Pocket application code, Apache-2.0.

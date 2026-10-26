@@ -2,7 +2,6 @@ package com.tiggy.qwenimage.engine
 
 import com.tiggy.qwenimage.data.MOSS_TEXT_ENCODER
 import com.tiggy.qwenimage.data.MOSS_VAE
-import com.tiggy.qwenimage.data.MossInputMode
 import com.tiggy.qwenimage.data.MossSettings
 import org.json.JSONArray
 import org.json.JSONObject
@@ -25,15 +24,7 @@ object MossWorkflow {
 
     fun build(settings: MossSettings, outputPrefix: String = "omni_pocket_moss"): JSONObject {
         settings.validate()
-        val positiveText: Any = when {
-            settings.inputMode == MossInputMode.Layout -> settings.layout.toModelJson(
-                settings.prompt,
-                settings.width,
-                settings.height
-            ).toString()
-            settings.usesPromptUpsampler -> link(UPSAMPLER)
-            else -> settings.prompt
-        }
+        val positiveText: Any = if (settings.usesPromptUpsampler) link(UPSAMPLER) else settings.modelPrompt()
         val samplerModel = if (settings.slg.enabled) link(SLG) else link(MODEL_SAMPLING)
 
         return JSONObject().apply {

@@ -1,8 +1,8 @@
 name: Build
 
-# Builds the Compose app, demo APK and the qwenimage21 AAR. Only needs the prebuilt libMNN.so and headers already
-# checked in under qwenimage21/src/main/ (see README "Building from source"), so this does NOT check out
-# the third_party/MNN submodule — that's only for rebuilding libMNN.so itself.
+# Builds the Compose app, demo APK and the qwenimage21 AAR. Qwen uses the prebuilt libMNN.so and headers
+# checked in under qwenimage21/src/main/, so the MNN submodule is not needed. Only the pinned MOSS
+# stable-diffusion.cpp/ggml submodules are checked out to build libmoss_cli.so below.
 on:
   push:
     branches: [main]
@@ -26,6 +26,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check out the pinned MOSS runtime
+        run: |
+          git submodule update --init --depth 1 third_party/stable-diffusion.cpp
+          git -C third_party/stable-diffusion.cpp submodule update --init --depth 1 ggml
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -39,6 +44,9 @@ jobs:
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
           "$SDKMANAGER" --install "ndk;28.2.13676358"
+
+      - name: Build the MOSS Android runtime
+        run: bash scripts/build_moss_android.sh
 
       - name: Version and hash for the artifact names
         id: v

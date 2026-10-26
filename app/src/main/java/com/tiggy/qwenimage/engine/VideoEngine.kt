@@ -266,15 +266,15 @@ class VideoEngine(private val context: Context) : AutoCloseable {
     private fun dispatchEvent(event: SdCliEvent, onUpdate: (EngineUpdate) -> Unit) {
         val seconds = event.finishedSeconds?.let { " · ${it.formatSeconds()}" }.orEmpty()
         when (event.stage) {
-            VideoStage.Loading -> onUpdate(EngineUpdate(null, "正在加载模型"))
-            VideoStage.TextEncoding -> onUpdate(EngineUpdate(null, "文本编码完成$seconds"))
-            VideoStage.Denoising -> if (event.step > 0) {
+            SdCliStage.Loading -> onUpdate(EngineUpdate(null, "正在加载模型"))
+            SdCliStage.TextEncoding -> onUpdate(EngineUpdate(null, "文本编码完成$seconds"))
+            SdCliStage.Denoising -> if (event.step > 0) {
                 val progress = 0.1f + 0.75f * event.step.toFloat() / event.totalSteps
                 val timing = event.secondsPerStep?.let { " · ${it.formatSeconds()}/步" }.orEmpty()
                 onUpdate(EngineUpdate(progress, "去噪 ${event.step}/${event.totalSteps}", "采样 ${event.step}/${event.totalSteps}$timing"))
             }
-            VideoStage.Decoding -> onUpdate(EngineUpdate(0.88f, "正在解码视频", "采样完成$seconds"))
-            VideoStage.Saving -> onUpdate(EngineUpdate(if (event.completed) 0.99f else 0.96f, "正在保存视频", if (event.completed) "推理完成$seconds" else "解码完成$seconds"))
+            SdCliStage.Decoding -> onUpdate(EngineUpdate(0.88f, "正在解码视频", "采样完成$seconds"))
+            SdCliStage.Saving -> onUpdate(EngineUpdate(if (event.completed) 0.99f else 0.96f, "正在保存视频", if (event.completed) "推理完成$seconds" else "解码完成$seconds"))
         }
     }
 

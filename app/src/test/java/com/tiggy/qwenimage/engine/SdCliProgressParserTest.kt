@@ -23,13 +23,13 @@ class SdCliProgressParserTest {
         val stages = events.map { it.stage }.distinct()
         assertEquals(
             listOf(
-                VideoStage.Loading, VideoStage.TextEncoding, VideoStage.Denoising,
-                VideoStage.Decoding, VideoStage.Saving
+                SdCliStage.Loading, SdCliStage.TextEncoding, SdCliStage.Denoising,
+                SdCliStage.Decoding, SdCliStage.Saving
             ),
             stages
         )
 
-        val textEncoder = events.first { it.finishedSeconds != null && it.stage == VideoStage.TextEncoding }
+        val textEncoder = events.first { it.finishedSeconds != null && it.stage == SdCliStage.TextEncoding }
         assertEquals(81.43f, textEncoder.finishedSeconds!!, 0.001f)
         val done = events.last { it.completed }
         assertEquals(479.29f, done.finishedSeconds!!, 0.001f)
@@ -59,7 +59,7 @@ class SdCliProgressParserTest {
         assertTrue(first.isEmpty())
         val second = parser.feed("leted, taking 340.44s\n")
         assertEquals(1, second.size)
-        assertEquals(VideoStage.Decoding, second.single().stage)
+        assertEquals(SdCliStage.Decoding, second.single().stage)
         assertEquals(340.44f, second.single().finishedSeconds!!, 0.001f)
     }
 

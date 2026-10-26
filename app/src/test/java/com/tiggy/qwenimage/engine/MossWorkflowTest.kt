@@ -197,7 +197,8 @@ class MossWorkflowTest {
             scheduler = "sgm_uniform",
             slg = MossSlgSettings(enabled = false, singleLayers = "22, 24", startPercent = 0.1, endPercent = 0.8),
             promptUpsampler = true,
-            inputMode = MossInputMode.Layout
+            inputMode = MossInputMode.Layout,
+            local = com.tiggy.qwenimage.data.MossLocalSettings(width = 768, height = 512, steps = 30, cfg = 3.5, threads = 4)
         )
 
         val restored = MossSettings.fromJson(JSONObject(original.toJson().toString()))
@@ -208,7 +209,7 @@ class MossWorkflowTest {
         assertEquals(
             setOf(
                 "serverUrl", "checkpoint", "prompt", "negativePrompt", "layout", "width", "height", "seed",
-                "steps", "cfg", "shift", "sampler", "scheduler", "slg", "promptUpsampler", "inputMode"
+                "steps", "cfg", "shift", "sampler", "scheduler", "slg", "promptUpsampler", "inputMode", "local"
             ),
             original.toJson().keySet()
         )

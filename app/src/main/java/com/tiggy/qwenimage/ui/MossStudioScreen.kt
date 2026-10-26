@@ -59,6 +59,7 @@ import com.tiggy.qwenimage.data.MossLayoutItem
 import com.tiggy.qwenimage.data.MossLayoutLabel
 import com.tiggy.qwenimage.data.MossSettings
 import com.tiggy.qwenimage.data.TaskDomain
+import com.tiggy.qwenimage.data.displayName
 import java.io.File
 import kotlin.math.max
 import kotlin.math.min
@@ -74,7 +75,7 @@ fun ImageBackendSelector(selected: ImageGenerationBackend, onSelect: (ImageGener
         items = ImageGenerationBackend.entries,
         selected = selected,
         accent = OmniColors.Violet,
-        label = { if (it == ImageGenerationBackend.QwenLocal) "Qwen · 本机" else "MOSS · 工作站" },
+        label = { it.displayName() },
         onSelect = onSelect
     )
 }
@@ -85,6 +86,12 @@ fun MossStudioScreen(state: QwenUiState, viewModel: QwenViewModel) {
     val update: ((MossSettings) -> MossSettings) -> Unit = viewModel::updateMossSettings
     var showAdvanced by remember { mutableStateOf(false) }
     val task = state.imageTask
+    val isLocal = state.imageBackend == ImageGenerationBackend.MossLocal
+    val outputWidth = if (isLocal) settings.local.width else settings.width
+    val outputHeight = if (isLocal) settings.local.height else settings.height
+    val layoutSettings = if (isLocal) settings.copy(width = outputWidth, height = outputHeight) else settings
+    val mossStatus = state.mossModelStatus
+    val modelTaskRunning = state.modelTask.running
 
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -97,7 +104,12 @@ fun MossStudioScreen(state: QwenUiState, viewModel: QwenViewModel) {
                     MossChoice("SFT", settings.checkpoint == MossCheckpoint.Sft, Modifier.weight(1f)) {
                         update { it.copy(checkpoint = MossCheckpoint.Sft) }
                     }
-                    MossChoice("Base", settings.checkpoint == MossCheckpoint.Base, Modifier.weight(1f)) {
+                    MossChoice(
+                        "Base",
+                        settings.checkpoint == MossCheckpoint.Base,
+                        Modifier.weight(1f),
+                        enabled = !isLocal
+                    ) {
                         update { it.copy(checkpoint = MossCheckpoint.Base) }
                     }
                     MossChoice("提示词", settings.inputMode == MossInputMode.Prompt, Modifier.weight(1f)) {
@@ -119,7 +131,7 @@ fun MossStudioScreen(state: QwenUiState, viewModel: QwenViewModel) {
                 )
                 if (settings.inputMode == MossInputMode.Layout) {
                     Spacer(Modifier.height(12.dp))
-                    MossLayoutEditor(settings = settings, onSettings = update)
+                    MossLayoutEditor(settings = layoutSettings, onSettings = update)
                 }
             }
         }
@@ -129,7 +141,7 @@ fun MossStudioScreen(state: QwenUiState, viewModel: QwenViewModel) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("输出", color = MossText, style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.weight(1f))
-                    Text("${settings.width} × ${settings.height}", color = MossMuted, style = MaterialTheme.typography.labelMedium)
+                    Text("$outputWidth × $outputHeight", color = MossMuted, style = MaterialTheme.typography.labelMedium)
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -141,20 +153,27 @@ fun MossStudioScreen(state: QwenUiState, viewModel: QwenViewModel) {
                     ).forEach { (width, height, label) ->
                         MossChoice(
                             label,
-                            settings.width == width && settings.height == height,
+                            outputWidth == width && outputHeight == height,
                             Modifier.weight(1f)
-                        ) { update { it.copy(width = width, height = height) } }
+                        ) {
+                            update {
+                                if (isLocal) it.copy(local = it.local.copy(width = width, height = height))
+                                else it.copy(width = width, height = height)
+                            }
+                        }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = settings.serverUrl,
-                    onValueChange = { value -> update { it.copy(serverUrl = value) } },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    label = { Text("ComfyUI 工作站") },
-                    placeholder = { Text("http://127.0.0.1:8188") }
-                )
+                if (!isLocal) {
+                    OutlinedTextField(
+                        value = settings.serverUrl,
+                        onValueChange = { value -> update { it.copy(serverUrl = value) } },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("ComfyUI 工作站") },
+                        placeholder = { Text("http://127.0.0.1:8188") }
+                    )
+                }
                 TextButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.fillMaxWidth()) {
                     Text(if (showAdvanced) "收起参数" else "更多参数")
                     Icon(if (showAdvanced) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null)
@@ -163,11 +182,17 @@ fun MossStudioScreen(state: QwenUiState, viewModel: QwenViewModel) {
                     MossNumberField("Seed", settings.seed.toString()) { value ->
                         value.toLongOrNull()?.let { seed -> update { it.copy(seed = seed) } }
                     }
-                    MossNumberField("步数", settings.steps.toString()) { value ->
-                        value.toIntOrNull()?.let { steps -> update { it.copy(steps = steps) } }
+                    MossNumberField("步数", if (isLocal) settings.local.steps.toString() else settings.steps.toString()) { value ->
+                        value.toIntOrNull()?.let { steps ->
+                            update {
+                                if (isLocal) it.copy(local = it.local.copy(steps = steps)) else it.copy(steps = steps)
+                            }
+                        }
                     }
-                    MossNumberField("CFG", settings.cfg.toString()) { value ->
-                        value.toDoubleOrNull()?.let { cfg -> update { it.copy(cfg = cfg) } }
+                    MossNumberField("CFG", if (isLocal) settings.local.cfg.toString() else settings.cfg.toString()) { value ->
+                        value.toDoubleOrNull()?.let { cfg ->
+                            update { if (isLocal) it.copy(local = it.local.copy(cfg = cfg)) else it.copy(cfg = cfg) }
+                        }
                     }
                     MossNumberField("Shift", settings.shift.toString()) { value ->
                         value.toDoubleOrNull()?.let { shift -> update { it.copy(shift = shift) } }
@@ -179,28 +204,67 @@ fun MossStudioScreen(state: QwenUiState, viewModel: QwenViewModel) {
                         minLines = 2,
                         label = { Text("负向提示词") }
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MossChoice("er_sde", settings.sampler == "er_sde", Modifier.weight(1f)) {
-                            update { it.copy(sampler = "er_sde") }
+                    if (isLocal) {
+                        Text(
+                            "Euler · Discrete · 负分支 SLG 22",
+                            color = MossMuted,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MossChoice("er_sde", settings.sampler == "er_sde", Modifier.weight(1f)) {
+                                update { it.copy(sampler = "er_sde") }
+                            }
+                            MossChoice("euler", settings.sampler == "euler", Modifier.weight(1f)) {
+                                update { it.copy(sampler = "euler") }
+                            }
+                            MossChoice("SLG 22", settings.slg.enabled, Modifier.weight(1f)) {
+                                update { it.copy(slg = it.slg.copy(enabled = !it.slg.enabled)) }
+                            }
                         }
-                        MossChoice("euler", settings.sampler == "euler", Modifier.weight(1f)) {
-                            update { it.copy(sampler = "euler") }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MossChoice("simple", settings.scheduler == "simple", Modifier.weight(1f)) {
+                                update { it.copy(scheduler = "simple") }
+                            }
+                            MossChoice("sgm_uniform", settings.scheduler == "sgm_uniform", Modifier.weight(1f)) {
+                                update { it.copy(scheduler = "sgm_uniform") }
+                            }
                         }
-                        MossChoice("SLG 22", settings.slg.enabled, Modifier.weight(1f)) {
-                            update { it.copy(slg = it.slg.copy(enabled = !it.slg.enabled)) }
+                        if (settings.inputMode == MossInputMode.Prompt) {
+                            MossChoice("提示词增强", settings.promptUpsampler, Modifier.fillMaxWidth()) {
+                                update { it.copy(promptUpsampler = !it.promptUpsampler) }
+                            }
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        MossChoice("simple", settings.scheduler == "simple", Modifier.weight(1f)) {
-                            update { it.copy(scheduler = "simple") }
-                        }
-                        MossChoice("sgm_uniform", settings.scheduler == "sgm_uniform", Modifier.weight(1f)) {
-                            update { it.copy(scheduler = "sgm_uniform") }
-                        }
+                }
+            }
+        }
+
+        if (isLocal) {
+            item {
+                MossSection {
+                    Text(
+                        mossStatus?.message ?: "尚未检查本机模型",
+                        color = if (mossStatus?.ready == true) MossAccent else MossMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    if (modelTaskRunning && state.activeTask?.backend == GenerationBackend.LocalMoss) {
+                        OmniTaskStatus(state.modelTask)
                     }
-                    if (settings.inputMode == MossInputMode.Prompt) {
-                        MossChoice("提示词增强", settings.promptUpsampler, Modifier.fillMaxWidth()) {
-                            update { it.copy(promptUpsampler = !it.promptUpsampler) }
+                    when {
+                        mossStatus == null || mossStatus.total == 0 || mossStatus.present < mossStatus.total -> {
+                            OutlinedButton(
+                                onClick = viewModel::downloadMossModels,
+                                enabled = !modelTaskRunning,
+                                modifier = Modifier.fillMaxWidth().height(48.dp)
+                            ) { Text("下载本机模型") }
+                        }
+                        !mossStatus.ready -> {
+                            OutlinedButton(
+                                onClick = viewModel::verifyMossModels,
+                                enabled = !modelTaskRunning,
+                                modifier = Modifier.fillMaxWidth().height(48.dp)
+                            ) { Text("校验模型") }
                         }
                     }
                 }
@@ -211,14 +275,15 @@ fun MossStudioScreen(state: QwenUiState, viewModel: QwenViewModel) {
             OmniPrimaryButton(
                 text = if (task.running) "加入图像队列" else "生成图像",
                 onClick = viewModel::enqueue,
-                enabled = settings.prompt.isNotBlank(),
+                enabled = settings.prompt.isNotBlank() && (!isLocal || mossStatus?.ready == true),
                 busy = task.running
             )
             Spacer(Modifier.height(8.dp))
             val active = state.activeTask
+            val backend = if (isLocal) GenerationBackend.LocalMoss else GenerationBackend.Workstation
             OmniTaskStatus(
                 task = task,
-                onCancel = if (task.running && active?.domain == TaskDomain.Image && active.backend == GenerationBackend.Workstation) {
+                onCancel = if (task.running && active?.domain == TaskDomain.Image && active.backend == backend) {
                     { viewModel.cancelJob(active.id) }
                 } else null
             )
@@ -256,8 +321,20 @@ private fun MossSection(content: @Composable androidx.compose.foundation.layout.
 }
 
 @Composable
-private fun MossChoice(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    FilterChip(selected = selected, onClick = onClick, label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }, modifier = modifier)
+private fun MossChoice(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        modifier = modifier,
+        enabled = enabled
+    )
 }
 
 @Composable

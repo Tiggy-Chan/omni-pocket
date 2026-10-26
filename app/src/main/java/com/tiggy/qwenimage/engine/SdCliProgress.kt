@@ -1,11 +1,11 @@
 package com.tiggy.qwenimage.engine
 
-/** Coarse phases of a stable-diffusion.cpp video run, in the order the CLI reports them. */
-enum class VideoStage { Loading, TextEncoding, Denoising, Decoding, Saving }
+/** Coarse phases of a stable-diffusion.cpp image or video run, in the order the CLI reports them. */
+enum class SdCliStage { Loading, TextEncoding, Denoising, Decoding, Saving }
 
 /** One thing learned from the CLI output. Only fields that were actually printed are set. */
 data class SdCliEvent(
-    val stage: VideoStage,
+    val stage: SdCliStage,
     val step: Int = 0,
     val totalSteps: Int = 0,
     /** Seconds per sampling step as printed by the CLI (already converted from it/s when needed). */
@@ -66,23 +66,25 @@ class SdCliProgressParser {
             val secondsPerStep = if (m.groupValues[4] == "it/s") (if (rate > 0f) 1f / rate else null) else rate
             if (step == lastStep) return null
             lastStep = step
-            return SdCliEvent(VideoStage.Denoising, step, total, secondsPerStep)
+            return SdCliEvent(SdCliStage.Denoising, step, total, secondsPerStep)
         }
         if (line.contains("get_learned_condition completed")) {
-            return SdCliEvent(VideoStage.TextEncoding, finishedSeconds = seconds(line))
+            return SdCliEvent(SdCliStage.TextEncoding, finishedSeconds = seconds(line))
         }
         if (line.contains("sampling completed")) {
             samplingFinished = true
-            return SdCliEvent(VideoStage.Decoding, finishedSeconds = seconds(line))
+            return SdCliEvent(SdCliStage.Decoding, finishedSeconds = seconds(line))
         }
         if (line.contains("decode_first_stage completed")) {
-            return SdCliEvent(VideoStage.Saving, finishedSeconds = seconds(line))
+            return SdCliEvent(SdCliStage.Saving, finishedSeconds = seconds(line))
         }
-        if (line.contains("generate_video completed")) {
-            return SdCliEvent(VideoStage.Saving, finishedSeconds = seconds(line), completed = true)
+        if (line.contains("generate_video completed") || line.contains("generate_image completed")) {
+            return SdCliEvent(SdCliStage.Saving, finishedSeconds = seconds(line), completed = true)
         }
-        if (line.contains("loading diffusion model") || line.contains("loading t5xxl") || line.contains("loading tae")) {
-            return SdCliEvent(VideoStage.Loading)
+        if (line.contains("loading diffusion model") || line.contains("loading t5xxl") || line.contains("loading tae") ||
+            line.contains("loading llm") || line.contains("loading vae")
+        ) {
+            return SdCliEvent(SdCliStage.Loading)
         }
         return null
     }

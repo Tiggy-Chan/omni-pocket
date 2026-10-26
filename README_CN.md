@@ -7,7 +7,7 @@ Omni Pocket 是一个 Android 图像、音乐和视频创作应用。界面会�
 ## 各模态运行位置
 
 - **Qwen-Image-2.1 · 本机**：使用 MNN、CPU int4 文本/视觉编码与 OpenCL DiT 推理。支持文生图、单/双参考图编辑、完整/Tiny VAE 和官方 8 步 Turbo。支持队列、协作式取消、模型校验、真实输出尺寸与作品恢复。
-- **MOSS-Image · ComfyUI 工作站**：支持 SFT/Base、长提示词、可选提示词增强和原生 JSON 布局。布局编辑器支持文字/对象元素、拖动、缩放和删除，并生成官方 `abs_centralized` / `yxyx` 格式。此路径不使用 Qwen MNN，也不宣称手机本地运行 MOSS。
+- **MOSS-Image · 本机 / ComfyUI 工作站**：本机通过独立的 `libmoss_cli.so` 和 stable-diffusion.cpp 运行 SFT，支持长提示词与原生 JSON 布局，使用 Euler、discrete schedule 和负分支第 22 层跳过。工作站支持 SFT/Base、可选提示词增强及相同布局编辑器；提示词增强不属于本机路径。布局使用官方 `abs_centralized` / `yxyx` 格式。
 - **YuE2 音乐 · 工作站**：向外部 YuE2 服务提交标题、风格、歌词、BPM、种子、时长、CoT、ODE 步数和 guidance。应用内支持生成曲目与示例曲目的播放、拖动、分享及 ABC 乐谱查看。当前没有端侧 YuE2 推理引擎。
 - **Wan2.2 视频 · 本机**：通过 `libsd_cli` 运行 Wan2.2-TI2V-5B-Turbo、UMT5 文本编码器和 TAE 解码器。文生视频与首帧图生视频会使用界面真实的 seed、FPS、帧数和步数，本机输出 WebM。当前本机限制为 480×832、最多 25 帧；已验证默认值为 4 步、16 FPS。
 - **MobileWan · 工作站**：通过外部桥接进行文生视频。桥接不接收首帧，选择首帧但本机模型未就绪时，App 会在提交前明确提示，不会静默丢弃图片。
@@ -16,14 +16,17 @@ Omni Pocket 是一个 Android 图像、音乐和视频创作应用。界面会�
 
 ## 编译与验证
 
-环境：JDK 17、Android SDK 35、NDK `28.2.13676358`（或兼容的 NDK 26+）。
+环境：JDK 17、Android SDK 35、NDK `28.2.13676358`。
 
 ```bash
+git submodule update --init --depth 1 third_party/stable-diffusion.cpp
+git -C third_party/stable-diffusion.cpp submodule update --init --depth 1 ggml
+bash scripts/build_moss_android.sh
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-支持 Android 9/API 28+、`arm64-v8a`。考虑到当前本机模型大小，建议使用支持 OpenCL、至少 12 GB RAM 的旗舰设备；主要真机验证目标为 24 GB RAM。
+支持 Android 9/API 28+、`arm64-v8a`。MOSS 本机建议使用至少 16 GB RAM 的设备；主要真机验证目标为 24 GB RAM。
 
 ## Qwen 模型准备
 
@@ -63,6 +66,17 @@ Qwen 生成依赖有效的 `manifest.json`。应用会校验文件大小和 SHA-
 adb push models/wan22_turbo \
   /sdcard/Android/data/com.tiggy.qwenimage/files/models/
 ```
+
+## 手机本地运行 MOSS-Image
+
+本机模式不需要 ComfyUI 或工作站。当前安装 SFT 的 Q4_0 DiT、Qwen3.5-9B Q4_K_M 文本编码器、FLUX.2 small VAE 和官方 tokenizer，默认 512×512、CFG 3；原生 CPU 后端使用 Euler/discrete，固定负分支第 22 层跳过。
+
+```bash
+bash scripts/download_moss_models.sh
+bash scripts/push_moss_models.sh <serial>  # 序列号换成你的设备
+```
+
+下载脚本支持断点续传和逐文件 SHA-256 校验，模型约 9GB；可用 `MOSS_HF_ROOT` 指定镜像源根地址，哈希约束不变。推送后在 App 的模型页点击“校验模型”，再选择 **MOSS · 本机**。也可以在图像页或模型页直接下载/导入。本机与工作站分别保存尺寸、步数和 CFG；提示词增强仅在工作站提供。
 
 ## 使用 ComfyUI 运行 MOSS-Image
 
@@ -114,6 +128,7 @@ bash -n scripts/push_models.sh scripts/convert_official_turbo.sh
 - [MNN](https://github.com/alibaba/MNN)：Apache-2.0。
 - [Qwen-Image 运行时](https://github.com/scsonic/libQwenImage21)：Apache-2.0；模型权重遵循各自许可。
 - [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image)：Apache-2.0。
+- [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) 与 [ggml](https://github.com/leejet/ggml)：MIT。
 - [YuE2](https://github.com/multimodal-art-projection/YuE)：CC-BY-NC-4.0。
 - [Haze](https://github.com/chrisbanes/haze)：Apache-2.0。
 - Omni Pocket 应用代码：Apache-2.0。

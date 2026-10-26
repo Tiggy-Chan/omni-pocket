@@ -14,7 +14,7 @@ enum class MossCheckpoint(val fileName: String) {
     Base("moss_image_base_int8_convrot.safetensors")
 }
 
-enum class ImageGenerationBackend { QwenLocal, MossWorkstation }
+enum class ImageGenerationBackend { QwenLocal, MossLocal, MossWorkstation }
 
 enum class MossInputMode { Prompt, Layout }
 
@@ -181,26 +181,50 @@ data class MossSettings(
     val scheduler: String = "simple",
     val slg: MossSlgSettings = MossSlgSettings(),
     val promptUpsampler: Boolean = true,
-    val inputMode: MossInputMode = MossInputMode.Prompt
+    val inputMode: MossInputMode = MossInputMode.Prompt,
+    val local: MossLocalSettings = MossLocalSettings()
 ) {
     val usesPromptUpsampler: Boolean
         get() = promptUpsampler && inputMode == MossInputMode.Prompt
 
+    fun modelPrompt(): String = if (inputMode == MossInputMode.Layout) {
+        layout.toModelJson(prompt, width, height).toString()
+    } else {
+        prompt
+    }
+
+    fun localModelPrompt(): String = if (inputMode == MossInputMode.Layout) {
+        layout.toModelJson(prompt, local.width, local.height).toString()
+    } else {
+        prompt
+    }
+
     fun validate() {
         require(serverUrl.isNotBlank()) { "请输入 ComfyUI 工作站地址" }
+        validateCommon(width, height, cfg)
+        require(steps in 1..200) { "采样步数必须为 1–200" }
+        require(sampler.isNotBlank()) { "sampler 不能为空" }
+        require(scheduler.isNotBlank()) { "scheduler 不能为空" }
+        slg.validate()
+    }
+
+    fun validateLocal() {
+        validateCommon(local.width, local.height, local.cfg)
+        require(checkpoint == MossCheckpoint.Sft) { "当前本机模型包提供 SFT；Base 可使用工作站" }
+        local.validate()
+        require(local.width.toLong() * local.height.toLong() <= 1_048_576L) { "本机 MOSS 当前最多输出 1 MP" }
+    }
+
+    private fun validateCommon(width: Int, height: Int, cfg: Double) {
         require(prompt.isNotBlank()) { "请输入提示词" }
         require(width % 16 == 0 && height % 16 == 0) { "MOSS 宽高必须为 16 的倍数" }
         require(width > 0 && height > 0 && width <= 2048 && height <= 2048) { "MOSS 宽高不能超过 2048" }
         val pixels = width.toLong() * height.toLong()
         require(pixels in 262_144L..4_194_304L) { "MOSS 总像素数必须在 0.25 MP 到 4 MP 之间" }
         require(seed >= 0) { "seed 不能为负数" }
-        require(steps in 1..200) { "采样步数必须为 1–200" }
         require(cfg.isFinite() && cfg in 0.0..20.0) { "CFG 必须位于 0 到 20 之间" }
         require(shift.isFinite() && shift in 0.0..100.0) { "shift 必须位于 0 到 100 之间" }
-        require(sampler.isNotBlank()) { "sampler 不能为空" }
-        require(scheduler.isNotBlank()) { "scheduler 不能为空" }
-        slg.validate()
-        if (inputMode == MossInputMode.Layout) layout.validate()
+        if (inputMode == MossInputMode.Layout) layout.toModelJson(prompt, width, height)
     }
 
     fun toJson() = JSONObject().apply {
@@ -220,6 +244,7 @@ data class MossSettings(
         put("slg", slg.toJson())
         put("promptUpsampler", promptUpsampler)
         put("inputMode", inputMode.name)
+        put("local", local.toJson())
     }
 
     companion object {
@@ -244,7 +269,8 @@ data class MossSettings(
                 slg = MossSlgSettings.fromJson(o.optJSONObject("slg") ?: JSONObject()),
                 promptUpsampler = o.optBoolean("promptUpsampler", true),
                 inputMode = runCatching { MossInputMode.valueOf(o.optString("inputMode")) }
-                    .getOrDefault(MossInputMode.Prompt)
+                    .getOrDefault(MossInputMode.Prompt),
+                local = MossLocalSettings.fromJson(o.optJSONObject("local"))
             )
         }
     }

@@ -2,3 +2,6 @@
 	path = third_party/MNN
 	url = https://github.com/scsonic/MNN.git
 	branch = qwen-image-21
+[submodule "third_party/stable-diffusion.cpp"]
+	path = third_party/stable-diffusion.cpp
+	url = https://github.com/leejet/stable-diffusion.cpp.git

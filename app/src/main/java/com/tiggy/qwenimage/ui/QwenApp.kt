@@ -40,8 +40,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tiggy.qwenimage.QwenUiState
 import com.tiggy.qwenimage.QwenViewModel
 import com.tiggy.qwenimage.data.AppDomain
-import com.tiggy.qwenimage.data.ImageGenerationBackend
 import com.tiggy.qwenimage.data.WorkspaceTab
+import com.tiggy.qwenimage.data.displayName
+import com.tiggy.qwenimage.data.isMoss
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
 
@@ -82,7 +83,15 @@ fun QwenApp(viewModel: QwenViewModel) {
                 }
                 Box(Modifier.weight(1f)) {
                     when (management) {
-                        WorkspaceTab.Models -> ModelsScreen(viewModel, state.modelStatus, state.repo, state.revision, state.modelTask)
+                        WorkspaceTab.Models -> ModelsScreen(
+                            viewModel,
+                            state.modelStatus,
+                            state.repo,
+                            state.revision,
+                            state.modelTask,
+                            state.mossModelStatus,
+                            state.modelTask.running && state.activeTask?.backend == com.tiggy.qwenimage.data.GenerationBackend.LocalMoss
+                        )
                         WorkspaceTab.Settings -> SettingsScreen(
                             viewModel = viewModel,
                             threads = state.cpuThreads,
@@ -92,7 +101,7 @@ fun QwenApp(viewModel: QwenViewModel) {
                         )
                         else -> when (state.domain) {
                             AppDomain.ImageStudio -> when (state.tab) {
-                                WorkspaceTab.Generate -> if (state.imageBackend == ImageGenerationBackend.MossWorkstation) {
+                                WorkspaceTab.Generate -> if (state.imageBackend.isMoss) {
                                     MossStudioScreen(state, viewModel)
                                 } else {
                                     QwenGenerateScreen(state, viewModel) { previewImagePath = it }
@@ -212,7 +221,7 @@ private fun OmniTopBar(
                     if (management == null) {
                         Text(
                             when (state.domain) {
-                                AppDomain.ImageStudio -> if (state.imageBackend == ImageGenerationBackend.MossWorkstation) "MOSS · 工作站" else "Qwen · 本机"
+                                AppDomain.ImageStudio -> state.imageBackend.displayName()
                                 AppDomain.MusicStudio -> "YuE2 · 工作站"
                                 AppDomain.VideoStudio -> "视频创作"
                             },
