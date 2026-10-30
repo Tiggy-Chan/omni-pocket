@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-Omni Pocket is an Android studio for local and workstation-backed image, music, and video generation. The app separates execution backends explicitly: it does not present a workstation request as on-device inference.
+Omni Pocket is an Android studio for local text conversations and local or workstation-backed image, music, and video generation. The app separates execution backends explicitly: it does not present a workstation request as on-device inference.
 
 ## What runs where
 
@@ -12,14 +12,16 @@ Omni Pocket is an Android studio for local and workstation-backed image, music, 
 - **Wan2.2 video on the phone**: `libsd_cli` with a Wan2.2-TI2V-5B-Turbo GGUF DiT, UMT5 text encoder, and TAE decoder. Text-to-video and first-frame image-to-video use the actual seed, FPS, frame count, and step count shown in the UI. Local output is WebM. Local generation is limited to 25 frames at 480×832; 4 steps and 16 FPS are the current verified defaults.
 - **MobileWan on a workstation**: text-to-video through the external bridge. The bridge does not accept a first frame, and the app rejects that combination before submission instead of silently dropping the image.
 
-The interface uses three global destinations (Image, Music, Video), short task states, per-modality logs, and optional advanced controls. Floating navigation uses backdrop glass on Android 12/API 31+ with an opaque fallback on older supported versions. Expensive visual effects are reduced during heavy inference.
+- **Elephant-1 decisions on the phone**: llama.cpp runs a GGUF build and returns option probabilities and confidence for choice, noul, and score questions. It does not generate free text.
+
+The interface follows a sidebar, conversation, and work-directory layout. The sidebar (a drawer on phones, permanent at 840dp and wider) switches between the Conversation, Decision, Image, Music, and Video workspaces and the Work directory, Models, and Settings pages. Each workspace is a stream of requests and results, with parameters in sheets next to the composer. The work directory lists real outputs only; an image can be edited further or used as a video's first frame. Light and dark themes follow the system and can be overridden in Settings. Glass is limited to the floating composer and sheets: backdrop blur on Android 12/API 31+, an opaque surface on older versions.
 
 ## Build and test
 
 Requirements: JDK 17, Android SDK 35, and NDK `28.2.13676358`.
 
 ```bash
-git submodule update --init --depth 1 third_party/stable-diffusion.cpp
+git submodule update --init --depth 1 third_party/stable-diffusion.cpp third_party/llama.cpp
 git -C third_party/stable-diffusion.cpp submodule update --init --depth 1 ggml
 bash scripts/build_moss_android.sh
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
@@ -27,6 +29,43 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 The app supports Android 9/API 28+ on `arm64-v8a`. At least 16 GB RAM is recommended for local MOSS; the main device validation target has 24 GB RAM.
+
+## Local Qwen3.5 conversations
+
+Conversation uses the existing MNN runtime and pinned Qwen3.5 0.8B/2B/4B packages from `taobao-mnn`. The first version is text-only: no image input, web access, RAG, command execution, or agent claims. CPU inference uses four threads, a 4096-token total budget, and up to 512 new tokens per response. Old turns are trimmed to fit; reasoning is shown separately and excluded from subsequent prompts. Local LLM and other heavy engines are mutually exclusive and evict each other's resident models.
+
+```bash
+bash scripts/download_llm_models.sh qwen35-0.8b
+bash scripts/push_llm_models.sh qwen35-0.8b
+```
+
+Open the **模型** (Models) page from the sidebar to download in the app or verify a pushed package. Downloads resume partial files, validate size and SHA-256, and activate atomically. The push script does not create a device verification marker. To run the real host smoke test (Chinese multi-turn, streaming cancellation/retry, reasoning, and context trimming):
+
+```bash
+bash scripts/test_llm_host.sh
+```
+
+Sampling includes explicit presence/repetition penalties based on the official text-generation recommendations. The [0.8B model card](https://huggingface.co/Qwen/Qwen3.5-0.8B) warns that this size can enter thinking loops. The app therefore bounds output and explicitly reports when reasoning reaches the limit without an answer; it does not invent a fallback response. Host checks distinguish completed reasoning from a correctly bounded loop rather than treating the token limit as a complete answer.
+
+Only the 0.8B package has host inference coverage at present. Android device memory, performance, and runtime behavior still require device acceptance. The larger packages remain optional; their presence in the catalog is not a device compatibility claim.
+
+## Local Elephant-1 decisions
+
+The Decision workspace uses [`baselabs/elephant-1`](https://huggingface.co/baselabs/elephant-1) (a Qwen3.5-9B fine-tune, MIT, pinned to `b3f8a934`). The `elephant-1base` address originally suggested is not accessible; this repository is the public release. Weights come from the community `prithivMLmods/elephant-1-GGUF` Q4_K_M build (5.63 GB, not an official quantization) and run on llama.cpp `2280f0fd`. Full-attention layers use a block-bidirectional mask, and answers are a softmax over the option-label logits at the answer position.
+
+- Question types: choice (up to 2048 options, chunked over 256 slots and merged with the OneJev weighting), noul (yes/no), and score (1–10 levels, with expected value and confidence).
+- One request holds 1–32 questions sharing one state prefix. The state and each question are limited to 128 KiB and each branch to 16384 tokens; oversized input is rejected, never truncated silently.
+- The inference context is sized to each request, and cancellation takes effect during loading, during the prefix pass, and between branches.
+
+Prepare the model on a computer and import it over USB; the app does not offer a direct GGUF download:
+
+```bash
+bash scripts/prepare_elephant_model.sh
+bash scripts/push_llm_models.sh elephant-1
+bash scripts/test_decision_host.sh
+```
+
+Verify it on the **模型** page after pushing. The host regression runs the real model: against an FP32-KV reference of the same GGUF, the largest probability error across the three question types is 0.0053 (tolerance 0.05). It also covers 300-option chunking, repeated calls, reordered questions, state isolation, and cancellation. Peak RSS on a 16 GB host is about 6.2 GB. On a OnePlus PJX110 (24 GB), verification takes about 8 s, loading about 5 s, and the three-question example about 14 s, with the app resident at about 9.3 GB; switching to chat releases the decision model (about 0.9 GB). Alignment with the official BF16 weights is not yet verified; a device with at least 16 GB RAM is recommended.
 
 ## Qwen model preparation
 
@@ -131,4 +170,7 @@ bash -n scripts/push_models.sh scripts/convert_official_turbo.sh
 - [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) and [ggml](https://github.com/leejet/ggml), MIT.
 - [YuE2](https://github.com/multimodal-art-projection/YuE), CC-BY-NC-4.0.
 - [Haze](https://github.com/chrisbanes/haze), Apache-2.0.
+- [Qwen3.5 MNN model packages](https://huggingface.co/taobao-mnn/Qwen3.5-0.8B-MNN), Apache-2.0; pinned revisions are recorded in `app/src/main/assets/llm_models.json`. The MNN runtime is pinned to `24c6cb21081a657c66db4ffe1e7a2c9d3d20e823`.
+- [llama.cpp](https://github.com/ggml-org/llama.cpp), MIT; pinned to `2280f0fd163b03d4331d49e08460f66502e35854` with `patches/llama-elephant-decision.patch`.
+- [Elephant-1](https://huggingface.co/baselabs/elephant-1), MIT; [OneJev](https://github.com/OmniJev/OneJev) protocol, Apache-2.0.
 - Omni Pocket application code, Apache-2.0.
