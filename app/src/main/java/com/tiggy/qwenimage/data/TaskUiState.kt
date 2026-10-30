@@ -1,5 +1,7 @@
 package com.tiggy.qwenimage.data
 
+enum class ThemeMode(val label: String) { System("跟随系统"), Light("浅色"), Dark("深色") }
+
 enum class TaskDomain(val displayName: String) {
     Image("图像"),
     Music("音乐"),

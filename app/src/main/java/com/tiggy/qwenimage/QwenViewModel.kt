@@ -23,6 +23,7 @@ import com.tiggy.qwenimage.data.MusicTrack
 import com.tiggy.qwenimage.data.TaskDomain
 import com.tiggy.qwenimage.data.TaskStates
 import com.tiggy.qwenimage.data.TaskUiState
+import com.tiggy.qwenimage.data.ThemeMode
 import com.tiggy.qwenimage.data.VideoBackend
 import com.tiggy.qwenimage.data.VideoItem
 import com.tiggy.qwenimage.data.VideoJob
@@ -92,7 +93,8 @@ data class QwenUiState(
     val videoSettings: VideoSettings = VideoSettings(),
     val videoJobs: List<VideoJob> = emptyList(),
     val videoGallery: List<VideoItem> = emptyList(),
-    val activeVideo: VideoItem? = null
+    val activeVideo: VideoItem? = null,
+    val themeMode: ThemeMode = ThemeMode.System
 ) {
     val imageTask: TaskUiState get() = tasks.imageTask
     val musicTask: TaskUiState get() = tasks.musicTask
@@ -105,6 +107,7 @@ data class QwenUiState(
             AppDomain.ImageStudio -> imageTask
             AppDomain.MusicStudio -> musicTask
             AppDomain.VideoStudio -> videoTask
+            AppDomain.Conversation, AppDomain.Decision -> imageTask
         }
 
     val isBusy: Boolean get() = currentTask.running
@@ -116,7 +119,10 @@ data class QwenUiState(
 }
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
-class QwenViewModel(application: Application) : AndroidViewModel(application) {
+class QwenViewModel(
+    application: Application,
+    private val inferenceCoordinator: com.tiggy.qwenimage.engine.LocalInferenceCoordinator
+) : AndroidViewModel(application) {
     private val repository = ModelRepository(application)
     private val mossRepository = MossModelRepository(application)
     private val preferences = application.getSharedPreferences("qwen-pocket", Application.MODE_PRIVATE)
@@ -142,15 +148,27 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     private val videoEngine = VideoEngine(application)
     private val mossEngine = com.tiggy.qwenimage.engine.ComfyMossEngine(application)
     private val localMossEngine = LocalMossEngine(application, mossRepository)
+    private val evictionKey = "qwen:${System.identityHashCode(this)}"
 
     init {
+        inferenceCoordinator.registerEvictor(evictionKey) { invalidateEngine() }
         val crash = QwenImage21.readCrashMarker(File(application.filesDir, "generation.marker"))
         val initialStatus = repository.status()
         val restoredMossSettings = runCatching {
-            MossSettings.fromJson(org.json.JSONObject(preferences.getString("mossSettings", "{}")))
+            MossSettings.fromJson(org.json.JSONObject(preferences.getString("mossSettings", null) ?: "{}"))
         }.getOrDefault(MossSettings())
         _state.update { state ->
             state.copy(
+                domain = runCatching { AppDomain.valueOf(preferences.getString("domain", null).orEmpty()) }
+                    .getOrDefault(AppDomain.Conversation),
+                themeMode = runCatching { ThemeMode.valueOf(preferences.getString("themeMode", null).orEmpty()) }
+                    .getOrDefault(ThemeMode.System),
+                musicSettings = state.musicSettings.copy(
+                    serverUrl = preferences.getString("musicServerUrl", null) ?: state.musicSettings.serverUrl
+                ),
+                videoSettings = state.videoSettings.copy(
+                    serverUrl = preferences.getString("videoServerUrl", null) ?: state.videoSettings.serverUrl
+                ),
                 mossSettings = restoredMossSettings,
                 settings = compatibleSettings(state.settings, initialStatus),
                 modelStatus = initialStatus,
@@ -259,6 +277,14 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         progress: Int? = null,
         alertOnConflict: Boolean = true
     ): Boolean {
+        if (!inferenceCoordinator.acquire("qwen:$id")) {
+            val reason = "另一个任务正在运行，请稍后重试"
+            _state.update { state ->
+                state.copy(alert = if (alertOnConflict) reason else state.alert,
+                    tasks = state.tasks.updateTask(domain) { it.copy(error = reason) })
+            }
+            return false
+        }
         var started = false
         _state.update { state ->
             started = false
@@ -283,6 +309,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+        if (!started) inferenceCoordinator.release("qwen:$id")
         return started
     }
 
@@ -292,10 +319,12 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         alert: String? = null,
         transform: (TaskUiState) -> TaskUiState
     ) {
+        var released = false
         _state.update { state ->
             if (!state.tasks.isActive(domain, id)) {
                 state
             } else {
+                released = true
                 state.copy(
                     alert = alert ?: state.alert,
                     tasks = state.tasks.updateTask(domain) { task -> transform(task.copy(running = false)) }
@@ -303,6 +332,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+        if (released) inferenceCoordinator.release("qwen:$id")
     }
 
     private suspend fun acquireImageTask(jobId: String): Boolean {
@@ -328,8 +358,11 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                     alertOnConflict = false
                 )
             ) return true
-            state.first { snapshot ->
-                snapshot.activeTask == null || snapshot.jobs.firstOrNull { it.id == jobId }?.state != "queued"
+            kotlinx.coroutines.flow.combine(state, inferenceCoordinator.activeOwner) { snapshot, owner ->
+                snapshot to owner
+            }.first { (snapshot, owner) ->
+                (snapshot.activeTask == null && owner == null) ||
+                    snapshot.jobs.firstOrNull { it.id == jobId }?.state != "queued"
             }
         }
         return false
@@ -356,7 +389,42 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setDomain(domain: AppDomain) {
         if (domain != AppDomain.MusicStudio) musicEngine.pausePlayback()
+        preferences.edit().putString("domain", domain.name).apply()
         _state.update { it.copy(domain = domain) }
+    }
+
+    fun setThemeMode(mode: ThemeMode) {
+        preferences.edit().putString("themeMode", mode.name).apply()
+        _state.update { it.copy(themeMode = mode) }
+    }
+
+    /** Opens the video workspace with a finished image as the first frame. */
+    fun useImageAsVideoFirstFrame(path: String) {
+        val file = File(path)
+        if (!file.isFile) {
+            _state.update { it.copy(alert = "图像文件不存在") }
+            return
+        }
+        setVideoInputImage(Uri.fromFile(file))
+        setDomain(AppDomain.VideoStudio)
+        _state.update { it.copy(videoTab = VideoStudioTab.Compose) }
+    }
+
+    /** Starts a Qwen image edit from a finished image. */
+    fun editImage(path: String) {
+        val file = File(path)
+        val status = _state.value.modelStatus
+        when {
+            !file.isFile -> _state.update { it.copy(alert = "图像文件不存在") }
+            status == null || status.total == 0 || "image-edit" !in status.manifest.features ->
+                _state.update { it.copy(alert = "当前 Qwen 模型不支持图片编辑") }
+            else -> {
+                setImageBackend(ImageGenerationBackend.QwenLocal)
+                setInput(Uri.fromFile(file))
+                _state.update { it.copy(tab = WorkspaceTab.Generate) }
+                setDomain(AppDomain.ImageStudio)
+            }
+        }
     }
 
     fun selectTab(tab: WorkspaceTab) = _state.update { it.copy(tab = tab) }
@@ -372,7 +440,10 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     fun setVideoNumFrames(numFrames: Int) = _state.update { it.copy(videoSettings = it.videoSettings.copy(numFrames = numFrames.coerceIn(5, 81))) }
     fun setVideoSteps(steps: Int) = _state.update { it.copy(videoSettings = it.videoSettings.copy(steps = steps.coerceIn(1, 10))) }
     fun setVideoShift(shift: Float) = _state.update { it.copy(videoSettings = it.videoSettings.copy(shift = shift.coerceIn(1.0f, 10.0f))) }
-    fun setVideoServerUrl(url: String) = _state.update { it.copy(videoSettings = it.videoSettings.copy(serverUrl = url)) }
+    fun setVideoServerUrl(url: String) {
+        preferences.edit().putString("videoServerUrl", url).apply()
+        _state.update { it.copy(videoSettings = it.videoSettings.copy(serverUrl = url)) }
+    }
     fun setVideoInputImage(uri: Uri?) {
         if (uri != null) runCatching {
             getApplication<Application>().contentResolver.takePersistableUriPermission(
@@ -455,6 +526,10 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.Default) {
             runCatching {
+                if (backend == VideoBackend.LocalWan) {
+                    inferenceCoordinator.evictOthers("qwen")
+                    invalidateEngine()
+                }
                 videoEngine.executeGeneration(job, backend) { update ->
                     updateTask(TaskDomain.Video, job.id) {
                         it.copy(progress = update.progress?.let { value -> (value * 100).toInt() }, status = update.stage)
@@ -544,7 +619,10 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
     fun setMusicTargetDuration(sec: Int) = _state.update { it.copy(musicSettings = it.musicSettings.copy(targetDurationSec = sec)) }
     fun setMusicOdeSteps(steps: Int) = _state.update { it.copy(musicSettings = it.musicSettings.copy(odeSteps = steps.coerceIn(8, 64))) }
     fun setMusicGuidanceScale(scale: Float) = _state.update { it.copy(musicSettings = it.musicSettings.copy(guidanceScale = scale)) }
-    fun setMusicServerUrl(url: String) = _state.update { it.copy(musicSettings = it.musicSettings.copy(serverUrl = url)) }
+    fun setMusicServerUrl(url: String) {
+        preferences.edit().putString("musicServerUrl", url).apply()
+        _state.update { it.copy(musicSettings = it.musicSettings.copy(serverUrl = url)) }
+    }
 
     fun playMusic(track: MusicTrack) {
         if (_state.value.nowPlayingTrack?.id == track.id) {
@@ -765,6 +843,8 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             if (!beginTask(TaskDomain.Model, taskId, status = "检查 MNN/OpenCL 推理引擎…")) return@launch
             val result = runCatching {
                 withContext(Dispatchers.IO) {
+                    inferenceCoordinator.evictOthers("qwen")
+                    invalidateEngine()
                     check(repository.status().ready) { "请先完成模型校验" }
                     QwenEngine(repository.modelDir, EngineSettings(false, false, true, false, false,
                         _state.value.cpuThreads, File(getApplication<Application>().filesDir, "diagnostic.marker"))).use { }
@@ -983,6 +1063,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             AppDomain.ImageStudio -> TaskDomain.Image
             AppDomain.MusicStudio -> TaskDomain.Music
             AppDomain.VideoStudio -> TaskDomain.Video
+            AppDomain.Conversation, AppDomain.Decision -> return@update state.copy(alert = null)
         }
         state.copy(
             alert = null,
@@ -1005,6 +1086,46 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                 ImageGenerationBackend.MossWorkstation -> mossEngine.cancelGeneration()
             }
             updateTask(TaskDomain.Image, id) { it.copy(status = "正在取消，将在当前计算阶段结束后停止") }
+        }
+    }
+
+    fun deleteImageJob(id: String) {
+        val job = _state.value.jobs.firstOrNull { it.id == id } ?: return
+        if (job.state == "queued" || job.state == "running") return
+        val output = job.outputPath?.let(::File)
+        val outputsDir = File(getApplication<Application>().getExternalFilesDir(null) ?: getApplication<Application>().filesDir, "outputs")
+        if (output != null) {
+            val failure = runCatching {
+                val inOutputs = output.canonicalFile.parentFile == outputsDir.canonicalFile
+                if (inOutputs && output.exists() && !output.delete() && output.exists()) error("无法删除 ${output.name}")
+            }.exceptionOrNull()
+            if (failure != null) {
+                _state.update { it.copy(alert = "删除图像失败：${failure.message ?: "无法删除文件"}") }
+                return
+            }
+        }
+        _state.update { state -> state.copy(jobs = state.jobs.filter { it.id != id }) }
+    }
+
+    fun deleteMusicTrack(track: MusicTrack) {
+        if (track.id.startsWith("preset_")) return
+        if (_state.value.nowPlayingTrack?.id == track.id) musicEngine.stopPlayback()
+        val audio = File(track.audioPath)
+        val failure = runCatching {
+            if (audio.exists() && !audio.delete() && audio.exists()) error("无法删除 ${audio.name}")
+        }.exceptionOrNull()
+        if (failure != null) {
+            _state.update { it.copy(alert = "删除音乐失败：${failure.message ?: "无法删除文件"}") }
+            return
+        }
+        val sidecar = File(audio.parentFile, "${audio.nameWithoutExtension}.json")
+        val sidecarFailed = runCatching { sidecar.exists() && !sidecar.delete() && sidecar.exists() }.getOrDefault(true)
+        _state.update { state ->
+            state.copy(
+                musicPlaylist = state.musicPlaylist.filter { it.id != track.id },
+                activeMusicTrack = if (state.activeMusicTrack?.id == track.id) null else state.activeMusicTrack,
+                alert = if (sidecarFailed) "音乐已删除，但元数据清理失败：${sidecar.name}" else state.alert
+            )
         }
     }
 
@@ -1035,6 +1156,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
             if (job.id in cancelledJobIds) throw CancellationException("已取消")
             appendLog(TaskDomain.Image, "图像任务 ${job.id.take(8)} · ${settings.width}×${settings.height} · seed ${settings.seed}", job.id)
 
+            inferenceCoordinator.evictOthers("qwen")
             val dimensions = engineMutex.withLock {
                 withContext(Dispatchers.IO) {
                     val status = repository.status()
@@ -1159,7 +1281,10 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         val startTime = System.currentTimeMillis()
         try {
             if (job.id in cancelledJobIds) throw CancellationException("已取消")
-            if (local) invalidateEngine()
+            if (local) {
+                inferenceCoordinator.evictOthers("qwen")
+                invalidateEngine()
+            }
             val steps = if (local) settings.local.steps else settings.steps
             val width = if (local) settings.local.width else settings.width
             val height = if (local) settings.local.height else settings.height
@@ -1281,6 +1406,7 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
         persistJobs(_state.value.jobs, commit = true)
         queue.close()
         engine?.cancel()
+        val owner = _state.value.activeTask?.id
         Thread({
             kotlinx.coroutines.runBlocking {
                 engineMutex.withLock {
@@ -1290,6 +1416,8 @@ class QwenViewModel(application: Application) : AndroidViewModel(application) {
                     closing?.close()
                 }
             }
+            inferenceCoordinator.unregisterEvictor(evictionKey)
+            if (owner != null) inferenceCoordinator.release("qwen:$owner")
         }, "qwen-engine-close").start()
         mossEngine.close()
         localMossEngine.close()

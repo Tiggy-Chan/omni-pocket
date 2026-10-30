@@ -6,6 +6,8 @@ import java.io.File
 import java.util.UUID
 
 enum class AppDomain(val title: String, val subtitle: String) {
+    Conversation("对话", "Qwen3.5 本机"),
+    Decision("决策", "Elephant-1 本机"),
     ImageStudio("图像", "Qwen 本机 / MOSS 工作站"),
     MusicStudio("音乐", "YuE2 工作站"),
     VideoStudio("视频", "Wan 本机 / 工作站")

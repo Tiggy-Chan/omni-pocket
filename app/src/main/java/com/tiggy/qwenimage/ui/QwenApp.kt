@@ -1,160 +1,122 @@
 package com.tiggy.qwenimage.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Memory
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tiggy.qwenimage.DecisionViewModel
+import com.tiggy.qwenimage.LlmPhase
+import com.tiggy.qwenimage.LlmViewModel
 import com.tiggy.qwenimage.QwenUiState
 import com.tiggy.qwenimage.QwenViewModel
 import com.tiggy.qwenimage.data.AppDomain
-import com.tiggy.qwenimage.data.WorkspaceTab
-import com.tiggy.qwenimage.data.displayName
-import com.tiggy.qwenimage.data.isMoss
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.haze
+import com.tiggy.qwenimage.data.TaskDomain
+import kotlinx.coroutines.launch
 
+/**
+ * App root. One sidebar (drawer on phones, permanent pane at 840dp and wider) switches between the
+ * five workspaces and the work directory, models and settings pages. Each destination draws its
+ * own [WorkspaceScaffold]; [onMenu] is null when the sidebar is permanently visible.
+ */
 @Composable
-fun QwenApp(viewModel: QwenViewModel) {
+fun QwenApp(
+    viewModel: QwenViewModel,
+    llmViewModel: LlmViewModel,
+    decisionViewModel: DecisionViewModel
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var management by remember { mutableStateOf<WorkspaceTab?>(null) }
+    val llmState by llmViewModel.state.collectAsStateWithLifecycle()
+    val decisionState by decisionViewModel.state.collectAsStateWithLifecycle()
+    var page by rememberSaveable { mutableStateOf(AppPage.Workspace) }
     var previewImagePath by remember { mutableStateOf<String?>(null) }
-    val hazeState = remember { HazeState() }
-    val busy = state.activeTask != null
-
-    Box(Modifier.fillMaxSize().background(OmniColors.Background)) {
-        Box(Modifier.fillMaxSize().haze(hazeState)) {
-            LiquidBackdrop(animated = !busy)
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .imePadding()
-                    .padding(top = 68.dp, bottom = 84.dp)
-            ) {
-                if (management == null && state.domain == AppDomain.ImageStudio) {
-                    Column(Modifier.padding(horizontal = 16.dp)) {
-                        OmniTabs(
-                            items = listOf(WorkspaceTab.Generate, WorkspaceTab.Queue),
-                            selected = state.tab,
-                            accent = OmniColors.Violet,
-                            label = { if (it == WorkspaceTab.Generate) "创作" else "队列" },
-                            onSelect = viewModel::selectTab
-                        )
-                        if (state.tab == WorkspaceTab.Generate) {
-                            Spacer(Modifier.height(8.dp))
-                            ImageBackendSelector(state.imageBackend, viewModel::setImageBackend)
-                        }
-                        Spacer(Modifier.height(8.dp))
-                    }
-                }
-                Box(Modifier.weight(1f)) {
-                    when (management) {
-                        WorkspaceTab.Models -> ModelsScreen(
-                            viewModel,
-                            state.modelStatus,
-                            state.repo,
-                            state.revision,
-                            state.modelTask,
-                            state.mossModelStatus,
-                            state.modelTask.running && state.activeTask?.backend == com.tiggy.qwenimage.data.GenerationBackend.LocalMoss
-                        )
-                        WorkspaceTab.Settings -> SettingsScreen(
-                            viewModel = viewModel,
-                            threads = state.cpuThreads,
-                            keepLoaded = state.keepModelsLoaded,
-                            status = state.currentTask.status,
-                            modelReady = state.modelStatus?.ready == true
-                        )
-                        else -> when (state.domain) {
-                            AppDomain.ImageStudio -> when (state.tab) {
-                                WorkspaceTab.Generate -> if (state.imageBackend.isMoss) {
-                                    MossStudioScreen(state, viewModel)
-                                } else {
-                                    QwenGenerateScreen(state, viewModel) { previewImagePath = it }
-                                }
-                                WorkspaceTab.Queue -> ImageQueueScreen(state.jobs, viewModel::cancelJob, viewModel::reuseJob) { previewImagePath = it }
-                                else -> Unit
-                            }
-                            AppDomain.MusicStudio -> MusicStudioScreen(state, viewModel)
-                            AppDomain.VideoStudio -> VideoStudioScreen(state, viewModel)
-                        }
-                    }
-                }
-            }
+    val scope = rememberCoroutineScope()
+    val activity = WorkspaceActivity(buildSet {
+        if (llmState.phase == LlmPhase.Generating || llmState.phase == LlmPhase.Loading) add(AppDomain.Conversation)
+        if (decisionState.busy) add(AppDomain.Decision)
+        when (state.activeTask?.domain) {
+            TaskDomain.Image -> add(AppDomain.ImageStudio)
+            TaskDomain.Music -> add(AppDomain.MusicStudio)
+            TaskDomain.Video -> add(AppDomain.VideoStudio)
+            else -> Unit
         }
+    })
 
-        OmniTopBar(
-            state = state,
-            management = management,
-            hazeState = hazeState,
-            onBack = { management = null },
-            onModels = { management = WorkspaceTab.Models },
-            onSettings = { management = WorkspaceTab.Settings }
-        )
-
-        Box(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
-            val accent = when (state.domain) {
-                AppDomain.ImageStudio -> OmniColors.Violet
-                AppDomain.MusicStudio -> OmniColors.Mint
-                AppDomain.VideoStudio -> OmniColors.Amber
+    BoxWithConstraints(Modifier.fillMaxSize().background(OmniColors.Background)) {
+        val wide = maxWidth >= 840.dp
+        val drawer = rememberDrawerState(DrawerValue.Closed)
+        val openMenu: (() -> Unit)? = if (wide) null else ({ scope.launch { drawer.open() } })
+        val sidebar = @Composable {
+            OmniSidebar(
+                domain = state.domain,
+                page = page,
+                activity = activity,
+                llmState = llmState,
+                llmViewModel = llmViewModel,
+                onDomain = viewModel::setDomain,
+                onPage = { page = it },
+                onNavigated = { if (!wide) scope.launch { drawer.close() } }
+            )
+        }
+        val destination = @Composable {
+            Destination(page, state, viewModel, llmViewModel, decisionViewModel, openMenu,
+                onPreview = { previewImagePath = it }, onPage = { page = it })
+        }
+        BackHandler(enabled = !wide && drawer.isOpen) { scope.launch { drawer.close() } }
+        BackHandler(enabled = page != AppPage.Workspace && !drawer.isOpen) { page = AppPage.Workspace }
+        if (wide) {
+            Row(Modifier.fillMaxSize()) {
+                sidebar()
+                VerticalDivider(thickness = 0.5.dp, color = OmniColors.Line)
+                Box(Modifier.weight(1f)) { destination() }
             }
-            OverlayGlass(hazeState, accent = accent, blurEnabled = !busy, radius = 26.dp) {
-                OmniTabs(
-                    items = AppDomain.entries,
-                    selected = state.domain,
-                    accent = accent,
-                    label = {
-                        when (it) {
-                            AppDomain.ImageStudio -> "图像"
-                            AppDomain.MusicStudio -> "音乐"
-                            AppDomain.VideoStudio -> "视频"
-                        }
-                    },
-                    onSelect = {
-                        management = null
-                        viewModel.setDomain(it)
-                    }
-                )
-            }
+        } else {
+            ModalNavigationDrawer(
+                drawerState = drawer,
+                scrimColor = LocalOmniPalette.current.scrim,
+                drawerContent = {
+                    ModalDrawerSheet(
+                        modifier = Modifier.width(296.dp),
+                        drawerContainerColor = OmniColors.Sidebar,
+                        drawerShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
+                        windowInsets = androidx.compose.foundation.layout.WindowInsets(0)
+                    ) { sidebar() }
+                }
+            ) { destination() }
         }
     }
 
@@ -163,82 +125,68 @@ fun QwenApp(viewModel: QwenViewModel) {
             onDismissRequest = viewModel::clearError,
             title = { Text("需要处理") },
             text = { Text(message) },
-            confirmButton = { TextButton(onClick = viewModel::clearError) { Text("知道了") } }
+            confirmButton = { TextButton(onClick = viewModel::clearError) { Text("知道了") } },
+            containerColor = OmniColors.Raised
         )
     }
 
     previewImagePath?.let { path ->
-        Dialog(onDismissRequest = { previewImagePath = null }) {
-            Box(Modifier.fillMaxWidth().clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp)).background(OmniColors.ContentStrong).padding(12.dp)) {
-                Column {
-                    OmniAsyncImage(path, "作品大图", Modifier.fillMaxWidth(), maxDimension = 2048)
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(path.substringAfterLast('/'), color = OmniColors.Muted, style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
-                        IconButton(onClick = { previewImagePath = null }, modifier = Modifier.size(48.dp)) {
-                            Icon(Icons.Outlined.Close, "关闭预览", tint = OmniColors.Ink)
-                        }
-                    }
+        ImagePreviewDialog(path, viewModel, onDismiss = { previewImagePath = null })
+    }
+}
+
+@Composable
+private fun Destination(
+    page: AppPage,
+    state: QwenUiState,
+    viewModel: QwenViewModel,
+    llmViewModel: LlmViewModel,
+    decisionViewModel: DecisionViewModel,
+    onMenu: (() -> Unit)?,
+    onPreview: (String) -> Unit,
+    onPage: (AppPage) -> Unit
+) {
+    when (page) {
+        AppPage.Workspace -> when (state.domain) {
+            AppDomain.Conversation -> LlmChatScreen(llmViewModel, onMenu, onModels = { onPage(AppPage.Models) })
+            AppDomain.Decision -> DecisionScreen(decisionViewModel, onMenu, onModels = { onPage(AppPage.Models) })
+            AppDomain.ImageStudio -> ImageWorkspace(state, viewModel, onMenu, onPreview, onModels = { onPage(AppPage.Models) })
+            AppDomain.MusicStudio -> MusicWorkspace(state, viewModel, onMenu, onSettings = { onPage(AppPage.Settings) })
+            AppDomain.VideoStudio -> VideoWorkspace(state, viewModel, onMenu, onSettings = { onPage(AppPage.Settings) })
+        }
+        AppPage.Library -> LibraryScreen(state, viewModel, onMenu, onPreview,
+            onOpenWorkspace = { domain -> viewModel.setDomain(domain); onPage(AppPage.Workspace) })
+        AppPage.Models -> ModelsPage(state, viewModel, llmViewModel, decisionViewModel, onMenu)
+        AppPage.Settings -> SettingsPage(state, viewModel, onMenu)
+    }
+}
+
+/** Full-screen image viewer with the follow-up actions a finished image supports. */
+@Composable
+private fun ImagePreviewDialog(path: String, viewModel: QwenViewModel, onDismiss: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+            Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Outlined.Close, "关闭预览", tint = androidx.compose.ui.graphics.Color.White)
                 }
+            }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                OmniAsyncImage(path, "作品大图", Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), maxDimension = 2048)
+            }
+            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { onDismiss(); viewModel.editImage(path) }) { Text("继续编辑", color = androidx.compose.ui.graphics.Color.White) }
+                TextButton(onClick = { onDismiss(); viewModel.useImageAsVideoFirstFrame(path) }) { Text("生成视频", color = androidx.compose.ui.graphics.Color.White) }
+                TextButton(onClick = {
+                    runCatching { shareMediaFile(context, java.io.File(path), "image/png", "分享图像") }
+                }) { Text("分享", color = androidx.compose.ui.graphics.Color.White) }
             }
         }
     }
 }
 
 @Composable
-private fun OmniTopBar(
-    state: QwenUiState,
-    management: WorkspaceTab?,
-    hazeState: HazeState,
-    onBack: () -> Unit,
-    onModels: () -> Unit,
-    onSettings: () -> Unit
-) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-    ) {
-        OverlayGlass(hazeState, blurEnabled = state.activeTask == null, radius = 22.dp) {
-            Row(
-                Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (management != null) {
-                    IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回", tint = OmniColors.Ink)
-                    }
-                } else {
-                    Spacer(Modifier.width(6.dp))
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        management?.let { if (it == WorkspaceTab.Models) "模型" else "设置" } ?: "Omni Pocket",
-                        color = OmniColors.Ink,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    if (management == null) {
-                        Text(
-                            when (state.domain) {
-                                AppDomain.ImageStudio -> state.imageBackend.displayName()
-                                AppDomain.MusicStudio -> "YuE2 · 工作站"
-                                AppDomain.VideoStudio -> "视频创作"
-                            },
-                            color = OmniColors.Muted,
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-                }
-                if (management == null) {
-                    IconButton(onClick = onModels, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Outlined.Memory, "模型", tint = OmniColors.Ink)
-                    }
-                    IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Outlined.Settings, "设置", tint = OmniColors.Ink)
-                    }
-                }
-            }
-        }
-    }
+internal fun PageTitle(text: String) {
+    Text(text, color = OmniColors.Ink, style = MaterialTheme.typography.titleLarge)
 }
