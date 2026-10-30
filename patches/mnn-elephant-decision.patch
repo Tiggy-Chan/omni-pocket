@@ -1,0 +1,247 @@
+diff --git a/express/NeuralNetWorkOp.cpp b/express/NeuralNetWorkOp.cpp
+index bbb018f..767e014 100644
+--- a/express/NeuralNetWorkOp.cpp
++++ b/express/NeuralNetWorkOp.cpp
+@@ -491,7 +491,12 @@ Returns:
+ A variable with the same type as `features`.
+ */
+ VARP _Softplus(VARP features) {
+-    return _Log(_Add(_Exp(features), _Const(1)));
++    std::unique_ptr<OpT> op(new OpT);
++    op->type = OpType_UnaryOp;
++    op->main.type = OpParameter_UnaryOp;
++    op->main.value = new UnaryOpT;
++    op->main.AsUnaryOp()->opType = UnaryOpOperation_BNLL;
++    return Variable::create(Expr::create(op.get(), {features}));
+ }
+ /*Computes softsign: features / (abs(features) + 1).
+ Args:
+diff --git a/source/backend/cpu/CPULinearAttention.cpp b/source/backend/cpu/CPULinearAttention.cpp
+index 10888f4..f1f2b54 100644
+--- a/source/backend/cpu/CPULinearAttention.cpp
++++ b/source/backend/cpu/CPULinearAttention.cpp
+@@ -90,6 +90,14 @@ static inline void _writeAttentionOutput(int8_t* ptr, bool c4, int b, int l, int
+     _writeElement(ptr, index, value, bytes);
+ }
+ 
++static inline int _keyHead(bool tiled, int valueHead, int numKHeads, int gqaFactor) {
++    return tiled ? valueHead % numKHeads : valueHead / gqaFactor;
++}
++
++static inline int _valueHead(bool tiled, int repetition, int keyHead, int numKHeads, int gqaFactor) {
++    return tiled ? repetition * numKHeads + keyHead : keyHead * gqaFactor + repetition;
++}
++
+ // Snapshot the post-prefix recurrent state (lazy-allocated) for eraseHistory
+ // rollback. Allocation failure leaves mSnapshotValid=false; rollback then
+ // falls back to zeroing.
+@@ -140,7 +148,7 @@ ErrorCode CPULinearAttention::onResize(const std::vector<Tensor*>& inputs, const
+ 
+     if (mAttentionType == "short_conv") {
+         convChannels = mHeadVDim;
+-    } else if (mAttentionType == "gated_delta_rule") {
++    } else if (mAttentionType == "gated_delta_rule" || mTiledHeadOrder) {
+         needRecurrentState = true;
+     }
+ 
+@@ -422,7 +430,7 @@ void CPULinearAttention::gated_delta_rule_ref(const std::vector<Tensor*>& inputs
+                     int srcChannel = h * d_k + dk;
+                     float val = convOut[b * D * L + srcChannel * L + l];
+                     for (int r = 0; r < gqa_factor; ++r) {
+-                        int dstHead = h * gqa_factor + r;
++                        int dstHead = _valueHead(mTiledHeadOrder, r, h, H_k, gqa_factor);
+                         Q[(b * L + l) * H * d_k + dstHead * d_k + dk] = val;
+                     }
+                 }
+@@ -432,7 +440,7 @@ void CPULinearAttention::gated_delta_rule_ref(const std::vector<Tensor*>& inputs
+                     int srcChannel = key_dim + h * d_k + dk;
+                     float val = convOut[b * D * L + srcChannel * L + l];
+                     for (int r = 0; r < gqa_factor; ++r) {
+-                        int dstHead = h * gqa_factor + r;
++                        int dstHead = _valueHead(mTiledHeadOrder, r, h, H_k, gqa_factor);
+                         K[(b * L + l) * H * d_k + dstHead * d_k + dk] = val;
+                     }
+                 }
+@@ -948,7 +956,7 @@ void CPULinearAttention::gated_delta_rule_mnn(const std::vector<Tensor*>& inputs
+         for (int idx = (int)tId; idx < totalHeads; idx += threadNum) {
+             int b = idx / H;
+             int h = idx % H;
+-            int k_head = h / gqa_factor;
++            int k_head = _keyHead(mTiledHeadOrder, h, H_k, gqa_factor);
+ 
+             int8_t* state = rnnStatePtr + idx * d_k * d_v * bytes;
+             const int8_t* convBase = convOut + b * D * L * bytes;
+@@ -1145,21 +1153,26 @@ void CPULinearAttention::gated_delta_rule_decode(const std::vector<Tensor*>& inp
+             }
+             const int b = g / H_k;
+             const int kh = g % H_k;
+-            const int hBegin = kh * gqa_factor;
+-            const int hEnd = ALIMIN(hBegin + gqa_factor, H);
+-            if (hBegin >= hEnd) {
++            if (kh >= H) {
+                 continue;  // defensive: H_v < H_k leaves empty groups
+             }
+ 
+             const int chBase = b * D;
+             doConvRange(chBase + kh * d_k, d_k);
+             doConvRange(chBase + key_dim + kh * d_k, d_k);
+-            for (int hh = hBegin; hh < hEnd; ++hh) {
+-                doConvRange(chBase + 2 * key_dim + hh * d_v, d_v);
++            for (int r = 0; r < gqa_factor; ++r) {
++                const int hh = _valueHead(mTiledHeadOrder, r, kh, H_k, gqa_factor);
++                if (hh < H) {
++                    doConvRange(chBase + 2 * key_dim + hh * d_v, d_v);
++                }
+             }
+ 
+             const int8_t* convBase = convOut + b * D * bytes;
+-            for (int hh = hBegin; hh < hEnd; ++hh) {
++            for (int r = 0; r < gqa_factor; ++r) {
++                const int hh = _valueHead(mTiledHeadOrder, r, kh, H_k, gqa_factor);
++                if (hh >= H) {
++                    continue;
++                }
+                 const int idx = b * H + hh;
+                 int8_t* state = rnnStatePtr + (int64_t)idx * d_k * d_v * bytes;
+ 
+@@ -1373,6 +1386,7 @@ bool CPULinearAttention::onClone(Backend* bn, const Op* op, Execution** dst) {
+ CPULinearAttention::CPULinearAttention(Backend* backend, const MNN::Op* op) : Execution(backend) {
+     auto param = op->main_as_LinearAttentionParam();
+     mAttentionType = param->attn_type()->str();
++    mTiledHeadOrder = mAttentionType == "gated_delta_rule_tiled";
+     mNumKHeads = param->num_k_heads();
+     mNumVHeads = param->num_v_heads();
+     mHeadKDim = param->head_k_dim();
+@@ -1413,7 +1427,7 @@ public:
+         // gated_delta_rule, and short_conv takes its own path; anything else
+         // would reach gated_delta_rule_mnn with nothing allocated.
+         const auto type = param->attn_type()->str();
+-        if (type != "gated_delta_rule" && type != "short_conv") {
++        if (type != "gated_delta_rule" && type != "gated_delta_rule_tiled" && type != "short_conv") {
+             MNN_ERROR("CPULinearAttention: unsupported attn_type %s\n", type.c_str());
+             return nullptr;
+         }
+diff --git a/source/backend/cpu/CPULinearAttention.hpp b/source/backend/cpu/CPULinearAttention.hpp
+index d9e317f..c10c27d 100644
+--- a/source/backend/cpu/CPULinearAttention.hpp
++++ b/source/backend/cpu/CPULinearAttention.hpp
+@@ -54,6 +54,7 @@ private:
+     int mNumKHeads;
+     int mNumVHeads;
+     bool mUseQKL2Norm;
++    bool mTiledHeadOrder = false;
+     int mBytes;  // 4 for fp32, 2 for fp16 (Arm82)
+     std::shared_ptr<StateCache> mStateCache;
+     KVMeta* mMeta;
+diff --git a/test/op/LinearAttentionTest.cpp b/test/op/LinearAttentionTest.cpp
+index 1fa7af7..2c880e6 100644
+--- a/test/op/LinearAttentionTest.cpp
++++ b/test/op/LinearAttentionTest.cpp
+@@ -57,7 +57,7 @@ struct NaiveLinearAttention {
+         const float* qkvPtr, const float* gatePtr, const float* betaPtr, const float* convWPtr,
+         int batch, int L, int convDim, int K_conv,
+         int numKHeads, int numVHeads, int headKDim, int headVDim,
+-        bool useL2Norm)
++        bool useL2Norm, bool tiledHeads = false)
+     {
+         const int key_dim = numKHeads * headKDim;
+         const int val_dim = numVHeads * headVDim;
+@@ -119,7 +119,7 @@ struct NaiveLinearAttention {
+                         int srcChannel = h * ddk + di;
+                         float val = convOut[b * D * L + srcChannel * L + l];
+                         for (int r = 0; r < gqa_factor; ++r) {
+-                            int dstHead = h * gqa_factor + r;
++                            int dstHead = tiledHeads ? r * numKHeads + h : h * gqa_factor + r;
+                             Q[(b * L + l) * HH * ddk + dstHead * ddk + di] = val;
+                         }
+                     }
+@@ -129,7 +129,7 @@ struct NaiveLinearAttention {
+                         int srcChannel = key_dim + h * ddk + di;
+                         float val = convOut[b * D * L + srcChannel * L + l];
+                         for (int r = 0; r < gqa_factor; ++r) {
+-                            int dstHead = h * gqa_factor + r;
++                            int dstHead = tiledHeads ? r * numKHeads + h : h * gqa_factor + r;
+                             K[(b * L + l) * HH * ddk + dstHead * ddk + di] = val;
+                         }
+                     }
+@@ -1727,6 +1727,46 @@ public:
+                runCase("prefill-chunked", 2, 2, 4, 4, 20, tolerance);
+     }
+ };
++class LinearAttentionTiledHeadTest : public MNNTestCase {
++public:
++    virtual bool run(int precision) override {
++        const int B = 1, K = 2, V = 4, dk = 4, dv = 4, D = 2 * K * dk + V * dv;
++        auto module = _makeLinearAttentionModule(K, V, dk, dv, true, "gated_delta_rule_tiled");
++        if (!module) {
++            return false;
++        }
++        NaiveLinearAttention naive;
++        naive.init(B, D, 4, V, dk, dv);
++        auto convW = _Input({D, 1, 4}, NCHW, halide_type_of<float>());
++        fillConvWeight(convW->writeMap<float>(), D * 4);
++        int step = 0;
++        for (int L : {4, 1, 1}) {
++            auto qkv = _Input({B, D, L}, NCHW, halide_type_of<float>());
++            auto gate = _Input({B, L, V}, NCHW, halide_type_of<float>());
++            auto beta = _Input({B, L, V}, NCHW, halide_type_of<float>());
++            fillDeterministic(qkv->writeMap<float>(), B * D * L, 0.1f, 0.01f * step);
++            fillGate(gate->writeMap<float>(), B * L * V);
++            fillBeta(beta->writeMap<float>(), B * L * V);
++            auto expected = naive.forward(qkv->readMap<float>(), gate->readMap<float>(), beta->readMap<float>(),
++                                          convW->readMap<float>(), B, L, D, 4, K, V, dk, dv, true, true);
++            auto outputs = module->onForward({qkv, gate, beta, convW});
++            if (outputs.empty() || outputs[0] == nullptr) {
++                return false;
++            }
++            const float* actual = outputs[0]->readMap<float>();
++            for (int index = 0; index < B * L * V * dv; ++index) {
++                if (std::fabs(actual[index] - expected[index]) > 0.01f) {
++                    MNN_ERROR("Tiled GDN failed at step %d index %d: %f vs %f\n",
++                              step, index, actual[index], expected[index]);
++                    return false;
++                }
++            }
++            ++step;
++        }
++        return true;
++    }
++};
++MNNTestSuiteRegister(LinearAttentionTiledHeadTest, "op/linear_attention_tiled_heads");
+ MNNTestSuiteRegister(LinearAttentionGateFoldTest, "op/linear_attention_gate_fold");
+ 
+ #endif // MNN_SUPPORT_TRANSFORMER_FUSE
+diff --git a/test/op/SoftplusTest.cpp b/test/op/SoftplusTest.cpp
+index ea77d49..77d16f5 100644
+--- a/test/op/SoftplusTest.cpp
++++ b/test/op/SoftplusTest.cpp
+@@ -8,6 +8,8 @@
+ 
+ #include <MNN/expr/Expr.hpp>
+ #include <MNN/expr/ExprCreator.hpp>
++#include <algorithm>
++#include <cmath>
+ #include "MNNTestSuite.h"
+ #include "TestUtils.h"
+ 
+@@ -35,6 +37,20 @@ public:
+             MNN_ERROR("SoftplusTest test failed!\n");
+             return false;
+         }
++        const std::vector<float> extreme = {-20.0f, -12.0f, -9.0f, -1.0f, 0.0f, 1.0f, 10.0f, 20.0f, 25.0f, 100.0f};
++        auto extremeInput = _Input({static_cast<int>(extreme.size())}, NCHW);
++        std::copy(extreme.begin(), extreme.end(), extremeInput->writeMap<float>());
++        auto extremeOutput = _Softplus(extremeInput)->readMap<float>();
++        for (size_t index = 0; index < extreme.size(); ++index) {
++            const double expected = std::max<double>(extreme[index], 0.0) +
++                std::log1p(std::exp(-std::fabs(static_cast<double>(extreme[index]))));
++            const double tolerance = expected < 0.05 ? 0.00005 : std::max(0.0005, expected * 0.01);
++            if (std::fabs(extremeOutput[index] - expected) > tolerance) {
++                MNN_ERROR("SoftplusTest extreme input failed: %f -> %f, expected %f\n",
++                          extreme[index], extremeOutput[index], expected);
++                return false;
++            }
++        }
+         return true;
+     }
+ };

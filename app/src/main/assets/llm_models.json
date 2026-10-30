@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "id": "qwen35-0.8b",
+      "name": "Qwen3.5 0.8B",
+      "family": "qwen3_5",
+      "repo": "taobao-mnn/Qwen3.5-0.8B-MNN",
+      "revision": "3208b55b2e3c948016c9d380a697be881a1f12f8",
+      "files": [
+        {
+          "path": "config.json",
+          "size": 652,
+          "sha256": "92853033efe602f95efca3e1c05cd8b108f973c8beed417843a9671f8147ed8d",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-0.8B-MNN/resolve/3208b55b2e3c948016c9d380a697be881a1f12f8/config.json"
+        },
+        {
+          "path": "llm_config.json",
+          "size": 8691,
+          "sha256": "33f2c15bda1911ed666418437f45900e78185b57b883545e5d02c14f92a0907b",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-0.8B-MNN/resolve/3208b55b2e3c948016c9d380a697be881a1f12f8/llm_config.json"
+        },
+        {
+          "path": "llm.mnn",
+          "size": 2148136,
+          "sha256": "94e0459e10584487a3bda77dc3c3322c0c01cfc9d223a7284e8d07345bf877d5",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-0.8B-MNN/resolve/3208b55b2e3c948016c9d380a697be881a1f12f8/llm.mnn"
+        },
+        {
+          "path": "llm.mnn.weight",
+          "size": 470382614,
+          "sha256": "4e25ef4cbfb49a33013d17300c2f68cd9c9ce8f2e3f7b947fd2c574ec297ca5e",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-0.8B-MNN/resolve/3208b55b2e3c948016c9d380a697be881a1f12f8/llm.mnn.weight"
+        },
+        {
+          "path": "tokenizer.txt",
+          "size": 6465727,
+          "sha256": "7e75de1f279a10b65bd9dc1a5207205cb8993823861c4c42bbbd74e48e1c23a4",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-0.8B-MNN/resolve/3208b55b2e3c948016c9d380a697be881a1f12f8/tokenizer.txt"
+        },
+        {
+          "path": "visual.mnn",
+          "size": 251528,
+          "sha256": "05e92b95a1295ee747b0436061b7ae7b1d1d3c7903306fe99e4af13e5aca3de3",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-0.8B-MNN/resolve/3208b55b2e3c948016c9d380a697be881a1f12f8/visual.mnn"
+        },
+        {
+          "path": "visual.mnn.weight",
+          "size": 63043212,
+          "sha256": "4c03fcac0d164d014e5cd1a1d7ab4fc95babbec724a268f3ba486c5db3511161",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-0.8B-MNN/resolve/3208b55b2e3c948016c9d380a697be881a1f12f8/visual.mnn.weight"
+        }
+      ]
+    },
+    {
+      "id": "qwen35-2b",
+      "name": "Qwen3.5 2B",
+      "family": "qwen3_5",
+      "repo": "taobao-mnn/Qwen3.5-2B-MNN",
+      "revision": "35781816d7b6a9dcb273a6765ac9563401951c3c",
+      "files": [
+        {
+          "path": "config.json",
+          "size": 652,
+          "sha256": "92853033efe602f95efca3e1c05cd8b108f973c8beed417843a9671f8147ed8d",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-2B-MNN/resolve/35781816d7b6a9dcb273a6765ac9563401951c3c/config.json"
+        },
+        {
+          "path": "llm_config.json",
+          "size": 8692,
+          "sha256": "a88234b36c2af0eff8e5c89667011badf71c15e30459eb0e21030a8f3f9ed240",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-2B-MNN/resolve/35781816d7b6a9dcb273a6765ac9563401951c3c/llm_config.json"
+        },
+        {
+          "path": "llm.mnn",
+          "size": 2148136,
+          "sha256": "23df98f8b341b277365e0bbca025c1d192939e3d32d7f79776352c6f32e77960",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-2B-MNN/resolve/35781816d7b6a9dcb273a6765ac9563401951c3c/llm.mnn"
+        },
+        {
+          "path": "llm.mnn.weight",
+          "size": 1176647702,
+          "sha256": "c93f71a2dbecf9328782bd38861656d8faa82e95e7f99607350074768a482054",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-2B-MNN/resolve/35781816d7b6a9dcb273a6765ac9563401951c3c/llm.mnn.weight"
+        },
+        {
+          "path": "tokenizer.txt",
+          "size": 6465727,
+          "sha256": "7e75de1f279a10b65bd9dc1a5207205cb8993823861c4c42bbbd74e48e1c23a4",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-2B-MNN/resolve/35781816d7b6a9dcb273a6765ac9563401951c3c/tokenizer.txt"
+        },
+        {
+          "path": "visual.mnn",
+          "size": 488096,
+          "sha256": "88fc40a7b676e90eb2cb86d854db15cb90b9eb1f34087ab0f48c5e43572c8dac",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-2B-MNN/resolve/35781816d7b6a9dcb273a6765ac9563401951c3c/visual.mnn"
+        },
+        {
+          "path": "visual.mnn.weight",
+          "size": 195587264,
+          "sha256": "8f90e106f5b9ae9a939faed240305cfdd5c6740ae91d3fc418a990bee0cce36b",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-2B-MNN/resolve/35781816d7b6a9dcb273a6765ac9563401951c3c/visual.mnn.weight"
+        }
+      ]
+    },
+    {
+      "id": "qwen35-4b",
+      "name": "Qwen3.5 4B",
+      "family": "qwen3_5",
+      "repo": "taobao-mnn/Qwen3.5-4B-MNN",
+      "revision": "aa966261175a532d9906fa165c9d506d617320a9",
+      "files": [
+        {
+          "path": "config.json",
+          "size": 652,
+          "sha256": "92853033efe602f95efca3e1c05cd8b108f973c8beed417843a9671f8147ed8d",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-4B-MNN/resolve/aa966261175a532d9906fa165c9d506d617320a9/config.json"
+        },
+        {
+          "path": "llm_config.json",
+          "size": 8693,
+          "sha256": "8da9ee370f627577f95875a6bf915e2358d6a6d7a1eb3d16272987379dd9ceca",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-4B-MNN/resolve/aa966261175a532d9906fa165c9d506d617320a9/llm_config.json"
+        },
+        {
+          "path": "llm.mnn",
+          "size": 3651096,
+          "sha256": "45eebc9dc433a55f0388453250a05a728a206650294be92f48e4fdd1b0348e0f",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-4B-MNN/resolve/aa966261175a532d9906fa165c9d506d617320a9/llm.mnn"
+        },
+        {
+          "path": "llm.mnn.weight",
+          "size": 2629387626,
+          "sha256": "a31d50e5668ce6b22655ff4750cfd48b972790ae883f2c154ba34b9173b38de1",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-4B-MNN/resolve/aa966261175a532d9906fa165c9d506d617320a9/llm.mnn.weight"
+        },
+        {
+          "path": "tokenizer.txt",
+          "size": 6465727,
+          "sha256": "7e75de1f279a10b65bd9dc1a5207205cb8993823861c4c42bbbd74e48e1c23a4",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-4B-MNN/resolve/aa966261175a532d9906fa165c9d506d617320a9/tokenizer.txt"
+        },
+        {
+          "path": "visual.mnn",
+          "size": 488096,
+          "sha256": "b9a865dee1ceffc83eeca8ee0a8e7d5b911960b18ac93003d1135ea903a2bc31",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-4B-MNN/resolve/aa966261175a532d9906fa165c9d506d617320a9/visual.mnn"
+        },
+        {
+          "path": "visual.mnn.weight",
+          "size": 196768960,
+          "sha256": "cc51f3aa1e026c853bdd22e9188c51b121b7bdcfcef6030f4254ef297b615ab5",
+          "url": "https://huggingface.co/taobao-mnn/Qwen3.5-4B-MNN/resolve/aa966261175a532d9906fa165c9d506d617320a9/visual.mnn.weight"
+        }
+      ]
+    },
+    {
+      "id": "elephant-1",
+      "name": "Elephant-1 9B",
+      "family": "qwen3_5",
+      "kind": "decision",
+      "repo": "baselabs/elephant-1",
+      "revision": "b3f8a93462fb1051a9de031e94a7ff380e254072",
+      "localOnly": true,
+      "files": [
+        {
+          "path": "config.json",
+          "size": 684,
+          "sha256": "83b746049ceb7ebd7a53e255f6dabf3b824d6a74bb2090464a480a11d3ea5122",
+          "url": ""
+        },
+        {
+          "path": "llm_config.json",
+          "size": 8761,
+          "sha256": "774f1187b5390c0d89add50220f9ecb8751c45e40bb44b026c5f3b296529e4ad",
+          "url": ""
+        },
+        {
+          "path": "decision.json",
+          "size": 8810,
+          "sha256": "339babfbd07911cce6125cbecb39e566437b123c2da8d9faaa44bbd59c12d555",
+          "url": ""
+        },
+        {
+          "path": "provenance.json",
+          "size": 570,
+          "sha256": "bfc3941a180bcd9f42b62ab109394676c0d76adaf86532e9cdc2628131540ce0",
+          "url": ""
+        },
+        {
+          "path": "elephant-1.Q4_K_M.gguf",
+          "size": 5629109376,
+          "sha256": "764ef1834ffe7721f11ff7ed2ba42c3616140493b7505e2928eee057496c95a4",
+          "url": ""
+        }
+      ]
+    }
+  ]
+}

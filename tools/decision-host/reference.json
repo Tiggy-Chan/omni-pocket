@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "protocol": "qev-labels-v2",
+  "referenceRuntime": "llama.cpp",
+  "referenceRevision": "2280f0fd163b03d4331d49e08460f66502e35854",
+  "modelRepo": "baselabs/elephant-1",
+  "ggufSha256": "764ef1834ffe7721f11ff7ed2ba42c3616140493b7505e2928eee057496c95a4",
+  "kvType": "float32",
+  "probabilityTolerance": 0.05,
+  "cases": [
+    {
+      "branch": 0,
+      "kind": "noul",
+      "prefixTokens": 58,
+      "promptSha256": "818ace50fba8349e477b8053a04ac9cb3e924be8c1064af850dd9c255ca82ddd",
+      "logits": [
+        13.2877,
+        7.89146
+      ],
+      "probabilities": [
+        0.9954869943232306,
+        0.00451300567676932
+      ],
+      "allowedMass": 0.87533238
+    },
+    {
+      "branch": 1,
+      "kind": "choice",
+      "prefixTokens": 58,
+      "promptSha256": "53c98fa75da784172a7671d1b44e4ad6d20c88b45afc38c5d86603a97103523d",
+      "logits": [
+        14.208,
+        7.12403,
+        9.01505
+      ],
+      "probabilities": [
+        0.9936465467989192,
+        0.0008331146570845846,
+        0.00552033854399613
+      ],
+      "allowedMass": 0.9450271860000001
+    },
+    {
+      "branch": 2,
+      "kind": "score",
+      "prefixTokens": 58,
+      "promptSha256": "b5d172863a1641cd0222c1a8a40a03000b81ec1c30a17c6cd93ff06e5ab51ed5",
+      "logits": [
+        9.11554,
+        9.53741,
+        7.77304
+      ],
+      "probabilities": [
+        0.35893831547293914,
+        0.5473101007427597,
+        0.09375158378430126
+      ],
+      "allowedMass": 0.2841296
+    }
+  ]
+}
