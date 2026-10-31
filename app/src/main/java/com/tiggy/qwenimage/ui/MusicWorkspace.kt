@@ -80,6 +80,33 @@ private val lyricSectionTags = listOf(
 
 private val musicDurationChoices = listOf(30, 60, 90, 150)
 
+/** Text-only starting points; they fill the composer and lyrics but ship no audio. */
+private data class MusicTemplate(val name: String, val style: String, val bpm: Int, val lyrics: String)
+
+private val musicTemplates = listOf(
+    MusicTemplate(
+        "抒情流行", "emotional Mandarin pop ballad, warm female vocal, piano and strings, soft drums", 88,
+        "[Verse]\n晚风吹过街角的灯\n城市慢慢安静下来\n我把今天写进旋律\n留给明天的自己\n\n[Chorus]\n唱吧 让心跳跟着节拍\n唱吧 把烦恼留在窗外"
+    ),
+    MusicTemplate(
+        "城市流行", "city pop, nu-disco groove, bright male vocal, funky bass, electric piano", 118,
+        "[Verse]\n霓虹亮起的路口\n车流像河一样温柔\n\n[Chorus]\n跟着节奏 向前走\n今晚的风刚刚好"
+    ),
+    MusicTemplate(
+        "电子偶像", "Vocaloid style J-pop, bright synthetic female vocal, sparkling synths, fast electronic beat", 136,
+        "[Verse]\n電子の海を飛び越えて\n新しい朝へ走り出す\n\n[Chorus]\n今日も元気に歌おう\n光のリズムに乗って"
+    ),
+    MusicTemplate(
+        "摇滚", "energetic rock, distorted guitars, powerful male vocal, driving drums", 150,
+        "[Verse]\n把旧地图揉成一团\n脚下的路自己来选\n\n[Chorus]\n大声唱 别回头\n让世界听见我们"
+    ),
+    MusicTemplate(
+        "国风", "Chinese traditional fusion, guzheng and dizi, ethereal female vocal, gentle percussion", 76,
+        "[Verse]\n青山远 白云闲\n一叶小舟过江南\n\n[Chorus]\n风吹过 千年月\n照见故人旧时颜"
+    ),
+    MusicTemplate("纯音乐", "instrumental lo-fi hip hop, mellow piano, vinyl texture, soft beat", 80, "[Instrumental]")
+)
+
 private enum class MusicSheet { Lyrics, Params }
 
 private sealed interface MusicBlock {
@@ -337,6 +364,19 @@ private fun MusicJobBlock(
 private fun MusicLyricsSheet(settings: MusicSettings, viewModel: QwenViewModel, onDismiss: () -> Unit) {
     OmniSheet("歌词", onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(musicTemplates) { template ->
+                    ComposerChip(
+                        template.name,
+                        onClick = {
+                            viewModel.setMusicStyle(template.style)
+                            viewModel.setMusicBpm(template.bpm)
+                            viewModel.setMusicLyrics(template.lyrics)
+                        },
+                        selected = settings.style == template.style
+                    )
+                }
+            }
             OmniTextField(
                 value = settings.title,
                 onValueChange = viewModel::setMusicTitle,

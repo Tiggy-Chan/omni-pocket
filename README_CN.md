@@ -8,7 +8,7 @@ Omni Pocket 是一个 Android 本地文本对话与图像、音乐、视频创�
 
 - **Qwen-Image-2.1 · 本机**：使用 MNN、CPU int4 文本/视觉编码与 OpenCL DiT 推理。支持文生图、单/双参考图编辑、完整/Tiny VAE 和官方 8 步 Turbo。支持队列、协作式取消、模型校验、真实输出尺寸与作品恢复。
 - **MOSS-Image · 本机 / ComfyUI 工作站**：本机通过独立的 `libmoss_cli.so` 和 stable-diffusion.cpp 运行 SFT，支持长提示词与原生 JSON 布局，使用 Euler、discrete schedule 和负分支第 22 层跳过。工作站支持 SFT/Base、可选提示词增强及相同布局编辑器；提示词增强不属于本机路径。布局使用官方 `abs_centralized` / `yxyx` 格式。
-- **YuE2 音乐 · 工作站**：向外部 YuE2 服务提交标题、风格、歌词、BPM、种子、时长、CoT、ODE 步数和 guidance。应用内支持生成曲目与示例曲目的播放、拖动、分享及 ABC 乐谱查看。当前没有端侧 YuE2 推理引擎。
+- **YuE2 音乐 · 工作站**：向外部 YuE2 服务提交标题、风格、歌词、BPM、种子、时长、CoT、ODE 步数和 guidance。歌词面板提供纯文字的风格模板；生成的曲目支持播放、拖动、分享及 ABC 乐谱查看。当前没有端侧 YuE2 推理引擎。
 - **Wan2.2 视频 · 本机**：通过 `libsd_cli` 运行 Wan2.2-TI2V-5B-Turbo、UMT5 文本编码器和 TAE 解码器。文生视频与首帧图生视频会使用界面真实的 seed、FPS、帧数和步数，本机输出 WebM。当前本机限制为 480×832、最多 25 帧；已验证默认值为 4 步、16 FPS。
 - **MobileWan · 工作站**：通过外部桥接进行文生视频。桥接不接收首帧，选择首帧但本机模型未就绪时，App 会在提交前明确提示，不会静默丢弃图片。
 

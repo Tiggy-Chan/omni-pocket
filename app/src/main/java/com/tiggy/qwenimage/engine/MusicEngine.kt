@@ -20,7 +20,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -279,81 +278,10 @@ class MusicEngine(private val context: Context) : AutoCloseable {
 
     private data class AudioInfo(val valid: Boolean = false, val durationSec: Float = 0f, val sampleRate: Int = 0)
 
-    /**
-     * Preloads genuine YuE2 neural recordings (with full vocals) bundled in assets.
-     */
+    /** Restores generated tracks saved in the app's music directory. */
     fun preloadInitialTracks(): List<MusicTrack> {
-        val tracks = mutableListOf<MusicTrack>()
-        val assetList = listOf(
-            TrackAssetMeta(
-                filename = "sample_ballad.mp3",
-                title = "夏夜晚风",
-                style = "At 110 BPM, emotional anime cyberpunk ballad, soaring passionate female vocal, rich expressive singing, gentle melancholic piano intro building into powerful cinematic strings and pulsating analog synths",
-                lyrics = "[Verse]\n晚风吹过街角的灯\n城市慢慢安静下来\n我把今天写进旋律\n留给明天的自己\n\n[Chorus]\n唱吧 让心跳跟着节拍\n唱吧 把烦恼留在窗外",
-                durationSec = 144.92f,
-                bpm = 110
-            ),
-            TrackAssetMeta(
-                filename = "miku_jp.mp3",
-                title = "电子之海",
-                style = "At 136 BPM, Vocaloid J-pop electro-pop, iconic Hatsune Miku bright synthetic high-pitched anime female vocal, sparkling synth pads, fast electronic beats",
-                lyrics = "[Verse]\n電子の海を飛び越えて\nキミの心に響くメロディ\n初音ミクだよ！\n今日も元気に歌おう！",
-                durationSec = 28.0f,
-                bpm = 136
-            ),
-            TrackAssetMeta(
-                filename = "miku_zh.mp3",
-                title = "穿越屏幕的微蓝光线",
-                style = "At 128 BPM, upbeat Vocaloid Chinese anime electro-pop, sweet high-pitched synthetic female vocal, Hatsune Miku style, sparkling future bass synths, punchy rhythm",
-                lyrics = "[Verse]\n穿越屏幕微蓝的光线\n我的歌声飞到你身边\n你好呀我是初音未来\n今天也要元气满满向前！",
-                durationSec = 30.0f,
-                bpm = 128
-            ),
-            TrackAssetMeta(
-                filename = "a_cappella.mp3",
-                title = "纯人声清唱",
-                style = "A cappella, pure solo female vocal, completely unaccompanied, silence background, no music, no instruments, clear gentle singing",
-                lyrics = "[Verse]\n晚风吹过街角的灯\n城市慢慢安静下来\n我把今天写进旋律\n留给明天的自己\n\n[Chorus]\n唱吧 让心跳跟着节拍\n唱吧 把烦恼留在窗外",
-                durationSec = 22.0f,
-                bpm = 75
-            )
-        )
-
-        assetList.forEachIndexed { idx, meta ->
-            val targetFile = File(musicDir, meta.filename)
-            if (!targetFile.exists()) {
-                runCatching {
-                    context.assets.open("omni_music/${meta.filename}").use { input ->
-                        FileOutputStream(targetFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                }
-            }
-
-            if (targetFile.exists()) {
-                val info = readAudioInfo(targetFile)
-                tracks.add(
-                    MusicTrack(
-                        id = "preset_real_$idx",
-                        title = meta.title,
-                        style = meta.style,
-                        lyrics = meta.lyrics,
-                        cotMode = CoTMode.Melody,
-                        abcScore = if (idx == 0) SAMPLE_ABC_SCORE else null,
-                        audioPath = targetFile.absolutePath,
-                        durationSec = info.durationSec.takeIf { it > 0 } ?: meta.durationSec,
-                        sampleRate = info.sampleRate,
-                        bpm = meta.bpm,
-                        createdAt = targetFile.lastModified()
-                    )
-                )
-            }
-        }
-
-        val bundledPaths = tracks.map { it.audioPath }.toSet()
         val generated = musicDir.listFiles { file ->
-            file.isFile && file.extension.lowercase() in AUDIO_EXTENSIONS && file.absolutePath !in bundledPaths
+            file.isFile && file.extension.lowercase() in AUDIO_EXTENSIONS
         }.orEmpty().mapNotNull { file ->
             val restored = runCatching { MusicTrack.fromJson(JSONObject(metadataFile(file).readText())) }.getOrNull()
             val info = readAudioInfo(file)
@@ -374,7 +302,7 @@ class MusicEngine(private val context: Context) : AutoCloseable {
                 createdAt = file.lastModified()
             )
         }
-        return (generated + tracks).sortedByDescending { it.createdAt }
+        return generated.sortedByDescending { it.createdAt }
     }
 
     override fun close() {
@@ -384,48 +312,7 @@ class MusicEngine(private val context: Context) : AutoCloseable {
         _activeTrack.value = null
     }
 
-    private data class TrackAssetMeta(
-        val filename: String,
-        val title: String,
-        val style: String,
-        val lyrics: String,
-        val durationSec: Float,
-        val bpm: Int
-    )
-
     companion object {
         private val AUDIO_EXTENSIONS = setOf("wav", "mp3", "flac", "ogg", "m4a")
-        private const val SAMPLE_ABC_SCORE = """X:1
-T:《夏夜晚风》(Summer Breeze)
-M:4/4
-L:1/16
-Q:1/4=112
-V: Vocal clef=treble name="Vocal Melody" snm="Vocal"
-V: Ins clef=treble name="Ins Melody" snm="Inst."
-K:G#m
-% intro
-V: Vocal
-Z4|
-V: Ins
-Z|z8b2a2f2c2|d3g3d'2c'4a4|g8z2b2a2f2|
-V: Vocal
-Z4|
-V: Ins
-d3g3d'2c'4f'4|d'12b2c'2|d'6g'2d'4c'4|a8z2b2a2f2|
-% verse
-V: Vocal
-d2G2G2d2d2c2c2B2|c3A3F2F4D2G2-|G4z12|z12z2dc|
-V: Ins
-Z4|
-% chorus
-V: Vocal
-g4d'4g4d'2c'2|c'4z2f2c'2f2f2d2|f4c'4f4c'2c'2|b2b4g2z2g2g2a2|
-V: Ins
-b'8a'8|c''8a'8|d'16|z8z2c'2d'2f'2|
-% outro
-V: Vocal
-g16-|g16|Z2|
-V: Ins
-d'3g3d'2c'3f3c'2|a8f8|"""
     }
 }
