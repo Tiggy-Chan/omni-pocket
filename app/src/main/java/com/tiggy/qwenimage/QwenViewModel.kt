@@ -163,9 +163,6 @@ class QwenViewModel(
                     .getOrDefault(AppDomain.Conversation),
                 themeMode = runCatching { ThemeMode.valueOf(preferences.getString("themeMode", null).orEmpty()) }
                     .getOrDefault(ThemeMode.System),
-                musicSettings = state.musicSettings.copy(
-                    serverUrl = preferences.getString("musicServerUrl", null) ?: state.musicSettings.serverUrl
-                ),
                 mossSettings = restoredMossSettings,
                 settings = compatibleSettings(state.settings, initialStatus),
                 modelStatus = initialStatus,
@@ -592,12 +589,9 @@ class QwenViewModel(
     fun setMusicCotMode(mode: CoTMode) = _state.update { it.copy(musicSettings = it.musicSettings.copy(cotMode = mode)) }
     fun setMusicSeed(seed: Long) = _state.update { it.copy(musicSettings = it.musicSettings.copy(seed = seed)) }
     fun setMusicTargetDuration(sec: Int) = _state.update { it.copy(musicSettings = it.musicSettings.copy(targetDurationSec = sec)) }
-    fun setMusicOdeSteps(steps: Int) = _state.update { it.copy(musicSettings = it.musicSettings.copy(odeSteps = steps.coerceIn(8, 64))) }
+    fun setMusicOdeSteps(steps: Int) = _state.update { it.copy(musicSettings = it.musicSettings.copy(odeSteps = steps.coerceIn(4, 32))) }
+    fun musicMissingComponents(): List<String> = musicEngine.missingComponents()
     fun setMusicGuidanceScale(scale: Float) = _state.update { it.copy(musicSettings = it.musicSettings.copy(guidanceScale = scale)) }
-    fun setMusicServerUrl(url: String) {
-        preferences.edit().putString("musicServerUrl", url).apply()
-        _state.update { it.copy(musicSettings = it.musicSettings.copy(serverUrl = url)) }
-    }
 
     fun playMusic(track: MusicTrack) {
         if (_state.value.nowPlayingTrack?.id == track.id) {
@@ -637,21 +631,28 @@ class QwenViewModel(
             showTaskError(TaskDomain.Music, error.message ?: "参数校验失败")
             return
         }
+        val missing = musicEngine.missingComponents()
+        if (missing.isNotEmpty()) {
+            showTaskError(TaskDomain.Music, "本机 YuE2 缺少：${missing.joinToString("、")}")
+            return
+        }
 
         val job = MusicJob(
             id = UUID.randomUUID().toString(),
             title = settings.title.ifBlank { "未命名曲目" },
             settings = settings,
             state = "running",
-            stageDescription = "等待工作站"
+            stageDescription = "正在准备"
         )
-        if (!beginTask(TaskDomain.Music, job.id, VideoBackend.Workstation, "正在连接 YuE2 工作站")) return
+        if (!beginTask(TaskDomain.Music, job.id, VideoBackend.LocalYue2, "正在准备本机 YuE2")) return
 
         _state.update { it.copy(musicJobs = it.musicJobs + job) }
-        appendLog(TaskDomain.Music, "音乐任务 ${job.id.take(8)} · ${settings.bpm} BPM · ${settings.cotMode.tag} · ${settings.odeSteps} 步", job.id)
+        appendLog(TaskDomain.Music, "音乐任务 ${job.id.take(8)} · ${settings.targetDurationSec} 秒 · ${settings.cotMode.tag} · ${settings.odeSteps} 步", job.id)
 
         viewModelScope.launch {
             runCatching {
+                inferenceCoordinator.evictOthers("qwen")
+                invalidateEngine()
                 musicEngine.executeGeneration(job) { update ->
                     updateTask(TaskDomain.Music, job.id) {
                         it.copy(progress = update.progress?.let { value -> (value * 100).toInt() }, status = update.stage)

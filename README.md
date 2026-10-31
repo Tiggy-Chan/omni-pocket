@@ -2,13 +2,13 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-Omni Pocket is an Android studio for on-device text conversations, decisions, and image and video generation. Image and video inference run on the phone; music still uses an external YuE2 service while its on-device engine is in progress.
+Omni Pocket is an Android studio for on-device text conversations, decisions, and image, music, and video generation. Every model runs on the phone; inference needs no workstation or network.
 
 ## What runs where
 
 - **Qwen-Image-2.1 on the phone**: MNN with CPU int4 text/vision encoding and OpenCL DiT inference. Text-to-image, one- or two-reference editing, real or Tiny VAE, and the official 8-step Turbo schedule. Includes queued generation, cooperative cancellation, model verification, and persistent results.
 - **MOSS-Image on the phone**: a separate `libmoss_cli.so` runs SFT through stable-diffusion.cpp with long prompts, native JSON layouts, Euler, the discrete scheduler, and negative-branch layer-22 skipping. Layout coordinates use MOSS's `abs_centralized` / `yxyx` format.
-- **YuE2 music on a workstation**: the app submits lyrics, style, BPM, seed, duration, CoT mode, ODE steps, and guidance to an external YuE2 service. The lyrics sheet offers text-only style templates; generated tracks support playback, seeking, sharing, and ABC score inspection in the app. There is currently no on-device YuE2 inference engine.
+- **YuE2 music on the phone**: `libyue2_cli.so`, a CPU build of [audio.cpp](https://github.com/0xShug0/audio.cpp), runs YuE2-3B Q4_0 with its VAE. It takes a style prompt, lyrics, BPM, seed, target length, CoT mode (melody, melody and chords, or direct) and ODE steps, and writes 48 kHz stereo WAV. With CoT on, the generated ABC score is shown with the track. The lyrics sheet offers text-only style templates. Phone generation speed has not been measured yet.
 - **Wan2.2 video on the phone**: `libsd_cli` with a Wan2.2-TI2V-5B-Turbo GGUF DiT, UMT5 text encoder, and TAE decoder. Text-to-video and first-frame image-to-video use the actual seed, FPS, frame count, and step count shown in the UI. Local output is WebM. Local generation is limited to 25 frames at 480×832; 4 steps and 16 FPS are the current verified defaults.
 
 - **Elephant-1 decisions on the phone**: llama.cpp runs a GGUF build and returns option probabilities and confidence for choice, noul, and score questions. It does not generate free text.
@@ -119,15 +119,16 @@ The downloader resumes partial files and verifies each SHA-256. The models requi
 
 Official references: [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image) and [SFT model card](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT).
 
-## External music service
+## YuE2 music on the phone
 
-The YuE2 server implementation is external to this repository. The app expects the existing `/health` and `/generate` contracts, followed by `audioUrl` from the same origin. Downloads are size-limited, validated, and atomically stored.
+Build the CLI (audio.cpp pinned to `3a0dd44`, CPU only, ARMv8.6 with i8mm), then push the model files. The push script downloads anything missing from [audio-cpp/Yue2-3B-GGUF](https://huggingface.co/audio-cpp/Yue2-3B-GGUF) and checks sha256 before and after upload:
 
 ```bash
-adb reverse tcp:8999 tcp:8999   # YuE2
+ANDROID_HOME=<sdk> bash scripts/build_yue2_android.sh
+bash scripts/push_music_models.sh <serial>
 ```
 
-Server-reported progress is shown only when it exists. Otherwise the UI shows an indeterminate working state rather than fabricated steps.
+The model files are `yue2-3b-q4_0.gguf` (2.67 GB), `yue2-vae-f16.gguf` (0.27 GB) and four sidecars, stored in `Android/data/com.tiggy.qwenimage/files/models/yue2`. The Music workspace lists any missing files. Progress advances per stage (planning, semantic tokens, acoustic synthesis, VAE decoding) because the CLI reports each stage when it finishes. YuE2 weights are CC BY-NC 4.0 and are not bundled in the APK.
 
 ## Conversion and deployment checks
 
@@ -144,7 +145,8 @@ bash -n scripts/push_models.sh scripts/convert_official_turbo.sh
 - [Qwen-Image runtime](https://github.com/scsonic/libQwenImage21), Apache-2.0; model weights have their own licenses.
 - [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image), Apache-2.0.
 - [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) and [ggml](https://github.com/leejet/ggml), MIT.
-- [YuE2](https://github.com/multimodal-art-projection/YuE), CC-BY-NC-4.0.
+- [YuE2](https://github.com/multimodal-art-projection/YuE), CC-BY-NC-4.0 (non-commercial); GGUF weights from [audio-cpp/Yue2-3B-GGUF](https://huggingface.co/audio-cpp/Yue2-3B-GGUF).
+- [audio.cpp](https://github.com/0xShug0/audio.cpp), Apache-2.0; bundled notices in `app/src/main/assets/licenses/audio.cpp.txt`.
 - [Haze](https://github.com/chrisbanes/haze), Apache-2.0.
 - [Qwen3.5 MNN model packages](https://huggingface.co/taobao-mnn/Qwen3.5-0.8B-MNN), Apache-2.0; pinned revisions are recorded in `app/src/main/assets/llm_models.json`. The MNN runtime is pinned to `24c6cb21081a657c66db4ffe1e7a2c9d3d20e823`.
 - [llama.cpp](https://github.com/ggml-org/llama.cpp), MIT; pinned to `2280f0fd163b03d4331d49e08460f66502e35854` with `patches/llama-elephant-decision.patch`.

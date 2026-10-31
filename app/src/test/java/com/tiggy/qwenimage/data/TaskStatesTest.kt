@@ -40,7 +40,7 @@ class TaskStatesTest {
         val image = TaskStates().activate(TaskDomain.Image, "image-1", VideoBackend.LocalWan)!!
 
         assertEquals(TaskUiState(), image.imageTask)
-        assertNull(image.activate(TaskDomain.Music, "music-1", VideoBackend.Workstation))
+        assertNull(image.activate(TaskDomain.Music, "music-1", VideoBackend.LocalYue2))
         assertEquals(image, image.release(TaskDomain.Image, "older-image"))
         assertEquals(image, image.release(TaskDomain.Music, "image-1"))
         assertTrue(image.isActive(TaskDomain.Image, "image-1"))
@@ -48,9 +48,9 @@ class TaskStatesTest {
 
         val released = image.release(TaskDomain.Image, "image-1")
         assertNull(released.activeTask)
-        val music = released.activate(TaskDomain.Music, "music-1", VideoBackend.Workstation)!!
+        val music = released.activate(TaskDomain.Music, "music-1", VideoBackend.LocalYue2)!!
         assertEquals(TaskDomain.Music, music.activeTask?.domain)
-        assertEquals(VideoBackend.Workstation, music.activeTask?.backend)
+        assertEquals(VideoBackend.LocalYue2, music.activeTask?.backend)
     }
 
     @Test

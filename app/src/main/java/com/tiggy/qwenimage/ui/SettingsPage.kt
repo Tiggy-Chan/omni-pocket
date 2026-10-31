@@ -70,24 +70,11 @@ fun SettingsPage(state: QwenUiState, viewModel: QwenViewModel, onMenu: (() -> Un
                     )
                 }
                 item {
-                    SectionLabel("工作站", Modifier.padding(top = 16.dp))
-                    Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)) {
-                        OmniTextField(
-                            value = state.musicSettings.serverUrl,
-                            onValueChange = viewModel::setMusicServerUrl,
-                            label = "音乐 YuE2 地址",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Text("仅在选择工作站时使用，本机推理不需要网络", color = OmniColors.Dim,
-                            style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-                item {
                     SectionLabel("关于", Modifier.padding(top = 16.dp))
                     SettingRow(title = "版本", detail = version)
                     HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
                     Text(
-                        "对话、决策、图像（Qwen 与 MOSS）、视频（Wan）在本机运行；音乐与 MOSS 工作站模式使用局域网工作站。",
+                        "对话、决策、图像（Qwen 与 MOSS）、音乐（YuE2）和视频（Wan2.2）全部在本机运行，推理不需要网络。",
                         color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(vertical = 12.dp)
                     )

@@ -59,6 +59,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -78,7 +79,7 @@ private val lyricSectionTags = listOf(
     "[Intro]", "[Verse]", "[Pre-Chorus]", "[Chorus]", "[Bridge]", "[Outro]", "[Instrumental]"
 )
 
-private val musicDurationChoices = listOf(30, 60, 90, 150)
+private val musicDurationChoices = listOf(15, 30, 60, 90)
 
 /** Text-only starting points; they fill the composer and lyrics but ship no audio. */
 private data class MusicTemplate(val name: String, val style: String, val bpm: Int, val lyrics: String)
@@ -129,10 +130,13 @@ fun MusicWorkspace(
     state: QwenUiState,
     viewModel: QwenViewModel,
     onMenu: (() -> Unit)?,
-    onSettings: () -> Unit
+    onModels: () -> Unit
 ) {
     val settings = state.musicSettings
     val task = state.musicTask
+    // Stats model files, so check once per visit and after each job rather than on every recomposition.
+    val missing = remember(task.running) { viewModel.musicMissingComponents() }
+    val ready = missing.isEmpty()
     var sheet by remember { mutableStateOf<MusicSheet?>(null) }
     var scoreTrack by remember { mutableStateOf<MusicTrack?>(null) }
     val listState = rememberLazyListState()
@@ -150,7 +154,7 @@ fun MusicWorkspace(
 
     WorkspaceScaffold(
         title = "音乐",
-        subtitle = "YuE2 · 工作站",
+        subtitle = if (ready) "YuE2 · 本机" else "YuE2 · 模型未就绪",
         onMenu = onMenu,
         composer = { haze ->
             val status: (@Composable () -> Unit)? = if (composerError != null) ({
@@ -162,14 +166,14 @@ fun MusicWorkspace(
                 onValueChange = viewModel::setMusicStyle,
                 placeholder = "风格，例如 抒情流行，钢琴与女声",
                 onSend = viewModel::startMusicGeneration,
-                sendEnabled = true,
+                sendEnabled = ready && settings.style.isNotBlank(),
                 running = task.running,
                 onStop = viewModel::cancelMusicGeneration,
                 status = status,
                 tools = {
                     ComposerChip("歌词", onClick = { sheet = MusicSheet.Lyrics }, icon = Icons.Outlined.EditNote,
                         selected = settings.lyrics.isNotBlank())
-                    ComposerChip("${settings.bpm} BPM", onClick = { sheet = MusicSheet.Params })
+                    ComposerChip("${settings.targetDurationSec} 秒", onClick = { sheet = MusicSheet.Params })
                     ComposerChip("", onClick = { sheet = MusicSheet.Params }, icon = Icons.Outlined.Tune, contentDescription = "参数")
                 }
             )
@@ -179,7 +183,7 @@ fun MusicWorkspace(
             Box(Modifier.fillMaxSize().padding(inner), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("描述一段音乐", color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium)
-                    MusicWorkstationNote(onSettings)
+                    if (!ready) MusicModelNote(missing, onModels)
                 }
             }
         } else {
@@ -193,8 +197,10 @@ fun MusicWorkspace(
                 ),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                item(key = "workstation-note") {
-                    ReadingColumn { MusicWorkstationNote(onSettings) }
+                if (!ready) {
+                    item(key = "model-note") {
+                        ReadingColumn { MusicModelNote(missing, onModels) }
+                    }
                 }
                 items(blocks, key = { it.key }) { block ->
                     ReadingColumn {
@@ -242,10 +248,18 @@ fun MusicWorkspace(
 }
 
 @Composable
-private fun MusicWorkstationNote(onSettings: () -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("使用工作站 · 地址在设置中", color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
-        TextButton(onClick = onSettings, modifier = Modifier.heightIn(min = 48.dp)) { Text("设置") }
+private fun MusicModelNote(missing: List<String>, onModels: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("本机 YuE2 模型未就绪", color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
+            TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 48.dp)) { Text("模型") }
+        }
+        Text(
+            "缺少：${missing.joinToString("、")}\n放入 Android/data/com.tiggy.qwenimage/files/models/yue2",
+            color = OmniColors.Dim,
+            style = MaterialTheme.typography.labelSmall,
+            textAlign = TextAlign.Center
+        )
     }
 }
 
@@ -435,7 +449,7 @@ private fun MusicParamsSheet(settings: MusicSettings, viewModel: QwenViewModel, 
                     onSelect = viewModel::setMusicTargetDuration
                 )
             }
-            MusicSliderRow("ODE 步数", "${settings.odeSteps}", settings.odeSteps, 8..64) { viewModel.setMusicOdeSteps(it) }
+            MusicSliderRow("ODE 步数", "${settings.odeSteps}", settings.odeSteps, 4..32) { viewModel.setMusicOdeSteps(it) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OmniTextField(
                     value = seedText,

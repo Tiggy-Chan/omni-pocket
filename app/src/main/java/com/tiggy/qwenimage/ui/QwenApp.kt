@@ -151,7 +151,7 @@ private fun Destination(
             AppDomain.Conversation -> LlmChatScreen(llmViewModel, onMenu, onModels = { onPage(AppPage.Models) })
             AppDomain.Decision -> DecisionScreen(decisionViewModel, onMenu, onModels = { onPage(AppPage.Models) })
             AppDomain.ImageStudio -> ImageWorkspace(state, viewModel, onMenu, onPreview, onModels = { onPage(AppPage.Models) })
-            AppDomain.MusicStudio -> MusicWorkspace(state, viewModel, onMenu, onSettings = { onPage(AppPage.Settings) })
+            AppDomain.MusicStudio -> MusicWorkspace(state, viewModel, onMenu, onModels = { onPage(AppPage.Models) })
             AppDomain.VideoStudio -> VideoWorkspace(state, viewModel, onMenu, onModels = { onPage(AppPage.Models) })
         }
         AppPage.Library -> LibraryScreen(state, viewModel, onMenu, onPreview,

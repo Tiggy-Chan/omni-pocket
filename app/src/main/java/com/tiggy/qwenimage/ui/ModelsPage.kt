@@ -89,6 +89,7 @@ fun ModelsPage(
     val showModelTask = modelTask.running || modelTask.error != null
     val qwenStatus = state.modelStatus
     val mossStatus = state.mossModelStatus
+    val musicMissing = remember(state.musicTask.running) { viewModel.musicMissingComponents() }
 
     WorkspaceScaffold(title = "模型", onMenu = onMenu) { padding ->
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
@@ -193,6 +194,35 @@ fun ModelsPage(
                             }
                         )
                     }
+                }
+
+                item(key = "music-label") { SectionLabel("音乐", Modifier.padding(top = 16.dp)) }
+                item(key = "yue2") {
+                    ModelRow(
+                        name = "YuE2-3B 本机",
+                        status = if (musicMissing.isEmpty()) "已就绪 · Q4_0 · 约 2.9 GB" else "缺少 ${musicMissing.size} 个文件",
+                        ready = musicMissing.isEmpty(),
+                        below = {
+                            if (musicMissing.isNotEmpty()) {
+                                Text("在电脑上下载后，用 USB 推送", color = OmniColors.Muted,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
+                                SelectionContainer(Modifier.padding(bottom = 8.dp)) {
+                                    Text(
+                                        "scripts/push_music_models.sh <serial>",
+                                        color = OmniColors.Ink,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                            .background(OmniColors.Field).padding(12.dp)
+                                    )
+                                }
+                            }
+                            Text("权重为 CC BY-NC 4.0，仅限非商业使用", color = OmniColors.Dim,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(bottom = 8.dp))
+                        }
+                    )
                 }
 
                 item(key = "image-label") { SectionLabel("图像", Modifier.padding(top = 16.dp)) }

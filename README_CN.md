@@ -2,13 +2,13 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-Omni Pocket 是一个 Android 本机对话、决策与图像、视频创作应用。图像和视频推理都在手机上完成；音乐的本机引擎还在开发中，目前仍使用外部 YuE2 服务。
+Omni Pocket 是一个 Android 本机对话、决策与图像、音乐、视频创作应用。所有模型都在手机上运行，推理不需要工作站，也不需要网络。
 
 ## 各模态运行位置
 
 - **Qwen-Image-2.1 · 本机**：使用 MNN、CPU int4 文本/视觉编码与 OpenCL DiT 推理。支持文生图、单/双参考图编辑、完整/Tiny VAE 和官方 8 步 Turbo。支持队列、协作式取消、模型校验、真实输出尺寸与作品恢复。
 - **MOSS-Image · 本机**：通过独立的 `libmoss_cli.so` 和 stable-diffusion.cpp 运行 SFT，支持长提示词与原生 JSON 布局，使用 Euler、discrete schedule 和负分支第 22 层跳过。布局使用官方 `abs_centralized` / `yxyx` 格式。
-- **YuE2 音乐 · 工作站**：向外部 YuE2 服务提交标题、风格、歌词、BPM、种子、时长、CoT、ODE 步数和 guidance。歌词面板提供纯文字的风格模板；生成的曲目支持播放、拖动、分享及 ABC 乐谱查看。当前没有端侧 YuE2 推理引擎。
+- **YuE2 音乐 · 本机**：`libyue2_cli.so` 是 [audio.cpp](https://github.com/0xShug0/audio.cpp) 的 CPU 版本，运行 YuE2-3B Q4_0 和配套 VAE。输入风格、歌词、BPM、种子、目标时长、CoT（旋律 / 旋律与和弦 / 直接生成）和 ODE 步数，输出 48 kHz 立体声 WAV；开启 CoT 时会附带生成的 ABC 乐谱。歌词面板提供纯文字风格模板。手机上的生成速度尚未实测。
 - **Wan2.2 视频 · 本机**：通过 `libsd_cli` 运行 Wan2.2-TI2V-5B-Turbo、UMT5 文本编码器和 TAE 解码器。文生视频与首帧图生视频会使用界面真实的 seed、FPS、帧数和步数，本机输出 WebM。当前本机限制为 480×832、最多 25 帧；已验证默认值为 4 步、16 FPS。
 
 - **Elephant-1 决策 · 本机**：通过 llama.cpp 运行 GGUF，对 choice / noul / score 三类问题输出选项概率与置信度，不生成自由文本。
@@ -119,15 +119,16 @@ bash scripts/push_moss_models.sh <serial>  # 序列号换成你的设备
 
 官方资料：[MOSS-Image](https://github.com/OpenMOSS/MOSS-Image)、[SFT 模型卡](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT)。
 
-## 外部音乐服务
+## 手机本地运行 YuE2 音乐
 
-YuE2 服务端不在本仓库中。App 使用现有的 `/health`、`/generate` 接口，并下载同源返回的 `audioUrl`。下载有大小限制、媒体校验与原子落盘。
+先编译 CLI（audio.cpp 固定在 `3a0dd44`，仅 CPU，ARMv8.6 + i8mm），再推送模型。推送脚本会从 [audio-cpp/Yue2-3B-GGUF](https://huggingface.co/audio-cpp/Yue2-3B-GGUF) 补齐缺失文件，并在上传前后校验 sha256：
 
 ```bash
-adb reverse tcp:8999 tcp:8999   # YuE2
+ANDROID_HOME=<sdk> bash scripts/build_yue2_android.sh
+bash scripts/push_music_models.sh <serial>
 ```
 
-只有服务器提供真实进度时才展示对应进度；否则显示不确定工作状态，不伪造步骤。
+模型为 `yue2-3b-q4_0.gguf`（2.67 GB）、`yue2-vae-f16.gguf`（0.27 GB）和 4 个配置文件，存放在 `Android/data/com.tiggy.qwenimage/files/models/yue2`。音乐工作区会列出缺少的文件。CLI 只在每个阶段结束时报告，所以进度按阶段推进：规划、语义、声学合成、VAE 解码。YuE2 权重为 CC BY-NC 4.0，不打包进 APK。
 
 ## 转换与部署检查
 
@@ -144,7 +145,8 @@ bash -n scripts/push_models.sh scripts/convert_official_turbo.sh
 - [Qwen-Image 运行时](https://github.com/scsonic/libQwenImage21)：Apache-2.0；模型权重遵循各自许可。
 - [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image)：Apache-2.0。
 - [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) 与 [ggml](https://github.com/leejet/ggml)：MIT。
-- [YuE2](https://github.com/multimodal-art-projection/YuE)：CC-BY-NC-4.0。
+- [YuE2](https://github.com/multimodal-art-projection/YuE)：CC-BY-NC-4.0（仅限非商业）；GGUF 权重来自 [audio-cpp/Yue2-3B-GGUF](https://huggingface.co/audio-cpp/Yue2-3B-GGUF)。
+- [audio.cpp](https://github.com/0xShug0/audio.cpp)：Apache-2.0；附带的许可证见 `app/src/main/assets/licenses/audio.cpp.txt`。
 - [Haze](https://github.com/chrisbanes/haze)：Apache-2.0。
 - [Qwen3.5 MNN 模型包](https://huggingface.co/taobao-mnn/Qwen3.5-0.8B-MNN)：Apache-2.0；固定提交记录于 `app/src/main/assets/llm_models.json`，MNN 固定为 `24c6cb21081a657c66db4ffe1e7a2c9d3d20e823`。
 - [llama.cpp](https://github.com/ggml-org/llama.cpp)：MIT；固定为 `2280f0fd163b03d4331d49e08460f66502e35854`，附带 `patches/llama-elephant-decision.patch`。

@@ -21,14 +21,15 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.util.Locale
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 class MusicEngine(private val context: Context) : AutoCloseable {
     private var mediaPlayer: MediaPlayer? = null
     private var preparing = false
     private val handler = Handler(Looper.getMainLooper())
-    private val activeClients = ConcurrentHashMap.newKeySet<WorkstationClient>()
+    @Volatile
+    private var activeProcess: Process? = null
 
     @Volatile
     private var cancelRequested = false
@@ -60,6 +61,16 @@ class MusicEngine(private val context: Context) : AutoCloseable {
     val playbackError: StateFlow<String?> = _playbackError.asStateFlow()
 
     private val musicDir = File(context.filesDir, "omni_music").apply { mkdirs() }
+    private val modelDir = File(context.getExternalFilesDir(null) ?: context.filesDir, "models/yue2")
+
+    /** Missing or incomplete YuE2 files; empty when local generation can run. */
+    fun missingComponents(): List<String> = buildList {
+        REQUIRED_FILES.forEach { (name, size) ->
+            val file = File(modelDir, name)
+            if (!file.isFile || file.length() != size) add(name)
+        }
+        if (!File(context.applicationInfo.nativeLibraryDir, NATIVE_LIB).isFile) add(NATIVE_LIB)
+    }
 
     fun playTrack(track: MusicTrack, onCompletion: (() -> Unit)? = null) {
         val file = File(track.audioPath)
@@ -180,7 +191,7 @@ class MusicEngine(private val context: Context) : AutoCloseable {
 
     fun cancelGeneration() {
         cancelRequested = true
-        activeClients.forEach { it.close() }
+        activeProcess?.destroy()
     }
 
     suspend fun executeGeneration(
@@ -190,61 +201,103 @@ class MusicEngine(private val context: Context) : AutoCloseable {
         cancelRequested = false
         job.settings.validate()
         val settings = job.settings
-        val client = WorkstationClient(settings.serverUrl)
-        activeClients += client
+        val missing = missingComponents()
+        if (missing.isNotEmpty()) throw IOException("本机 YuE2 缺少：${missing.joinToString("、")}")
+
+        val trackId = "yue2_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
+        val outputFile = File(musicDir, "$trackId.wav")
+        val partialFile = File(musicDir, "$trackId.part.wav")
+        val workDir = File(context.cacheDir, "yue2-$trackId")
+        var process: Process? = null
         try {
-            onUpdate(EngineUpdate(null, "正在连接 YuE2 工作站"))
-            if (!client.isHealthy()) {
-                throw IOException("无法连接 YuE2 工作站。请启动服务；USB 连接可运行 adb reverse tcp:8999 tcp:8999")
-            }
-            val payload = JSONObject().apply {
-                put("title", settings.title)
-                put("style", settings.style)
-                put("lyrics", settings.lyrics)
-                put("bpm", settings.bpm)
-                put("cot", settings.cotMode.tag)
-                put("seed", settings.seed)
-                put("targetDurationSec", settings.targetDurationSec)
-                put("odeSteps", settings.odeSteps)
-                put("guidanceScale", settings.guidanceScale.toDouble())
-            }
-            onUpdate(EngineUpdate(null, "工作站正在生成", "任务已提交，等待服务器返回"))
-            val response = client.postJson("/generate", payload, 900_000)
-            currentCoroutineContext().ensureActive()
+            if (!workDir.mkdirs()) throw IOException("无法创建音乐临时目录")
+            val command = buildYue2Command(
+                Yue2Options(
+                    nativeLib = File(context.applicationInfo.nativeLibraryDir, NATIVE_LIB),
+                    modelDir = modelDir,
+                    output = partialFile,
+                    outputDir = workDir,
+                    style = settings.style,
+                    bpm = settings.bpm,
+                    lyrics = settings.lyrics,
+                    cot = settings.cotMode,
+                    seed = settings.seed,
+                    durationSec = settings.targetDurationSec,
+                    odeSteps = settings.odeSteps,
+                    guidanceScale = settings.guidanceScale.takeIf { it != DEFAULT_GUIDANCE }
+                )
+            )
+            onUpdate(EngineUpdate(0f, "正在加载 YuE2", "YuE2-3B Q4_0 · CPU · seed=${settings.seed} · ${settings.targetDurationSec} 秒 · ${settings.odeSteps} 步"))
+            val builder = ProcessBuilder(command).directory(workDir).redirectErrorStream(true)
+            builder.environment()["LD_LIBRARY_PATH"] = context.applicationInfo.nativeLibraryDir
+            process = builder.start()
+            activeProcess = process
             if (cancelRequested) throw CancellationException("已取消音乐生成")
 
-            val reference = response.getString("audioUrl")
-            val extension = client.resolve(reference).path.substringAfterLast('.', "wav").lowercase()
-                .takeIf { it in AUDIO_EXTENSIONS } ?: "wav"
-            val trackId = "yue2_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
-            val outputFile = File(musicDir, "$trackId.$extension")
-            onUpdate(EngineUpdate(null, "正在接收音频"))
-            client.download(reference, outputFile, 512L * 1024 * 1024, "audio")
+            val parser = Yue2ProgressParser()
+            val input = process.inputStream
+            val buffer = ByteArray(4096)
+            var outputTail = ""
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                val chunk = String(buffer, 0, count, Charsets.UTF_8)
+                outputTail = (outputTail + chunk).takeLast(4_000)
+                parser.feed(chunk).forEach { dispatchYue2Event(it, settings.cotMode, onUpdate) }
+            }
+            val exitCode = process.waitFor()
+            parser.finish().forEach { dispatchYue2Event(it, settings.cotMode, onUpdate) }
+            currentCoroutineContext().ensureActive()
+            if (cancelRequested) throw CancellationException("已取消音乐生成")
+            if (exitCode != 0 || partialFile.length() < 1024L) {
+                val detail = outputTail.lines().filterNot { it.startsWith("[TRACE") || it.startsWith("[TIMING") }
+                    .joinToString("\n").trim().takeLast(600)
+                throw IOException("本机音乐生成失败（退出码 $exitCode）${if (detail.isEmpty()) "" else "\n$detail"}")
+            }
+            if (outputFile.exists() || !partialFile.renameTo(outputFile)) throw IOException("无法保存生成的音频")
 
             val info = readAudioInfo(outputFile)
-            require(info.valid) { "下载内容不是可识别的音频" }
+            require(info.valid) { "生成结果不是可识别的音频" }
+            val score = File(workDir, "score.abc").takeIf { it.isFile }?.readText()?.takeIf { it.isNotBlank() }
             val track = MusicTrack(
                 id = trackId,
                 title = settings.title.ifBlank { "未命名曲目" },
                 style = settings.style,
                 lyrics = settings.lyrics,
                 cotMode = settings.cotMode,
-                abcScore = response.optString("abcScore").takeIf { it.isNotBlank() },
+                abcScore = score,
                 audioPath = outputFile.absolutePath,
-                durationSec = info.durationSec.takeIf { it > 0 }
-                    ?: response.optDouble("durationSec", settings.targetDurationSec.toDouble()).toFloat(),
-                sampleRate = info.sampleRate.takeIf { it > 0 } ?: response.optInt("sampleRate", 0),
+                durationSec = info.durationSec,
+                sampleRate = info.sampleRate,
                 bpm = settings.bpm,
                 createdAt = System.currentTimeMillis()
             )
             saveMetadata(track)
-            onUpdate(EngineUpdate(1f, "音频已保存", outputFile.name))
+            onUpdate(EngineUpdate(1f, "音频已保存", "${outputFile.name} · ${String.format(Locale.US, "%.1f", info.durationSec)} 秒"))
             track
         } catch (error: Throwable) {
             if (cancelRequested) throw CancellationException("已取消音乐生成") else throw error
         } finally {
-            activeClients -= client
-            client.close()
+            activeProcess = null
+            process?.let { if (it.isAlive) it.destroy() }
+            partialFile.delete()
+            workDir.deleteRecursively()
+        }
+    }
+
+    private fun dispatchYue2Event(event: Yue2Event, cot: CoTMode, onUpdate: (EngineUpdate) -> Unit) {
+        val seconds = event.seconds?.let { " · ${String.format(Locale.US, "%.1f", it)} 秒" }.orEmpty()
+        when (event.stage) {
+            Yue2Stage.Loading -> Unit
+            Yue2Stage.Planning -> onUpdate(
+                EngineUpdate(0.05f, if (cot == CoTMode.Off) "正在生成语义" else "正在规划乐谱", "模型已加载$seconds")
+            )
+            Yue2Stage.Semantic -> onUpdate(EngineUpdate(0.1f, "正在生成语义"))
+            Yue2Stage.Acoustic -> onUpdate(
+                EngineUpdate(0.45f, "正在合成声学", "语义 ${event.tokens ?: 0} 帧 · 约 ${(event.tokens ?: 0) / YUE2_FRAMES_PER_SECOND} 秒")
+            )
+            Yue2Stage.Decoding -> onUpdate(EngineUpdate(0.85f, "正在解码音频", "声学合成完成$seconds"))
+            Yue2Stage.Done -> onUpdate(EngineUpdate(0.97f, "正在保存音频", "解码完成$seconds"))
         }
     }
 
@@ -314,5 +367,16 @@ class MusicEngine(private val context: Context) : AutoCloseable {
 
     companion object {
         private val AUDIO_EXTENSIONS = setOf("wav", "mp3", "flac", "ogg", "m4a")
+        private const val NATIVE_LIB = "libyue2_cli.so"
+        private const val DEFAULT_GUIDANCE = 1.0f
+        // Exact sizes of the audio-cpp/Yue2-3B-GGUF files pushed by scripts/push_music_models.sh.
+        private val REQUIRED_FILES = mapOf(
+            YUE2_MODEL_FILE to 2_665_641_504L,
+            YUE2_VAE_FILE to 265_218_656L,
+            "sidecars/yue2-generation-config.json" to 466L,
+            "sidecars/yue2-model-config.json" to 959L,
+            "sidecars/yue2-qwen.tiktoken" to 2_561_218L,
+            "sidecars/yue2-vae-config.json" to 1_378L
+        )
     }
 }

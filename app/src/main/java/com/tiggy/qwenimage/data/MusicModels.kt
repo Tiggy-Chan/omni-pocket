@@ -8,9 +8,9 @@ import java.util.UUID
 enum class AppDomain(val title: String, val subtitle: String) {
     Conversation("对话", "Qwen3.5 本机"),
     Decision("决策", "Elephant-1 本机"),
-    ImageStudio("图像", "Qwen 本机 / MOSS 工作站"),
-    MusicStudio("音乐", "YuE2 工作站"),
-    VideoStudio("视频", "Wan 本机 / 工作站")
+    ImageStudio("图像", "Qwen / MOSS 本机"),
+    MusicStudio("音乐", "YuE2 本机"),
+    VideoStudio("视频", "Wan2.2 本机")
 }
 
 enum class MusicStudioTab(val label: String) {
@@ -32,16 +32,15 @@ data class MusicSettings(
     val bpm: Int = 112,
     val cotMode: CoTMode = CoTMode.Melody,
     val seed: Long = 42L,
-    val targetDurationSec: Int = 90,
-    val odeSteps: Int = 32,
-    val guidanceScale: Float = 1.0f,
-    val serverUrl: String = "http://127.0.0.1:8999"
+    val targetDurationSec: Int = 30,
+    val odeSteps: Int = 8,
+    val guidanceScale: Float = 1.0f
 ) {
     fun validate() {
         require(style.isNotBlank()) { "请输入音乐风格描述 (Style)" }
-        require(lyrics.isNotBlank()) { "请输入歌词内容 (Lyrics)" }
         require(bpm in 50..220) { "BPM 范围应在 50 至 220 之间" }
-        require(odeSteps in 8..64) { "ODE 步数必须在 8 至 64 之间" }
+        require(odeSteps in 4..32) { "ODE 步数必须在 4 至 32 之间" }
+        require(targetDurationSec in 10..240) { "时长必须在 10 至 240 秒之间" }
     }
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -54,7 +53,6 @@ data class MusicSettings(
         put("targetDurationSec", targetDurationSec)
         put("odeSteps", odeSteps)
         put("guidanceScale", guidanceScale.toDouble())
-        put("serverUrl", serverUrl)
     }
 
     companion object {
@@ -65,10 +63,9 @@ data class MusicSettings(
             bpm = o.optInt("bpm", 112),
             cotMode = runCatching { CoTMode.valueOf(o.optString("cotMode")) }.getOrDefault(CoTMode.Melody),
             seed = o.optLong("seed", 42L),
-            targetDurationSec = o.optInt("targetDurationSec", 90),
-            odeSteps = o.optInt("odeSteps", 32),
-            guidanceScale = o.optDouble("guidanceScale", 1.0).toFloat(),
-            serverUrl = o.optString("serverUrl", "http://127.0.0.1:8999")
+            targetDurationSec = o.optInt("targetDurationSec", 30),
+            odeSteps = o.optInt("odeSteps", 8),
+            guidanceScale = o.optDouble("guidanceScale", 1.0).toFloat()
         )
     }
 }
