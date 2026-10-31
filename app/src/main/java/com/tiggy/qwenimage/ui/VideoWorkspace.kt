@@ -101,21 +101,18 @@ fun VideoWorkspace(
     state: QwenUiState,
     viewModel: QwenViewModel,
     onMenu: (() -> Unit)?,
-    onSettings: () -> Unit
+    onModels: () -> Unit
 ) {
     val context = LocalContext.current
     val settings = state.videoSettings
     val task = state.videoTask
     // Stats model files, so check once per visit and after each job rather than on every recomposition.
     val runtime = remember(task.running) { viewModel.videoRuntimeStatus() }
-    val local = runtime.localReady
-    val workstation = !local
+    val ready = runtime.localReady
     val firstFrame = settings.inputImageUri
-    val firstFrameBlocked = workstation && firstFrame != null
     val parameterError = when {
-        local && settings.numFrames !in 5..25 -> "本机最多 25 帧，请调整帧数。"
-        local && settings.steps !in 1..6 -> "本机最多 6 步，请调整步数。"
-        firstFrameBlocked -> "工作站不支持首帧，请移除后再生成。"
+        settings.numFrames !in 5..25 -> "本机最多 25 帧，请调整帧数。"
+        settings.steps !in 1..6 -> "本机最多 6 步，请调整步数。"
         else -> null
     }
     val jobErrors = state.videoJobs.mapNotNull { it.error }
@@ -136,14 +133,14 @@ fun VideoWorkspace(
             }.map { VideoBlock.Pending(it) })
         }.sortedBy { it.createdAt }
     }
-    val lead = if (workstation) 1 else 0
+    val lead = if (ready) 0 else 1
     LaunchedEffect(blocks.size) {
         if (blocks.isNotEmpty()) listState.scrollToItem(blocks.size - 1 + lead, 100_000)
     }
 
     WorkspaceScaffold(
         title = "视频",
-        subtitle = if (local) "Wan2.2 · 本机" else "工作站",
+        subtitle = if (ready) "Wan2.2 · 本机" else "Wan2.2 · 模型未就绪",
         onMenu = onMenu,
         composer = { haze ->
             val status: (@Composable () -> Unit)? = if (firstFrame != null || parameterError != null || taskError != null) ({
@@ -173,7 +170,7 @@ fun VideoWorkspace(
                 onValueChange = viewModel::setVideoPrompt,
                 placeholder = "描述主体、动作和镜头",
                 onSend = viewModel::startVideoGeneration,
-                sendEnabled = settings.prompt.isNotBlank() && parameterError == null,
+                sendEnabled = ready && settings.prompt.isNotBlank() && parameterError == null,
                 running = task.running,
                 onStop = viewModel::cancelVideoGeneration,
                 status = status,
@@ -193,7 +190,7 @@ fun VideoWorkspace(
             Box(Modifier.fillMaxSize().padding(inner), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("描述一段画面", color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium)
-                    if (workstation) VideoWorkstationNote(runtime.missingComponents, onSettings)
+                    if (!ready) VideoModelNote(runtime.missingComponents, onModels)
                 }
             }
         } else {
@@ -207,9 +204,9 @@ fun VideoWorkspace(
                 ),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                if (workstation) {
-                    item(key = "workstation-note") {
-                        ReadingColumn { VideoWorkstationNote(runtime.missingComponents, onSettings) }
+                if (!ready) {
+                    item(key = "model-note") {
+                        ReadingColumn { VideoModelNote(runtime.missingComponents, onModels) }
                     }
                 }
                 items(blocks, key = { it.key }) { block ->
@@ -249,7 +246,7 @@ fun VideoWorkspace(
     }
 
     if (showParams) {
-        VideoParamsSheet(settings, local, viewModel) { showParams = false }
+        VideoParamsSheet(settings, viewModel) { showParams = false }
     }
 
     pendingDelete?.let { video ->
@@ -273,20 +270,18 @@ fun VideoWorkspace(
 }
 
 @Composable
-private fun VideoWorkstationNote(missing: List<String>, onSettings: () -> Unit) {
+private fun VideoModelNote(missing: List<String>, onModels: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("使用工作站 · 地址在设置中", color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
-            TextButton(onClick = onSettings, modifier = Modifier.heightIn(min = 48.dp)) { Text("设置") }
+            Text("本机 Wan2.2 模型未就绪", color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
+            TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 48.dp)) { Text("模型") }
         }
-        if (missing.isNotEmpty()) {
-            Text(
-                "本机 Wan2.2 缺少：${missing.joinToString("、")}\n放入 Android/data/com.tiggy.qwenimage/files/models/wan22_turbo 后即可在本机生成",
-                color = OmniColors.Dim,
-                style = MaterialTheme.typography.labelSmall,
-                textAlign = TextAlign.Center
-            )
-        }
+        Text(
+            "缺少：${missing.joinToString("、")}\n放入 Android/data/com.tiggy.qwenimage/files/models/wan22_turbo",
+            color = OmniColors.Dim,
+            style = MaterialTheme.typography.labelSmall,
+            textAlign = TextAlign.Center
+        )
     }
 }
 
@@ -474,36 +469,28 @@ private fun VideoJobBlock(
 }
 
 @Composable
-private fun VideoParamsSheet(settings: VideoSettings, local: Boolean, viewModel: QwenViewModel, onDismiss: () -> Unit) {
+private fun VideoParamsSheet(settings: VideoSettings, viewModel: QwenViewModel, onDismiss: () -> Unit) {
     var seedText by remember(settings.seed) { mutableStateOf(settings.seed.toString()) }
     OmniSheet("参数", onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (local) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("帧数", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
-                    OmniTabs(
-                        items = listOf(9, 17, 25),
-                        selected = settings.numFrames,
-                        label = { "$it 帧" },
-                        onSelect = viewModel::setVideoNumFrames
-                    )
-                }
-            } else {
-                VideoIntSlider("帧数", "${settings.numFrames} 帧", settings.numFrames, 5..81, viewModel::setVideoNumFrames)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("帧数", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                OmniTabs(
+                    items = listOf(9, 17, 25),
+                    selected = settings.numFrames,
+                    label = { "$it 帧" },
+                    onSelect = viewModel::setVideoNumFrames
+                )
             }
             VideoIntSlider("帧率", "${settings.fps} FPS", settings.fps, 8..30, viewModel::setVideoFps)
-            if (local) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("步数", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
-                    OmniTabs(
-                        items = listOf(3, 4, 5, 6),
-                        selected = settings.steps,
-                        label = { "$it 步" },
-                        onSelect = viewModel::setVideoSteps
-                    )
-                }
-            } else {
-                VideoIntSlider("步数", "${settings.steps} 步", settings.steps, 1..10, viewModel::setVideoSteps)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("步数", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                OmniTabs(
+                    items = listOf(3, 4, 5, 6),
+                    selected = settings.steps,
+                    label = { "$it 步" },
+                    onSelect = viewModel::setVideoSteps
+                )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OmniTextField(

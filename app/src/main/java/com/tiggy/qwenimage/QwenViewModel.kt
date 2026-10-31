@@ -147,7 +147,6 @@ class QwenViewModel(
     private var engineKey: String? = null
     private val musicEngine = MusicEngine(application)
     private val videoEngine = VideoEngine(application)
-    private val mossEngine = com.tiggy.qwenimage.engine.ComfyMossEngine(application)
     private val localMossEngine = LocalMossEngine(application, mossRepository)
     private val evictionKey = "qwen:${System.identityHashCode(this)}"
 
@@ -166,9 +165,6 @@ class QwenViewModel(
                     .getOrDefault(ThemeMode.System),
                 musicSettings = state.musicSettings.copy(
                     serverUrl = preferences.getString("musicServerUrl", null) ?: state.musicSettings.serverUrl
-                ),
-                videoSettings = state.videoSettings.copy(
-                    serverUrl = preferences.getString("videoServerUrl", null) ?: state.videoSettings.serverUrl
                 ),
                 mossSettings = restoredMossSettings,
                 settings = compatibleSettings(state.settings, initialStatus),
@@ -343,19 +339,17 @@ class QwenViewModel(
             val backend = when (job.backend) {
                 ImageGenerationBackend.QwenLocal -> VideoBackend.LocalQwen
                 ImageGenerationBackend.MossLocal -> VideoBackend.LocalMoss
-                ImageGenerationBackend.MossWorkstation -> VideoBackend.Workstation
             }
             val status = when (job.backend) {
                 ImageGenerationBackend.QwenLocal -> "正在初始化图像任务"
                 ImageGenerationBackend.MossLocal -> "正在准备 MOSS 本机"
-                ImageGenerationBackend.MossWorkstation -> "正在连接 MOSS 工作站"
             }
             if (beginTask(
                     TaskDomain.Image,
                     jobId,
                     backend = backend,
                     status = status,
-                    progress = if (job.backend == ImageGenerationBackend.MossWorkstation) null else 0,
+                    progress = 0,
                     alertOnConflict = false
                 )
             ) return true
@@ -432,7 +426,6 @@ class QwenViewModel(
     fun selectMusicTab(tab: MusicStudioTab) = _state.update { it.copy(musicTab = tab) }
     fun selectVideoTab(tab: VideoStudioTab) = _state.update { it.copy(videoTab = tab) }
 
-    fun videoBackend(): VideoBackend = videoEngine.generationBackend()
     fun videoRuntimeStatus(): VideoRuntimeStatus = videoEngine.runtimeStatus()
 
     // Video settings modifiers
@@ -442,10 +435,6 @@ class QwenViewModel(
     fun setVideoNumFrames(numFrames: Int) = _state.update { it.copy(videoSettings = it.videoSettings.copy(numFrames = numFrames.coerceIn(5, 81))) }
     fun setVideoSteps(steps: Int) = _state.update { it.copy(videoSettings = it.videoSettings.copy(steps = steps.coerceIn(1, 10))) }
     fun setVideoShift(shift: Float) = _state.update { it.copy(videoSettings = it.videoSettings.copy(shift = shift.coerceIn(1.0f, 10.0f))) }
-    fun setVideoServerUrl(url: String) {
-        preferences.edit().putString("videoServerUrl", url).apply()
-        _state.update { it.copy(videoSettings = it.videoSettings.copy(serverUrl = url)) }
-    }
     fun setVideoInputImage(uri: Uri?) {
         if (uri != null) runCatching {
             getApplication<Application>().contentResolver.takePersistableUriPermission(
@@ -485,54 +474,38 @@ class QwenViewModel(
     fun startVideoGeneration() {
         if (rejectIfBusy(TaskDomain.Video)) return
         val settings = _state.value.videoSettings
-        val backend = videoEngine.generationBackend()
-        runCatching { if (backend == VideoBackend.LocalWan) settings.validateOnDevice() else settings.validate() }.onFailure { error ->
+        val runtime = videoEngine.runtimeStatus()
+        if (!runtime.localReady) {
+            showTaskError(TaskDomain.Video, "本机 Wan2.2 缺少：${runtime.missingComponents.joinToString("、")}")
+            return
+        }
+        runCatching { settings.validateOnDevice() }.onFailure { error ->
             showTaskError(TaskDomain.Video, error.message ?: "参数校验失败")
             return
         }
-        if (backend != VideoBackend.LocalWan && settings.inputImageUri != null) {
-            showTaskError(TaskDomain.Video, "图生视频需要本机 Wan 模型；当前工作站不支持参考图")
-            return
-        }
 
-        val initialStage = if (backend == VideoBackend.LocalWan) {
-            if (settings.inputImageUri != null) "准备 Wan2.2 图生视频..." else "准备 Wan2.2 文生视频..."
-        } else {
-            "准备连接视频工作站..."
-        }
+        val initialStage = if (settings.inputImageUri != null) "准备 Wan2.2 图生视频..." else "准备 Wan2.2 文生视频..."
         val job = VideoJob(
             id = UUID.randomUUID().toString(),
             settings = settings,
             state = "running",
             stage = initialStage
         )
-        if (!beginTask(TaskDomain.Video, job.id, backend, initialStage)) return
+        if (!beginTask(TaskDomain.Video, job.id, VideoBackend.LocalWan, initialStage)) return
 
         _state.update { it.copy(videoJobs = it.videoJobs + job) }
         appendLog(TaskDomain.Video, "----------------------------------------", job.id)
-        appendLog(TaskDomain.Video, "视频任务启动 [${job.id.take(8)}]：${if (backend == VideoBackend.LocalWan) "Wan2.2-TI2V-5B-Turbo" else "MobileWan 工作站"}", job.id)
+        appendLog(TaskDomain.Video, "视频任务启动 [${job.id.take(8)}]：Wan2.2-TI2V-5B-Turbo", job.id)
         appendLog(TaskDomain.Video, "提示词：${settings.prompt.take(60)}...", job.id)
         appendLog(TaskDomain.Video, "模式：${if (settings.inputImageUri != null) "图生视频（App 所选参考首帧）" else "文生视频"}", job.id)
-        val specification = if (backend == VideoBackend.LocalWan) {
-            "${settings.width}×${settings.height} | ${settings.numFrames}帧 | ${settings.fps}fps | ${settings.steps}步 Euler"
-        } else {
-            "${settings.width}×${settings.height} | ${settings.numFrames}帧 | ${settings.fps}fps | ${settings.steps}步"
-        }
-        appendLog(TaskDomain.Video, "规格：$specification", job.id)
-        val execution = if (backend == VideoBackend.LocalWan) {
-            "执行设备：本机 Wan2.2 模型与原生推理 CLI；diffusion=GPUOpenCL, text encoder=CPU, VAE=CPU"
-        } else {
-            "执行设备：视频工作站 ${settings.serverUrl}（本机 Wan 组件未就绪）"
-        }
-        appendLog(TaskDomain.Video, execution, job.id)
+        appendLog(TaskDomain.Video, "规格：${settings.width}×${settings.height} | ${settings.numFrames}帧 | ${settings.fps}fps | ${settings.steps}步 Euler", job.id)
+        appendLog(TaskDomain.Video, "执行设备：本机 Wan2.2 模型与原生推理 CLI；diffusion=GPUOpenCL, text encoder=CPU, VAE=CPU", job.id)
 
         viewModelScope.launch(Dispatchers.Default) {
             runCatching {
-                if (backend == VideoBackend.LocalWan) {
-                    inferenceCoordinator.evictOthers("qwen")
-                    invalidateEngine()
-                }
-                videoEngine.executeGeneration(job, backend) { update ->
+                inferenceCoordinator.evictOthers("qwen")
+                invalidateEngine()
+                videoEngine.executeGeneration(job) { update ->
                     updateTask(TaskDomain.Video, job.id) {
                         it.copy(progress = update.progress?.let { value -> (value * 100).toInt() }, status = update.stage)
                     }
@@ -1008,24 +981,23 @@ class QwenViewModel(
                 }
                 GenerationJob(UUID.randomUUID().toString(), prepared)
             }
-            ImageGenerationBackend.MossLocal, ImageGenerationBackend.MossWorkstation -> {
+            ImageGenerationBackend.MossLocal -> {
                 val settings = current.mossSettings
-                val local = current.imageBackend == ImageGenerationBackend.MossLocal
-                if (local && current.mossModelStatus?.ready != true) {
+                if (current.mossModelStatus?.ready != true) {
                     showTaskError(TaskDomain.Image, "请先下载并校验 MOSS 本机模型")
                     return
                 }
-                runCatching { if (local) settings.validateLocal() else settings.validate() }.onFailure { error ->
+                runCatching { settings.validateLocal() }.onFailure { error ->
                     showTaskError(TaskDomain.Image, error.message ?: "MOSS 参数无效")
                     return
                 }
                 val displaySettings = GenerationSettings(
                     prompt = settings.prompt,
                     negativePrompt = settings.negativePrompt,
-                    steps = if (local) settings.local.steps else settings.steps,
+                    steps = settings.local.steps,
                     seed = settings.seed.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
-                    width = if (local) settings.local.width else settings.width,
-                    height = if (local) settings.local.height else settings.height
+                    width = settings.local.width,
+                    height = settings.local.height
                 )
                 GenerationJob(
                     id = UUID.randomUUID().toString(),
@@ -1085,7 +1057,6 @@ class QwenViewModel(
             when (job.backend) {
                 ImageGenerationBackend.QwenLocal -> engine?.cancel()
                 ImageGenerationBackend.MossLocal -> localMossEngine.cancelGeneration()
-                ImageGenerationBackend.MossWorkstation -> mossEngine.cancelGeneration()
             }
             updateTask(TaskDomain.Image, id) { it.copy(status = "正在取消，将在当前计算阶段结束后停止") }
         }
@@ -1279,24 +1250,14 @@ class QwenViewModel(
             finishTask(TaskDomain.Image, job.id) { it.copy(status = "图像生成已取消", error = null) }
             return
         }
-        val local = job.backend == ImageGenerationBackend.MossLocal
         val startTime = System.currentTimeMillis()
         try {
             if (job.id in cancelledJobIds) throw CancellationException("已取消")
-            if (local) {
-                inferenceCoordinator.evictOthers("qwen")
-                invalidateEngine()
-            }
-            val steps = if (local) settings.local.steps else settings.steps
-            val width = if (local) settings.local.width else settings.width
-            val height = if (local) settings.local.height else settings.height
-            val location = if (local) "本机" else "工作站"
-            appendLog(TaskDomain.Image, "MOSS ${settings.checkpoint.name} · $location · $width×$height · $steps 步", job.id)
-            val result = if (local) {
-                localMossEngine.executeGeneration(job.id, settings) { update -> handleMossUpdate(job.id, update) }
-            } else {
-                mossEngine.executeGeneration(job.id, settings) { update -> handleMossUpdate(job.id, update) }
-            }
+            inferenceCoordinator.evictOthers("qwen")
+            invalidateEngine()
+            val local = settings.local
+            appendLog(TaskDomain.Image, "MOSS SFT · 本机 · ${local.width}×${local.height} · ${local.steps} 步", job.id)
+            val result = localMossEngine.executeGeneration(job.id, settings) { update -> handleMossUpdate(job.id, update) }
             val elapsed = System.currentTimeMillis() - startTime
             updateJob(job.id) {
                 it.copy(
@@ -1421,7 +1382,6 @@ class QwenViewModel(
             inferenceCoordinator.unregisterEvictor(evictionKey)
             if (owner != null) inferenceCoordinator.release("qwen:$owner")
         }, "qwen-engine-close").start()
-        mossEngine.close()
         localMossEngine.close()
         musicEngine.close()
         videoEngine.close()

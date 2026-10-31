@@ -152,7 +152,7 @@ private fun Destination(
             AppDomain.Decision -> DecisionScreen(decisionViewModel, onMenu, onModels = { onPage(AppPage.Models) })
             AppDomain.ImageStudio -> ImageWorkspace(state, viewModel, onMenu, onPreview, onModels = { onPage(AppPage.Models) })
             AppDomain.MusicStudio -> MusicWorkspace(state, viewModel, onMenu, onSettings = { onPage(AppPage.Settings) })
-            AppDomain.VideoStudio -> VideoWorkspace(state, viewModel, onMenu, onSettings = { onPage(AppPage.Settings) })
+            AppDomain.VideoStudio -> VideoWorkspace(state, viewModel, onMenu, onModels = { onPage(AppPage.Models) })
         }
         AppPage.Library -> LibraryScreen(state, viewModel, onMenu, onPreview,
             onOpenWorkspace = { domain -> viewModel.setDomain(domain); onPage(AppPage.Workspace) })

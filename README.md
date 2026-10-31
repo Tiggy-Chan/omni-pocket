@@ -2,15 +2,14 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-Omni Pocket is an Android studio for local text conversations and local or workstation-backed image, music, and video generation. The app separates execution backends explicitly: it does not present a workstation request as on-device inference.
+Omni Pocket is an Android studio for on-device text conversations, decisions, and image and video generation. Image and video inference run on the phone; music still uses an external YuE2 service while its on-device engine is in progress.
 
 ## What runs where
 
 - **Qwen-Image-2.1 on the phone**: MNN with CPU int4 text/vision encoding and OpenCL DiT inference. Text-to-image, one- or two-reference editing, real or Tiny VAE, and the official 8-step Turbo schedule. Includes queued generation, cooperative cancellation, model verification, and persistent results.
-- **MOSS-Image on the phone or a ComfyUI workstation**: a separate `libmoss_cli.so` runs SFT locally through stable-diffusion.cpp with long prompts, native JSON layouts, Euler, the discrete scheduler, and negative-branch layer-22 skipping. The workstation supports SFT/Base and optional prompt upsampling with the same layout editor; prompt upsampling is not part of the local path. Layout coordinates use MOSS's `abs_centralized` / `yxyx` format.
+- **MOSS-Image on the phone**: a separate `libmoss_cli.so` runs SFT through stable-diffusion.cpp with long prompts, native JSON layouts, Euler, the discrete scheduler, and negative-branch layer-22 skipping. Layout coordinates use MOSS's `abs_centralized` / `yxyx` format.
 - **YuE2 music on a workstation**: the app submits lyrics, style, BPM, seed, duration, CoT mode, ODE steps, and guidance to an external YuE2 service. The lyrics sheet offers text-only style templates; generated tracks support playback, seeking, sharing, and ABC score inspection in the app. There is currently no on-device YuE2 inference engine.
 - **Wan2.2 video on the phone**: `libsd_cli` with a Wan2.2-TI2V-5B-Turbo GGUF DiT, UMT5 text encoder, and TAE decoder. Text-to-video and first-frame image-to-video use the actual seed, FPS, frame count, and step count shown in the UI. Local output is WebM. Local generation is limited to 25 frames at 480×832; 4 steps and 16 FPS are the current verified defaults.
-- **MobileWan on a workstation**: text-to-video through the external bridge. The bridge does not accept a first frame, and the app rejects that combination before submission instead of silently dropping the image.
 
 - **Elephant-1 decisions on the phone**: llama.cpp runs a GGUF build and returns option probabilities and confidence for choice, noul, and score questions. It does not generate free text.
 
@@ -109,47 +108,23 @@ The Video workspace switches to "Wan2.2 · 本机" once all three files are pres
 
 ## MOSS-Image on the phone
 
-Local mode does not need ComfyUI or a workstation. It installs the SFT Q4_0 DiT, Qwen3.5-9B Q4_K_M text encoder, FLUX.2 small VAE, and official tokenizer. Defaults are 512×512 and CFG 3, with the native CPU backend using Euler/discrete and negative-branch layer-22 skipping.
+It installs the SFT Q4_0 DiT, Qwen3.5-9B Q4_K_M text encoder, FLUX.2 small VAE, and official tokenizer. Defaults are 512×512 and CFG 3, with the native CPU backend using Euler/discrete and negative-branch layer-22 skipping.
 
 ```bash
 bash scripts/download_moss_models.sh
 bash scripts/push_moss_models.sh <serial>  # replace with your device serial
 ```
 
-The downloader resumes partial files and verifies each SHA-256. The models require about 9GB. Set `MOSS_HF_ROOT` to use a mirror root; pinned hashes still enforce identical files. After pushing, tap **Verify model** in the app's model manager, then select **MOSS · Local**. You can also download or import them in the app. Local and workstation dimensions, steps, and CFG are stored separately. Prompt upsampling remains workstation-only.
+The downloader resumes partial files and verifies each SHA-256. The models require about 9GB. Set `MOSS_HF_ROOT` to use a mirror root; pinned hashes still enforce identical files. After pushing, tap **Verify model** in the app's model manager, then select **MOSS · Local**. You can also download or import them in the app.
 
-## MOSS-Image with ComfyUI
+Official references: [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image) and [SFT model card](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT).
 
-Use ComfyUI 0.42 or later with native MOSS support. The app checks required nodes and selected model files before submitting a workflow.
+## External music service
 
-```text
-ComfyUI/models/
-├── diffusion_models/
-│   ├── moss_image_sft_int8_convrot.safetensors
-│   └── moss_image_base_int8_convrot.safetensors  # optional Base checkpoint
-├── text_encoders/
-│   └── qwen3.5_9b_w4a8_gptq.safetensors
-└── vae/
-    └── flux2-vae_small.safetensors
-```
-
-Start ComfyUI, then allow the phone to reach it:
-
-```bash
-adb reverse tcp:8188 tcp:8188
-```
-
-Select **MOSS · Workstation** in Image Studio and use `http://127.0.0.1:8188` over USB, or the workstation's LAN address. The client submits a native ComfyUI API workflow, polls the real queue/history, and downloads the resulting image from the same origin. It does not invent sampling percentages when the server has no progress stream.
-
-Official references: [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image), [SFT model card](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT), [ComfyUI guide](https://docs.comfy.org/tutorials/image/moss-image/moss-image), and [Comfy-Org weights](https://huggingface.co/Comfy-Org/MOSS-Image).
-
-## External music and video services
-
-The YuE2 and MobileWan server implementations are external to this repository. The app expects the existing `/health` and `/generate` contracts, followed by `audioUrl` or `videoUrl` from the same origin. Downloads are size-limited, validated, and atomically stored.
+The YuE2 server implementation is external to this repository. The app expects the existing `/health` and `/generate` contracts, followed by `audioUrl` from the same origin. Downloads are size-limited, validated, and atomically stored.
 
 ```bash
 adb reverse tcp:8999 tcp:8999   # YuE2
-adb reverse tcp:8998 tcp:8998   # MobileWan
 ```
 
 Server-reported progress is shown only when it exists. Otherwise the UI shows an indeterminate working state rather than fabricated steps.

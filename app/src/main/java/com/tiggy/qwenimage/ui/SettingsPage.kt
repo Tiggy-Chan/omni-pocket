@@ -73,21 +73,9 @@ fun SettingsPage(state: QwenUiState, viewModel: QwenViewModel, onMenu: (() -> Un
                     SectionLabel("工作站", Modifier.padding(top = 16.dp))
                     Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)) {
                         OmniTextField(
-                            value = state.mossSettings.serverUrl,
-                            onValueChange = { value -> viewModel.updateMossSettings { it.copy(serverUrl = value) } },
-                            label = "MOSS ComfyUI 地址",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OmniTextField(
                             value = state.musicSettings.serverUrl,
                             onValueChange = viewModel::setMusicServerUrl,
                             label = "音乐 YuE2 地址",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OmniTextField(
-                            value = state.videoSettings.serverUrl,
-                            onValueChange = viewModel::setVideoServerUrl,
-                            label = "视频地址",
                             modifier = Modifier.fillMaxWidth()
                         )
                         Text("仅在选择工作站时使用，本机推理不需要网络", color = OmniColors.Dim,

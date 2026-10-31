@@ -87,7 +87,11 @@ data class GenerationJob(
             createdAt = o.optLong("createdAt"),
             outputWidth = o.optInt("outputWidth"),
             outputHeight = o.optInt("outputHeight"),
-            backend = runCatching { ImageGenerationBackend.valueOf(o.optString("backend")) }.getOrDefault(ImageGenerationBackend.QwenLocal),
+            backend = when (val name = o.optString("backend")) {
+                // Jobs from the removed MOSS workstation mode are still MOSS images.
+                "MossWorkstation" -> ImageGenerationBackend.MossLocal
+                else -> runCatching { ImageGenerationBackend.valueOf(name) }.getOrDefault(ImageGenerationBackend.QwenLocal)
+            },
             mossSettings = o.optJSONObject("mossSettings")?.let(MossSettings::fromJson)
         )
     }

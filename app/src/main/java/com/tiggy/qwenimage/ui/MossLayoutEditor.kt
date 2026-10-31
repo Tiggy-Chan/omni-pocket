@@ -90,12 +90,12 @@ internal fun MossLayoutEditor(
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(settings.width.toFloat() / settings.height.coerceAtLeast(1).toFloat())
+                .aspectRatio(settings.local.width.toFloat() / settings.local.height.coerceAtLeast(1).toFloat())
                 .clip(shape)
                 .background(OmniColors.Field)
                 .border(0.5.dp, OmniColors.Line, shape)
                 .onSizeChanged { canvasSize = it }
-                .pointerInput(settings.width, settings.height) {
+                .pointerInput(settings.local.width, settings.local.height) {
                     detectDragGestures(
                         onDragStart = { offset ->
                             val currentItems = currentSettings.layout.items

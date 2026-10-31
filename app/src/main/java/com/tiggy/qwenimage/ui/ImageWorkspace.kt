@@ -68,7 +68,6 @@ import com.tiggy.qwenimage.QwenViewModel
 import com.tiggy.qwenimage.data.GenerationJob
 import com.tiggy.qwenimage.data.GenerationMode
 import com.tiggy.qwenimage.data.ImageGenerationBackend
-import com.tiggy.qwenimage.data.MossCheckpoint
 import com.tiggy.qwenimage.data.MossInputMode
 import com.tiggy.qwenimage.data.MossSettings
 import com.tiggy.qwenimage.data.displayName
@@ -116,8 +115,6 @@ fun ImageWorkspace(
     val backendReady = backendReady(state, backend)
     val needsReference = isQwen && settings.mode == GenerationMode.ImageEdit && settings.inputUri == null
     val sendEnabled = prompt.isNotBlank() && backendReady && !needsReference
-    val isLocalMoss = backend == ImageGenerationBackend.MossLocal
-    val layoutSettings = if (isLocalMoss) moss.copy(width = moss.local.width, height = moss.local.height) else moss
     var sheet by remember { mutableStateOf<ImageSheet?>(null) }
 
     val firstPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -249,7 +246,7 @@ fun ImageWorkspace(
                     onSelect = { mode -> viewModel.updateMossSettings { it.copy(inputMode = mode) } }
                 )
                 if (moss.inputMode == MossInputMode.Layout) {
-                    MossLayoutEditor(layoutSettings, viewModel::updateMossSettings)
+                    MossLayoutEditor(moss, viewModel::updateMossSettings)
                 }
             }
         }
@@ -265,7 +262,6 @@ fun ImageWorkspace(
 private fun backendReady(state: QwenUiState, backend: ImageGenerationBackend): Boolean = when (backend) {
     ImageGenerationBackend.QwenLocal -> state.modelStatus?.ready == true
     ImageGenerationBackend.MossLocal -> state.mossModelStatus?.ready == true
-    ImageGenerationBackend.MossWorkstation -> true
 }
 
 @Composable
@@ -503,7 +499,6 @@ private fun ImageBackendOptions(state: QwenUiState, onSelect: (ImageGenerationBa
         val detail = when (target) {
             ImageGenerationBackend.QwenLocal -> if (state.modelStatus?.ready == true) "已就绪" else "模型未就绪"
             ImageGenerationBackend.MossLocal -> if (state.mossModelStatus?.ready == true) "已就绪" else "模型未就绪"
-            ImageGenerationBackend.MossWorkstation -> "地址在设置中配置"
         }
         SettingRow(
             title = target.displayName(),
@@ -565,56 +560,26 @@ private fun QwenParams(state: QwenUiState, viewModel: QwenViewModel) {
 @Composable
 private fun MossParams(state: QwenUiState, viewModel: QwenViewModel) {
     val moss = state.mossSettings
-    val local = state.imageBackend == ImageGenerationBackend.MossLocal
+    val local = moss.local
     val update: ((MossSettings) -> MossSettings) -> Unit = viewModel::updateMossSettings
-    val outputWidth = if (local) moss.local.width else moss.width
-    val outputHeight = if (local) moss.local.height else moss.height
 
-    if (local) {
-        val baseSelected = moss.checkpoint == MossCheckpoint.Base
-        SettingRow(
-            title = "检查点",
-            detail = if (baseSelected) "当前为 Base，本机仅支持 SFT，点按切换" else "Base 仅工作站可用",
-            onClick = if (baseSelected) ({ update { it.copy(checkpoint = MossCheckpoint.Sft) } }) else null
-        ) {
-            Text("SFT", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
-        }
-    } else {
-        SectionLabel("检查点")
-        OmniTabs(
-            items = MossCheckpoint.entries,
-            selected = moss.checkpoint,
-            label = { if (it == MossCheckpoint.Sft) "SFT" else "Base" },
-            onSelect = { checkpoint -> update { it.copy(checkpoint = checkpoint) } }
-        )
-    }
-
-    SectionLabel("尺寸 · $outputWidth×$outputHeight")
+    SectionLabel("尺寸 · ${local.width}×${local.height}")
     OmniTabs(
         items = MossSizePresets,
-        selected = MossSizePresets.firstOrNull { it.width == outputWidth && it.height == outputHeight }
-            ?: SizePreset(outputWidth, outputHeight, ""),
+        selected = MossSizePresets.firstOrNull { it.width == local.width && it.height == local.height }
+            ?: SizePreset(local.width, local.height, ""),
         label = { it.label },
-        onSelect = { preset ->
-            update { s ->
-                if (local) s.copy(local = s.local.copy(width = preset.width, height = preset.height))
-                else s.copy(width = preset.width, height = preset.height)
-            }
-        }
+        onSelect = { preset -> update { s -> s.copy(local = s.local.copy(width = preset.width, height = preset.height)) } }
     )
 
     NumberField("Seed", moss.seed.toString()) { text ->
         text.toLongOrNull()?.let { seed -> update { it.copy(seed = seed) } }
     }
-    NumberField("步数", (if (local) moss.local.steps else moss.steps).toString()) { text ->
-        text.toIntOrNull()?.let { steps ->
-            update { if (local) it.copy(local = it.local.copy(steps = steps)) else it.copy(steps = steps) }
-        }
+    NumberField("步数", local.steps.toString()) { text ->
+        text.toIntOrNull()?.let { steps -> update { it.copy(local = it.local.copy(steps = steps)) } }
     }
-    NumberField("CFG", (if (local) moss.local.cfg else moss.cfg).toString()) { text ->
-        text.toDoubleOrNull()?.let { cfg ->
-            update { if (local) it.copy(local = it.local.copy(cfg = cfg)) else it.copy(cfg = cfg) }
-        }
+    NumberField("CFG", local.cfg.toString()) { text ->
+        text.toDoubleOrNull()?.let { cfg -> update { it.copy(local = it.local.copy(cfg = cfg)) } }
     }
     NumberField("Shift", moss.shift.toString()) { text ->
         text.toDoubleOrNull()?.let { shift -> update { it.copy(shift = shift) } }
@@ -626,27 +591,6 @@ private fun MossParams(state: QwenUiState, viewModel: QwenViewModel) {
         minLines = 2,
         modifier = Modifier.fillMaxWidth()
     )
-
-    if (!local) {
-        SectionLabel("采样器")
-        OmniTabs(
-            items = listOf("er_sde", "euler"),
-            selected = moss.sampler,
-            label = { it },
-            onSelect = { sampler -> update { it.copy(sampler = sampler) } }
-        )
-        SectionLabel("调度器")
-        OmniTabs(
-            items = listOf("simple", "sgm_uniform"),
-            selected = moss.scheduler,
-            label = { it },
-            onSelect = { scheduler -> update { it.copy(scheduler = scheduler) } }
-        )
-        SwitchRow("SLG", moss.slg.enabled) { on -> update { it.copy(slg = it.slg.copy(enabled = on)) } }
-        if (moss.inputMode == MossInputMode.Prompt) {
-            SwitchRow("提示词增强", moss.promptUpsampler) { on -> update { it.copy(promptUpsampler = on) } }
-        }
-    }
 }
 
 @Composable

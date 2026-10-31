@@ -40,5 +40,4 @@ val ImageGenerationBackend.isMoss: Boolean
 fun ImageGenerationBackend.displayName(): String = when (this) {
     ImageGenerationBackend.QwenLocal -> "Qwen · 本机"
     ImageGenerationBackend.MossLocal -> "MOSS · 本机"
-    ImageGenerationBackend.MossWorkstation -> "MOSS · 工作站"
 }

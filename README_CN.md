@@ -2,15 +2,14 @@
 
 [English](README.md) | [简体中文](README_CN.md)
 
-Omni Pocket 是一个 Android 本地文本对话与图像、音乐、视频创作应用。界面会明确区分本机推理与工作站请求，不把工作站任务写成端侧生成。
+Omni Pocket 是一个 Android 本机对话、决策与图像、视频创作应用。图像和视频推理都在手机上完成；音乐的本机引擎还在开发中，目前仍使用外部 YuE2 服务。
 
 ## 各模态运行位置
 
 - **Qwen-Image-2.1 · 本机**：使用 MNN、CPU int4 文本/视觉编码与 OpenCL DiT 推理。支持文生图、单/双参考图编辑、完整/Tiny VAE 和官方 8 步 Turbo。支持队列、协作式取消、模型校验、真实输出尺寸与作品恢复。
-- **MOSS-Image · 本机 / ComfyUI 工作站**：本机通过独立的 `libmoss_cli.so` 和 stable-diffusion.cpp 运行 SFT，支持长提示词与原生 JSON 布局，使用 Euler、discrete schedule 和负分支第 22 层跳过。工作站支持 SFT/Base、可选提示词增强及相同布局编辑器；提示词增强不属于本机路径。布局使用官方 `abs_centralized` / `yxyx` 格式。
+- **MOSS-Image · 本机**：通过独立的 `libmoss_cli.so` 和 stable-diffusion.cpp 运行 SFT，支持长提示词与原生 JSON 布局，使用 Euler、discrete schedule 和负分支第 22 层跳过。布局使用官方 `abs_centralized` / `yxyx` 格式。
 - **YuE2 音乐 · 工作站**：向外部 YuE2 服务提交标题、风格、歌词、BPM、种子、时长、CoT、ODE 步数和 guidance。歌词面板提供纯文字的风格模板；生成的曲目支持播放、拖动、分享及 ABC 乐谱查看。当前没有端侧 YuE2 推理引擎。
 - **Wan2.2 视频 · 本机**：通过 `libsd_cli` 运行 Wan2.2-TI2V-5B-Turbo、UMT5 文本编码器和 TAE 解码器。文生视频与首帧图生视频会使用界面真实的 seed、FPS、帧数和步数，本机输出 WebM。当前本机限制为 480×832、最多 25 帧；已验证默认值为 4 步、16 FPS。
-- **MobileWan · 工作站**：通过外部桥接进行文生视频。桥接不接收首帧，选择首帧但本机模型未就绪时，App 会在提交前明确提示，不会静默丢弃图片。
 
 - **Elephant-1 决策 · 本机**：通过 llama.cpp 运行 GGUF，对 choice / noul / score 三类问题输出选项概率与置信度，不生成自由文本。
 
@@ -109,47 +108,23 @@ bash scripts/push_video_models.sh <serial>
 
 ## 手机本地运行 MOSS-Image
 
-本机模式不需要 ComfyUI 或工作站。当前安装 SFT 的 Q4_0 DiT、Qwen3.5-9B Q4_K_M 文本编码器、FLUX.2 small VAE 和官方 tokenizer，默认 512×512、CFG 3；原生 CPU 后端使用 Euler/discrete，固定负分支第 22 层跳过。
+当前安装 SFT 的 Q4_0 DiT、Qwen3.5-9B Q4_K_M 文本编码器、FLUX.2 small VAE 和官方 tokenizer，默认 512×512、CFG 3；原生 CPU 后端使用 Euler/discrete，固定负分支第 22 层跳过。
 
 ```bash
 bash scripts/download_moss_models.sh
 bash scripts/push_moss_models.sh <serial>  # 序列号换成你的设备
 ```
 
-下载脚本支持断点续传和逐文件 SHA-256 校验，模型约 9GB；可用 `MOSS_HF_ROOT` 指定镜像源根地址，哈希约束不变。推送后在 App 的模型页点击“校验模型”，再选择 **MOSS · 本机**。也可以在图像页或模型页直接下载/导入。本机与工作站分别保存尺寸、步数和 CFG；提示词增强仅在工作站提供。
+下载脚本支持断点续传和逐文件 SHA-256 校验，模型约 9GB；可用 `MOSS_HF_ROOT` 指定镜像源根地址，哈希约束不变。推送后在 App 的模型页点击“校验模型”，再选择 **MOSS · 本机**。也可以在图像页或模型页直接下载/导入。
 
-## 使用 ComfyUI 运行 MOSS-Image
+官方资料：[MOSS-Image](https://github.com/OpenMOSS/MOSS-Image)、[SFT 模型卡](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT)。
 
-需要 ComfyUI 0.42 或更新版本，并包含原生 MOSS 节点。App 会在提交前检查所需节点与所选权重文件。
+## 外部音乐服务
 
-```text
-ComfyUI/models/
-├── diffusion_models/
-│   ├── moss_image_sft_int8_convrot.safetensors
-│   └── moss_image_base_int8_convrot.safetensors  # 可选 Base
-├── text_encoders/
-│   └── qwen3.5_9b_w4a8_gptq.safetensors
-└── vae/
-    └── flux2-vae_small.safetensors
-```
-
-启动 ComfyUI 后，建立 USB 反向映射：
-
-```bash
-adb reverse tcp:8188 tcp:8188
-```
-
-在图像页选择 **MOSS · 工作站**。USB 使用 `http://127.0.0.1:8188`，局域网则填写电脑地址。客户端提交原生 ComfyUI API 工作流，读取真实队列和历史，并从同源下载图片；服务器没有进度流时只显示不确定状态，不虚构采样百分比。
-
-官方资料：[MOSS-Image](https://github.com/OpenMOSS/MOSS-Image)、[SFT 模型卡](https://huggingface.co/OpenMOSS-Team/MOSS-Image-SFT)、[ComfyUI 教程](https://docs.comfy.org/tutorials/image/moss-image/moss-image)、[Comfy-Org 权重](https://huggingface.co/Comfy-Org/MOSS-Image)。
-
-## 外部音乐与视频服务
-
-YuE2 和 MobileWan 服务端不在本仓库中。App 使用现有的 `/health`、`/generate` 接口，并下载同源返回的 `audioUrl` 或 `videoUrl`。下载有大小限制、媒体校验与原子落盘。
+YuE2 服务端不在本仓库中。App 使用现有的 `/health`、`/generate` 接口，并下载同源返回的 `audioUrl`。下载有大小限制、媒体校验与原子落盘。
 
 ```bash
 adb reverse tcp:8999 tcp:8999   # YuE2
-adb reverse tcp:8998 tcp:8998   # MobileWan
 ```
 
 只有服务器提供真实进度时才展示对应进度；否则显示不确定工作状态，不伪造步骤。

@@ -106,7 +106,7 @@ class LocalMossEngine(
                 outputFile.delete()
                 throw IOException("MOSS 输出尺寸 ${dimensions.first}×${dimensions.second} 与请求 ${settings.local.width}×${settings.local.height} 不一致")
             }
-            val result = MossGenerationResult(outputFile, dimensions.first, dimensions.second, "")
+            val result = MossGenerationResult(outputFile, dimensions.first, dimensions.second)
             onUpdate(EngineUpdate(1f, "MOSS 本机图像已保存", outputFile.name))
             result
         } catch (error: Throwable) {

@@ -20,14 +20,12 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.util.Locale
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 class VideoEngine(private val context: Context) : AutoCloseable {
     private val videoDir = File(context.filesDir, "omni_video").apply { mkdirs() }
     private val thumbDir = File(context.filesDir, "omni_video_thumbs").apply { mkdirs() }
     private val externalFilesDir = context.getExternalFilesDir(null)
     private val localModelDir = File(externalFilesDir ?: context.filesDir, "models/wan22_turbo")
-    private val activeClients = ConcurrentHashMap.newKeySet<WorkstationClient>()
 
     @Volatile
     private var activeProcess: Process? = null
@@ -92,25 +90,16 @@ class VideoEngine(private val context: Context) : AutoCloseable {
         return items.sortedByDescending { it.createdAt }
     }
 
-    fun generationBackend(): VideoBackend =
-        if (runtimeStatus().localReady) VideoBackend.LocalWan else VideoBackend.Workstation
-
     suspend fun executeGeneration(
         job: VideoJob,
-        backend: VideoBackend = generationBackend(),
         onUpdate: (EngineUpdate) -> Unit
     ): VideoItem = withContext(Dispatchers.IO) {
         try {
             job.settings.validate()
             if (cancelRequested) throw CancellationException("已取消视频生成")
-            if (backend == VideoBackend.LocalWan) {
-                executeOnDevice(job, onUpdate)
-            } else {
-                require(job.settings.inputImageUri == null) {
-                    "图生视频需要本机 Wan 模型；当前工作站不支持参考图"
-                }
-                executeWorkstation(job, onUpdate)
-            }
+            val status = runtimeStatus()
+            if (!status.localReady) throw IOException("本机 Wan2.2 缺少：${status.missingComponents.joinToString("、")}")
+            executeOnDevice(job, onUpdate)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -123,7 +112,6 @@ class VideoEngine(private val context: Context) : AutoCloseable {
     fun cancelGeneration() {
         cancelRequested = true
         activeProcess?.destroy()
-        activeClients.forEach { it.close() }
     }
 
     override fun close() = cancelGeneration()
@@ -207,62 +195,6 @@ class VideoEngine(private val context: Context) : AutoCloseable {
             process?.let { if (it.isAlive) it.destroy() }
             initImageFile?.delete()
             partialFile.delete()
-        }
-    }
-
-    private suspend fun executeWorkstation(
-        job: VideoJob,
-        onUpdate: (EngineUpdate) -> Unit
-    ): VideoItem {
-        val settings = job.settings
-        val client = WorkstationClient(settings.serverUrl)
-        activeClients += client
-        try {
-            if (cancelRequested) throw CancellationException("已取消视频生成")
-            onUpdate(EngineUpdate(null, "正在连接视频工作站"))
-            if (!client.isHealthy()) {
-                throw IOException("无法连接视频工作站。请启动服务；USB 连接可运行 adb reverse tcp:8998 tcp:8998")
-            }
-            val payload = JSONObject().apply {
-                put("prompt", settings.prompt)
-                put("seed", settings.seed)
-                put("fps", settings.fps)
-                put("num_frames", settings.numFrames)
-                put("width", settings.width)
-                put("height", settings.height)
-                put("steps", settings.steps)
-                put("shift", settings.shift.toDouble())
-                put("high_quality", settings.highQuality)
-            }
-            onUpdate(EngineUpdate(null, "工作站正在生成", "任务已提交，等待服务器返回"))
-            val response = client.postJson("/generate", payload, 600_000)
-            currentCoroutineContext().ensureActive()
-            if (cancelRequested) throw CancellationException("已取消视频生成")
-
-            val reference = response.getString("videoUrl")
-            val extension = reference.substringAfterLast('.', "mp4").lowercase().let {
-                if (it in VIDEO_EXTENSIONS) it else "mp4"
-            }
-            val videoId = "workstation_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
-            val outputFile = File(videoDir, "$videoId.$extension")
-            onUpdate(EngineUpdate(null, "正在接收视频"))
-            client.download(reference, outputFile, 2L * 1024 * 1024 * 1024, "video")
-            currentCoroutineContext().ensureActive()
-            if (cancelRequested) throw CancellationException("已取消视频生成")
-            val item = createItem(
-                file = outputFile,
-                settings = settings,
-                backend = VideoBackend.Workstation,
-                fallbackDuration = response.optDouble("durationSec", 0.0).toFloat(),
-                fallbackFps = response.optInt("fps", settings.fps),
-                fallbackResolution = response.optString("resolution", "${settings.width}×${settings.height}")
-            )
-            saveMetadata(item)
-            onUpdate(EngineUpdate(1f, "视频已保存", outputFile.name))
-            return item
-        } finally {
-            activeClients -= client
-            client.close()
         }
     }
 

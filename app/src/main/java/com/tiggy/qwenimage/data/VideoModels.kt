@@ -20,7 +20,6 @@ data class VideoSettings(
     val steps: Int = 4,
     val shift: Float = 5.0f,
     val highQuality: Boolean = true,
-    val serverUrl: String = "http://127.0.0.1:8998",
     val inputImageUri: Uri? = null
 ) {
     fun validate() {
@@ -33,7 +32,7 @@ data class VideoSettings(
 
     fun validateOnDevice() {
         validate()
-        require(numFrames <= 25) { "本机最多生成 25 帧；更多帧数请使用工作站" }
+        require(numFrames <= 25) { "本机最多生成 25 帧" }
         require(steps <= 6) { "本机最多使用 6 步" }
     }
 
@@ -47,7 +46,6 @@ data class VideoSettings(
         put("steps", steps)
         put("shift", shift.toDouble())
         put("highQuality", highQuality)
-        put("serverUrl", serverUrl)
         put("inputImage", inputImageUri?.toString())
     }
 
@@ -62,7 +60,6 @@ data class VideoSettings(
             steps = o.optInt("steps", 4),
             shift = o.optDouble("shift", 5.0).toFloat(),
             highQuality = o.optBoolean("highQuality", true),
-            serverUrl = o.optString("serverUrl", "http://127.0.0.1:8998"),
             inputImageUri = o.optString("inputImage").takeIf { it.isNotBlank() && it != "null" }?.let(Uri::parse)
         )
     }
