@@ -36,7 +36,10 @@ class VideoEngine(private val context: Context) : AutoCloseable {
     private var cancelRequested = false
 
     fun runtimeStatus(): VideoRuntimeStatus {
-        val missing = requiredLocalFiles().filter { !it.value.isFile || it.value.length() == 0L }.keys.toList()
+        // Exact sizes catch half-pushed files, which would otherwise fail only once sd-cli starts.
+        val missing = requiredLocalFiles().filter { (name, file) ->
+            !file.isFile || file.length() != EXPECTED_SIZES.getValue(name)
+        }.keys.toList()
         val nativeLib = File(context.applicationInfo.nativeLibraryDir, "libsd_cli.so")
         val allMissing = if (!nativeLib.isFile) missing + "libsd_cli.so" else missing
         return VideoRuntimeStatus(allMissing.isEmpty(), allMissing)
@@ -387,6 +390,11 @@ class VideoEngine(private val context: Context) : AutoCloseable {
         const val DIT = "Wan2.2 DiT"
         const val T5 = "UMT5 文本编码器"
         const val VAE = "TAE 视频解码器"
+        val EXPECTED_SIZES = mapOf(
+            DIT to 3_033_897_696L,
+            T5 to 2_858_489_696L,
+            VAE to 22_848_048L
+        )
         val VIDEO_EXTENSIONS = setOf("mp4", "webm")
         val ANSI = Regex("\u001B\\[[0-9;]*[A-Za-z]")
     }

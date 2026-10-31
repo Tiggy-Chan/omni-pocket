@@ -95,16 +95,17 @@ The app requires a valid `manifest.json` and verifies file sizes and SHA-256 has
 
 Place these files in `models/wan22_turbo`:
 
-- `Wan2_2-TI2V-5B-Turbo-Q4_0.gguf`
-- `umt5-xxl-encoder-Q3_K_S.gguf`
-- `taew2_2.safetensors`
+- `Wan2_2-TI2V-5B-Turbo-Q4_0.gguf` from [hum-ma/Wan2.2-TI2V-5B-Turbo-GGUF](https://huggingface.co/hum-ma/Wan2.2-TI2V-5B-Turbo-GGUF)
+- `umt5-xxl-encoder-Q3_K_S.gguf` from [city96/umt5-xxl-encoder-gguf](https://huggingface.co/city96/umt5-xxl-encoder-gguf)
+- `taew2_2.safetensors` from [lightx2v/Autoencoders](https://huggingface.co/lightx2v/Autoencoders)
 
-Then push the directory:
+Then push them. The script checks sha256 before and after upload, and skips files already on the phone:
 
 ```bash
-adb push models/wan22_turbo \
-  /sdcard/Android/data/com.tiggy.qwenimage/files/models/
+bash scripts/push_video_models.sh <serial>
 ```
+
+The Video workspace switches to "Wan2.2 · 本机" once all three files are present at their exact sizes; otherwise it lists what is missing. Local runs are limited to 480×832, up to 25 frames and 6 steps.
 
 ## MOSS-Image on the phone
 

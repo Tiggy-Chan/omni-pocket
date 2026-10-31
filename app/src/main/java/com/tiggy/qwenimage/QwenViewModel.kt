@@ -27,6 +27,7 @@ import com.tiggy.qwenimage.data.ThemeMode
 import com.tiggy.qwenimage.data.VideoBackend
 import com.tiggy.qwenimage.data.VideoItem
 import com.tiggy.qwenimage.data.VideoJob
+import com.tiggy.qwenimage.data.VideoRuntimeStatus
 import com.tiggy.qwenimage.data.VideoSettings
 import com.tiggy.qwenimage.data.VideoStudioTab
 import com.tiggy.qwenimage.data.WorkspaceTab
@@ -432,6 +433,7 @@ class QwenViewModel(
     fun selectVideoTab(tab: VideoStudioTab) = _state.update { it.copy(videoTab = tab) }
 
     fun videoBackend(): VideoBackend = videoEngine.generationBackend()
+    fun videoRuntimeStatus(): VideoRuntimeStatus = videoEngine.runtimeStatus()
 
     // Video settings modifiers
     fun setVideoPrompt(prompt: String) = _state.update { it.copy(videoSettings = it.videoSettings.copy(prompt = prompt)) }

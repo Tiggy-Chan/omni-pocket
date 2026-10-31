@@ -95,16 +95,17 @@ Qwen 生成依赖有效的 `manifest.json`。应用会校验文件大小和 SHA-
 
 将以下文件放入 `models/wan22_turbo`：
 
-- `Wan2_2-TI2V-5B-Turbo-Q4_0.gguf`
-- `umt5-xxl-encoder-Q3_K_S.gguf`
-- `taew2_2.safetensors`
+- `Wan2_2-TI2V-5B-Turbo-Q4_0.gguf`，来自 [hum-ma/Wan2.2-TI2V-5B-Turbo-GGUF](https://huggingface.co/hum-ma/Wan2.2-TI2V-5B-Turbo-GGUF)
+- `umt5-xxl-encoder-Q3_K_S.gguf`，来自 [city96/umt5-xxl-encoder-gguf](https://huggingface.co/city96/umt5-xxl-encoder-gguf)
+- `taew2_2.safetensors`，来自 [lightx2v/Autoencoders](https://huggingface.co/lightx2v/Autoencoders)
 
-然后推送：
+然后推送。脚本会在上传前后校验 sha256，手机上已有的文件会跳过：
 
 ```bash
-adb push models/wan22_turbo \
-  /sdcard/Android/data/com.tiggy.qwenimage/files/models/
+bash scripts/push_video_models.sh <serial>
 ```
+
+三个文件大小都正确后，视频工作区会显示“Wan2.2 · 本机”；否则会列出缺少的文件。本机生成限制为 480×832、最多 25 帧、6 步。
 
 ## 手机本地运行 MOSS-Image
 
