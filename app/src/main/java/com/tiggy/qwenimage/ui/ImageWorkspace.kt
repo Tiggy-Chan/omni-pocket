@@ -137,7 +137,7 @@ fun ImageWorkspace(
         ImageGenerationBackend.MossLocal -> moss.prompt
         ImageGenerationBackend.CustomSd -> customSd.prompt
     }
-    val backendLabel = if (isCustomSd) (selectedCustomModel?.name ?: backend.displayName()) else backend.displayName()
+    val backendLabel = if (isCustomSd) (selectedCustomModel?.name ?: backend.localizedDisplayName()) else backend.localizedDisplayName()
     val backendReady = backendReady(state, backend)
     val needsReference = isQwen && settings.mode == GenerationMode.ImageEdit && settings.inputUri == null
     val sendEnabled = prompt.isNotBlank() && backendReady && !needsReference
@@ -493,7 +493,7 @@ private fun jobCaption(job: GenerationJob): String {
     val stepsText = tr(R.string.common_steps_value, job.settings.steps)
     val elapsedText = if (job.state == "done" && job.elapsedMs > 0) tr(R.string.common_seconds_value, (job.elapsedMs / 1000).toInt()) else null
     return buildList {
-        add(if (job.backend == ImageGenerationBackend.CustomSd) job.customModelName ?: job.backend.displayName() else job.backend.displayName())
+        add(if (job.backend == ImageGenerationBackend.CustomSd) job.customModelName ?: job.backend.localizedDisplayName() else job.backend.localizedDisplayName())
         add("${width}×${height}")
         add(stepsText)
         elapsedText?.let(::add)
@@ -567,7 +567,7 @@ private fun ImageBackendOptions(
                 ImageGenerationBackend.CustomSd -> ""
             }
             SettingRow(
-                title = target.displayName(),
+                title = target.localizedDisplayName(),
                 detail = detail,
                 onClick = { onSelectBuiltIn(target) }
             ) {

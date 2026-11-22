@@ -145,7 +145,7 @@ class PackagedModelRepository(
         }
         val available = StatFs(staging.path).availableBytes
         check(available >= remaining + RESERVE_BYTES) {
-            "空间不足，还需 ${String.format("%.2f", (remaining + RESERVE_BYTES) / 1_000_000_000.0)} GB 可用空间"
+            "空间不足，还需 ${String.format(java.util.Locale.US, "%.2f", (remaining + RESERVE_BYTES) / 1_000_000_000.0)} GB 可用空间"
         }
         for (artifact in reusableFromExisting) {
             op.ensureActive()

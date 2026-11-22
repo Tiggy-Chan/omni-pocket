@@ -70,11 +70,15 @@ private fun InlineMarkdown(text: String, color: Color, style: androidx.compose.u
         style = style.copy(color = color))
 }
 
+private val InlineMarkdownPattern = Regex("\\*\\*([^*\\n]+)\\*\\*|`([^`\\n]+)`|\\[([^]]+)\\]\\((https?://[^)\\s]+)\\)")
+private val HeadingPattern = Regex("^(#{1,3})\\s+(.+)$")
+private val BulletPattern = Regex("^[-*]\\s+(.+)$")
+private val NumberedPattern = Regex("^(\\d+[.)])\\s+(.+)$")
+
 private fun inlineMarkdown(text: String, codeBackground: Color, linkColor: Color): AnnotatedString {
     val builder = AnnotatedString.Builder()
-    val pattern = Regex("\\*\\*([^*\\n]+)\\*\\*|`([^`\\n]+)`|\\[([^]]+)\\]\\((https?://[^)\\s]+)\\)")
     var cursor = 0
-    pattern.findAll(text).forEach { match ->
+    InlineMarkdownPattern.findAll(text).forEach { match ->
         builder.append(text.substring(cursor, match.range.first))
         val bold = match.groups[1]
         val code = match.groups[2]
@@ -127,9 +131,9 @@ private fun parseBlocks(text: String): List<LlmBlock> {
             result += LlmBlock.Code(code.joinToString("\n"))
         } else {
             val trimmed = line.trim()
-            val heading = Regex("^(#{1,3})\\s+(.+)$").find(trimmed)
-            val bullet = Regex("^[-*]\\s+(.+)$").find(trimmed)
-            val numbered = Regex("^(\\d+[.)])\\s+(.+)$").find(trimmed)
+            val heading = HeadingPattern.find(trimmed)
+            val bullet = BulletPattern.find(trimmed)
+            val numbered = NumberedPattern.find(trimmed)
             when {
                 trimmed.isEmpty() -> flushParagraph()
                 heading != null -> {

@@ -11,3 +11,4 @@ models/
 __pycache__/
 .kotlin/
 app/src/main/jniLibs/
+dist/

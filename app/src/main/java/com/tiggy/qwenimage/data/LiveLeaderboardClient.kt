@@ -542,6 +542,7 @@ object LiveLeaderboardClient {
             val paramsB = parseParamsFromName(row.name)
             val hfRepo = when {
                 lower.contains("elephant") -> "mradermacher/elephant-1-GGUF"
+                lower.contains("onejev") && lower.contains("9b") -> "mradermacher/OneJev1.6-9B-GGUF"
                 lower.contains("onejev") && lower.contains("4b") -> "mradermacher/OneJev1.6-4B-GGUF"
                 lower.contains("onejev") && lower.contains("0.8b") -> "mradermacher/OneJev1.6-0.8B-GGUF"
                 else -> null

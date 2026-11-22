@@ -65,7 +65,9 @@ class ModelRepository(
             if (target.isFile && matches(target, artifact)) 0L
             else (artifact.size - File(staging, artifact.path + ".part").length()).coerceAtLeast(0L)
         }
-        check(StatFs(staging.path).availableBytes > remaining + 512L * 1024 * 1024) { "空间不足，需至少 ${remaining / 1_000_000_000.0} GB 及 512MB 余量" }
+        check(StatFs(staging.path).availableBytes > remaining + 512L * 1024 * 1024) {
+            "空间不足，需至少 ${String.format(java.util.Locale.US, "%.2f", remaining / 1_000_000_000.0)} GB 及 512MB 余量"
+        }
         var completed = 0L
         for (artifact in manifest.artifacts) {
             coroutineContext.ensureActive()

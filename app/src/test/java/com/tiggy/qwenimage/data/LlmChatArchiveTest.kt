@@ -39,6 +39,15 @@ class LlmChatArchiveTest {
     }
 
     @Test
+    fun archiveSupportsLongDraftsUpToMaxInputLength() {
+        val conversation = LlmConversation(id = "long", title = "Long", modelId = "qwen35-0.8b")
+        val longDraft = "a".repeat(12_000)
+        val snapshot = LlmChatSnapshot(listOf(conversation), "long", mapOf("long" to longDraft))
+        val restored = LlmChatArchive.parse(LlmChatArchive.serialize(snapshot))
+        assertEquals(longDraft, restored.drafts["long"])
+    }
+
+    @Test
     fun parsesClosedAndUnclosedThinkBlocks() {
         assertEquals("答案" to "过程", splitReasoning("<think>过程</think>答案"))
         assertEquals("" to "仍在思考", splitReasoning("<think>仍在思考"))

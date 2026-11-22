@@ -158,7 +158,7 @@ class LlmModelRepository(
 
     fun delete(id: String) {
         val directory = directory(id)
-        check(!File(directory.path + ".verified.json.tmp").exists()) { "模型校验尚未结束" }
+        check(!File(directory, ".verified.json.tmp").exists()) { "模型校验尚未结束" }
         if (directory.exists()) check(directory.deleteRecursively()) { "无法删除模型" }
         File(root, ".${model(id).id}.downloading").deleteRecursively()
     }

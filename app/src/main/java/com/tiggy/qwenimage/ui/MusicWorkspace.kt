@@ -276,10 +276,11 @@ fun MusicWorkspace(
     scoreTrack?.let { track -> MusicScoreSheet(track) { scoreTrack = null } }
     pendingDelete?.let { track ->
         val untitled = tr(R.string.music_untitled)
+        val displayTitle = if (track.title.isBlank() || track.title == "未命名曲目") untitled else track.title
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text(tr(R.string.music_delete_title)) },
-            text = { Text(tr(R.string.music_delete_body, track.title.ifBlank { untitled })) },
+            text = { Text(tr(R.string.music_delete_body, displayTitle)) },
             confirmButton = {
                 TextButton(onClick = {
                     pendingDelete = null
@@ -373,7 +374,7 @@ private fun MusicTrackBlock(
     val shareLabel = tr(R.string.common_share)
     val deleteLabel = tr(R.string.common_delete)
     val scoreLabel = tr(R.string.music_score)
-    val title = track.title.ifBlank { untitled }
+    val title = if (track.title.isBlank() || track.title == "未命名曲目") untitled else track.title
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (track.title.isNotBlank() && track.title != "未命名曲目" && track.title != untitled) {
             Text(title, color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall,

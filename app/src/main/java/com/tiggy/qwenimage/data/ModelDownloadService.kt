@@ -136,7 +136,7 @@ object ModelDownloadManager {
         var lastBytes = 0L
         var smoothedSpeed = 0L
 
-        val job = scope.launch {
+        val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
             var errorMessage: String? = null
             var completed = false
             try {
@@ -198,6 +198,7 @@ object ModelDownloadManager {
             }
         }
         synchronized(lock) { currentJob = job }
+        job.start()
     }
 
     private fun publishQueueLocked() {
@@ -273,6 +274,12 @@ class ModelDownloadService : Service() {
         return START_NOT_STICKY
     }
 
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        ModelDownloadManager.cancelActive()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf(startId)
+    }
+
     override fun onDestroy() {
         collector?.cancel()
         collector = null
@@ -280,23 +287,23 @@ class ModelDownloadService : Service() {
     }
 
     private fun ensureChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = getSystemService(NotificationManager::class.java)
-            if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-                val channel = NotificationChannel(
-                    CHANNEL_ID,
-                    "模型下载",
-                    NotificationManager.IMPORTANCE_LOW
-                ).apply {
-                    description = "后台下载本地 AI 模型权重"
-                    setShowBadge(false)
-                }
-                manager.createNotificationChannel(channel)
+        val localized = AppLanguageManager.localizedContext(this)
+        val manager = getSystemService(NotificationManager::class.java)
+        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                localized.getString(com.tiggy.qwenimage.R.string.download_notif_channel),
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = localized.getString(com.tiggy.qwenimage.R.string.download_notif_channel_desc)
+                setShowBadge(false)
             }
+            manager.createNotificationChannel(channel)
         }
     }
 
     private fun buildNotification(active: ActiveDownloadState?): Notification {
+        val localized = AppLanguageManager.localizedContext(this)
         val openIntent = PendingIntent.getActivity(
             this,
             0,
@@ -309,18 +316,16 @@ class ModelDownloadService : Service() {
             Intent(this, ModelDownloadService::class.java).setAction(ACTION_CANCEL),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            Notification.Builder(this, CHANNEL_ID)
-        } else {
-            @Suppress("DEPRECATION")
-            Notification.Builder(this)
-        }
-        val title = active?.let { "正在下载 ${it.title}" } ?: "模型下载"
+        val builder = Notification.Builder(this, CHANNEL_ID)
+        val title = active?.let {
+            localized.getString(com.tiggy.qwenimage.R.string.download_notif_downloading, it.title)
+        } ?: localized.getString(com.tiggy.qwenimage.R.string.download_notif_channel)
         val text = if (active == null) {
-            "准备中…"
+            localized.getString(com.tiggy.qwenimage.R.string.download_notif_preparing)
         } else {
             val doneStr = formatBytesCompact(active.downloadedBytes)
-            val totalStr = if (active.totalBytes > 0L) formatBytesCompact(active.totalBytes) else "未知"
+            val totalStr = if (active.totalBytes > 0L) formatBytesCompact(active.totalBytes)
+            else localized.getString(com.tiggy.qwenimage.R.string.common_unknown)
             val speedStr = if (active.bytesPerSecond > 0L) " · ${formatBytesCompact(active.bytesPerSecond)}/s" else ""
             "$doneStr / $totalStr$speedStr"
         }
@@ -330,7 +335,7 @@ class ModelDownloadService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(openIntent)
-            .addAction(Notification.Action.Builder(null, "取消", cancelIntent).build())
+            .addAction(Notification.Action.Builder(null, localized.getString(com.tiggy.qwenimage.R.string.common_cancel), cancelIntent).build())
         if (active != null && active.totalBytes > 0L) {
             val pct = (active.fraction * 1000).toInt().coerceIn(0, 1000)
             builder.setProgress(1000, pct, false)

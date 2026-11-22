@@ -134,12 +134,10 @@ fun LibraryScreen(
                                     onOpen = { onPreview(path) },
                                     actions = listOf(
                                         MenuAction(continueEditLabel) {
-                                            viewModel.editImage(path)
-                                            onOpenWorkspace(AppDomain.ImageStudio)
+                                            if (viewModel.editImage(path)) onOpenWorkspace(AppDomain.ImageStudio)
                                         },
                                         MenuAction(makeVideoLabel) {
-                                            viewModel.useImageAsVideoFirstFrame(path)
-                                            onOpenWorkspace(AppDomain.VideoStudio)
+                                            if (viewModel.useImageAsVideoFirstFrame(path)) onOpenWorkspace(AppDomain.VideoStudio)
                                         },
                                         MenuAction(shareLabel) {
                                             runCatching { shareMediaFile(context, File(path), "image/png", shareImageTitle) }
@@ -220,7 +218,8 @@ fun LibraryScreen(
             onDismiss = { deleteImage = null })
     }
     deleteTrack?.let { track ->
-        ConfirmDeleteDialog(tr(R.string.music_delete_title), tr(R.string.music_delete_body, track.title),
+        val displayTitle = if (track.title.isBlank() || track.title == "未命名曲目") tr(R.string.music_untitled) else track.title
+        ConfirmDeleteDialog(tr(R.string.music_delete_title), tr(R.string.music_delete_body, displayTitle),
             onConfirm = { viewModel.deleteMusicTrack(track); deleteTrack = null },
             onDismiss = { deleteTrack = null })
     }
@@ -335,24 +334,26 @@ private fun TrackRow(
     val playLabel = tr(R.string.common_play)
     val shareLabel = tr(R.string.common_share)
     val deleteLabel = tr(R.string.common_delete)
+    val untitled = tr(R.string.music_untitled)
+    val displayTitle = if (track.title.isBlank() || track.title == "未命名曲目") untitled else track.title
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onPlay, modifier = Modifier.size(48.dp)) {
                 Icon(if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                    if (playing) "$pauseLabel ${track.title}" else "$playLabel ${track.title}", tint = OmniColors.Accent)
+                    if (playing) "$pauseLabel $displayTitle" else "$playLabel $displayTitle", tint = OmniColors.Accent)
             }
             Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
-                Text(track.title, color = OmniColors.Ink, style = MaterialTheme.typography.bodyLarge,
+                Text(displayTitle, color = OmniColors.Ink, style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${formatMediaDuration(track.durationSec)} · ${track.bpm} BPM", color = OmniColors.Dim,
                     style = MaterialTheme.typography.labelSmall)
             }
             IconButton(onClick = onShare, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Outlined.Share, "$shareLabel ${track.title}", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                Icon(Icons.Outlined.Share, "$shareLabel $displayTitle", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
             }
             if (onDelete != null) {
                 IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Outlined.DeleteOutline, "$deleteLabel ${track.title}", tint = OmniColors.Muted,
+                    Icon(Icons.Outlined.DeleteOutline, "$deleteLabel $displayTitle", tint = OmniColors.Muted,
                         modifier = Modifier.size(20.dp))
                 }
             }

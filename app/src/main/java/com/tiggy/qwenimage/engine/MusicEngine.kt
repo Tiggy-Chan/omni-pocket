@@ -271,6 +271,7 @@ class MusicEngine(
             val buffer = ByteArray(4096)
             var outputTail = ""
             while (true) {
+                currentCoroutineContext().ensureActive()
                 val count = input.read(buffer)
                 if (count < 0) break
                 val chunk = String(buffer, 0, count, Charsets.UTF_8)
@@ -378,7 +379,9 @@ class MusicEngine(
             AudioInfo(
                 valid = true,
                 durationSec = (retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toFloatOrNull() ?: 0f) / 1000,
-                sampleRate = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)?.toIntOrNull() ?: 0
+                sampleRate = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)?.toIntOrNull() ?: 0
+                } else 0
             )
         } finally {
             retriever.release()

@@ -5,7 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="${1:-$ROOT/models/qwen_image21}"
 A="adb ${2:+-s $2}"
-DST=/sdcard/Android/data/com.scsonic.qwenimage21.demo/files/qwen_image21
+APP_ID="${OMNI_APP_ID:-com.tiggy.omnipocket}"
+DST="/sdcard/Android/data/${APP_ID}/files/models/qwen_image21_uc_q4km"
 
 hash_file() {
     if command -v shasum >/dev/null 2>&1; then

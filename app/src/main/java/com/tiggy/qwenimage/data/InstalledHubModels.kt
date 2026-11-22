@@ -210,7 +210,7 @@ class InstalledHubModelsRepository(private val context: Context) {
         }
         val available = StatFs(staging.path).availableBytes
         check(available >= remaining + RESERVE_BYTES) {
-            "空间不足，请至少预留 ${String.format("%.2f", (remaining + RESERVE_BYTES) / 1_000_000_000.0)} GB 可用空间"
+            "空间不足，请至少预留 ${String.format(java.util.Locale.US, "%.2f", (remaining + RESERVE_BYTES) / 1_000_000_000.0)} GB 可用空间"
         }
 
         val total = option.totalBytes.coerceAtLeast(1L)

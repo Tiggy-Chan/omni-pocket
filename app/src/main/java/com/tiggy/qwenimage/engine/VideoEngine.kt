@@ -192,6 +192,7 @@ class VideoEngine(
             val buffer = ByteArray(4096)
             var outputTail = ""
             while (true) {
+                currentCoroutineContext().ensureActive()
                 val count = input.read(buffer)
                 if (count < 0) break
                 val chunk = String(buffer, 0, count, Charsets.UTF_8)

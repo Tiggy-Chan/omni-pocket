@@ -259,9 +259,9 @@ private fun QuestionBlock(
                 },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = when (question.kind) {
-                    DecisionKind.Choice -> "Which option applies to the state?"
-                    DecisionKind.Noul -> "Is the statement true, or is the answer to the question yes?"
-                    DecisionKind.Score -> "Which level describes the state?"
+                    DecisionKind.Choice -> tr(R.string.decision_choice_placeholder)
+                    DecisionKind.Noul -> tr(R.string.decision_yesno_placeholder)
+                    DecisionKind.Score -> tr(R.string.decision_score_placeholder)
                 },
                 maxLines = 3,
                 enabled = !busy

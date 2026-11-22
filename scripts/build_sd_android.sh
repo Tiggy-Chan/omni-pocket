@@ -19,9 +19,13 @@ NDK_REVISION="28.2.13676358"
 ANDROID_PLATFORM="android-28"
 PATCH="$ROOT/patches/moss-android.patch"
 
-if [[ -z "${ANDROID_NDK:-}" ]]; then
-    : "${ANDROID_HOME:?set ANDROID_HOME or ANDROID_NDK}"
-    ANDROID_NDK="$ANDROID_HOME/ndk/$NDK_REVISION"
+if [[ -z "${ANDROID_NDK:-}" || ! -f "${ANDROID_NDK}/source.properties" ]] || ! grep -q "Pkg.Revision = $NDK_REVISION" "${ANDROID_NDK}/source.properties" 2>/dev/null; then
+    if [[ -n "${ANDROID_HOME:-}" && -d "$ANDROID_HOME/ndk/$NDK_REVISION" ]]; then
+        ANDROID_NDK="$ANDROID_HOME/ndk/$NDK_REVISION"
+    elif [[ -z "${ANDROID_NDK:-}" ]]; then
+        : "${ANDROID_HOME:?set ANDROID_HOME or ANDROID_NDK}"
+        ANDROID_NDK="$ANDROID_HOME/ndk/$NDK_REVISION"
+    fi
 fi
 
 for tool in cmake ninja git python3; do

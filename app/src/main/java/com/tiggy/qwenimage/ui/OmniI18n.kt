@@ -28,6 +28,7 @@ import com.tiggy.qwenimage.data.HubProbeResult
 import com.tiggy.qwenimage.data.HubSearchCategory
 import com.tiggy.qwenimage.data.HubSettings
 import com.tiggy.qwenimage.data.HubSplitWarning
+import com.tiggy.qwenimage.data.ImageGenerationBackend
 import com.tiggy.qwenimage.data.LlmModelStatus
 import com.tiggy.qwenimage.data.ModelBenchmarkEntry
 import com.tiggy.qwenimage.data.ModelStatus
@@ -356,6 +357,13 @@ fun DecisionModelChoice.localizedDetail(): String {
         !builtIn -> tr(R.string.status_missing_file)
         else -> "${tr(R.string.common_not_downloaded)} · $sizeStr"
     }
+}
+
+@Composable
+fun ImageGenerationBackend.localizedDisplayName(): String = when (this) {
+    ImageGenerationBackend.QwenLocal -> tr(R.string.image_backend_qwen_local)
+    ImageGenerationBackend.MossLocal -> tr(R.string.image_backend_moss_local)
+    ImageGenerationBackend.CustomSd -> tr(R.string.image_backend_custom_sd_local)
 }
 
 @Composable

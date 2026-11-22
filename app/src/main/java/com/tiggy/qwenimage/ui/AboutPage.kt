@@ -401,8 +401,9 @@ fun AboutPage(onMenu: (() -> Unit)?) {
 
 private suspend fun saveQrCodeToGallery(context: Context, channel: SponsorChannel): Boolean =
     withContext(Dispatchers.IO) {
-        runCatching {
-            val bitmap = BitmapFactory.decodeResource(context.resources, channel.qrRes) ?: return@runCatching false
+        val bitmap = BitmapFactory.decodeResource(context.resources, channel.qrRes) ?: return@withContext false
+        var insertedUri: Uri? = null
+        try {
             val isPng = channel.fileName.endsWith(".png", ignoreCase = true)
             val mime = if (isPng) "image/png" else "image/jpeg"
             val format = if (isPng) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
@@ -415,15 +416,22 @@ private suspend fun saveQrCodeToGallery(context: Context, channel: SponsorChanne
                     put(MediaStore.Images.Media.IS_PENDING, 1)
                 }
             }
-            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return@runCatching false
+            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return@withContext false
+            insertedUri = uri
             resolver.openOutputStream(uri)?.use { out ->
                 check(bitmap.compress(format, 96, out))
-            } ?: return@runCatching false
+            } ?: error("Failed to open gallery output stream")
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 values.clear()
                 values.put(MediaStore.Images.Media.IS_PENDING, 0)
                 resolver.update(uri, values, null, null)
             }
+            insertedUri = null
             true
-        }.getOrDefault(false)
+        } catch (_: Throwable) {
+            insertedUri?.let { uri -> runCatching { context.contentResolver.delete(uri, null, null) } }
+            false
+        } finally {
+            bitmap.recycle()
+        }
     }

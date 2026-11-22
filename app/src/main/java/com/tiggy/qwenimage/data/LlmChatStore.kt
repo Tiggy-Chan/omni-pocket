@@ -74,8 +74,7 @@ object LlmChatArchive {
         val draftKeys = draftObject?.keys()?.asSequence()?.toList().orEmpty()
         require(draftKeys.size <= 100) { "草稿数量超过上限" }
         val drafts = draftKeys.mapNotNull { id ->
-            val draft = draftObject?.getString(id).orEmpty()
-            require(draft.length <= 8_000) { "草稿内容超过上限" }
+            val draft = draftObject?.getString(id).orEmpty().take(32_000)
             if (conversations.any { it.id == id }) id to draft else null
         }.toMap()
         return LlmChatSnapshot(conversations, selected ?: conversations.firstOrNull()?.id, drafts)

@@ -598,7 +598,7 @@ private fun VideoParamsSheet(settings: VideoSettings, viewModel: QwenViewModel, 
                         cfgText = value
                         value.toFloatOrNull()?.takeIf { it.isFinite() }?.let(viewModel::setVideoCfgScale)
                     },
-                    label = "CFG (Turbo=1.0)",
+                    label = tr(R.string.video_cfg_label),
                     modifier = Modifier.weight(1f)
                 )
                 OmniTextField(

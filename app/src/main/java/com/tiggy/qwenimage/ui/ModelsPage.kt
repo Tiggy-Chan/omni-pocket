@@ -46,6 +46,8 @@ import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -257,7 +259,12 @@ fun ModelsPage(
     val downloads = hubState.downloads
     val modelTask = state.modelTask
     val modelBusy = modelTask.running
-    val mossTaskActive = state.activeTask?.backend == GenerationBackend.LocalMoss
+    val hubDeleteBusy = llmState.busy || decisionState.busy || state.activeTask != null
+    val activeModelBackend = state.activeTask?.takeIf { it.domain == com.tiggy.qwenimage.data.TaskDomain.Model }?.backend
+    val mossTaskActive = activeModelBackend == GenerationBackend.LocalMoss
+    val yue2TaskActive = activeModelBackend == GenerationBackend.LocalYue2
+    val wanTaskActive = activeModelBackend == GenerationBackend.LocalWan
+    val qwenTaskActive = activeModelBackend == null || activeModelBackend == GenerationBackend.LocalQwen
     val showModelTask = modelTask.running || modelTask.error != null
     val qwenStatus = state.modelStatus
     val mossStatus = state.mossModelStatus
@@ -352,7 +359,7 @@ fun ModelsPage(
                                     ready = true,
                                     trailing = {
                                         ModelButton(tr(R.string.common_use), { onUseHubModel(model) })
-                                        ModelButton(tr(R.string.common_delete), { deleteHubModel = model }, danger = true)
+                                        ModelButton(tr(R.string.common_delete), { deleteHubModel = model }, enabled = !hubDeleteBusy, danger = true)
                                     }
                                 )
                             }
@@ -523,7 +530,7 @@ fun ModelsPage(
                                         }
                                     },
                                     below = {
-                                        if (showModelTask && !mossTaskActive) TaskLine(modelTask, modifier = Modifier.padding(bottom = 4.dp))
+                                        if (showModelTask && qwenTaskActive) TaskLine(modelTask, modifier = Modifier.padding(bottom = 4.dp))
                                         if (qwenStatus?.ready == true) {
                                             ModelButton(
                                                 tr(R.string.models_check_engine),
@@ -548,14 +555,14 @@ fun ModelsPage(
                                                 OmniTextField(
                                                     value = state.repo,
                                                     onValueChange = viewModel::setRepo,
-                                                    label = "Hugging Face owner/repo",
+                                                    label = tr(R.string.models_repo_label),
                                                     placeholder = tr(R.string.models_repo_placeholder),
                                                     modifier = Modifier.fillMaxWidth()
                                                 )
                                                 OmniTextField(
                                                     value = state.revision,
                                                     onValueChange = viewModel::setRevision,
-                                                    label = "Revision",
+                                                    label = tr(R.string.models_revision_label),
                                                     modifier = Modifier.fillMaxWidth()
                                                 )
                                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -612,6 +619,7 @@ fun ModelsPage(
                                         }
                                     },
                                     below = {
+                                        if (showModelTask && yue2TaskActive) TaskLine(modelTask, modifier = Modifier.padding(bottom = 4.dp))
                                         Text(
                                             tr(R.string.models_cc_by_nc_note),
                                             color = OmniColors.Dim,
@@ -649,6 +657,7 @@ fun ModelsPage(
                                         }
                                     },
                                     below = {
+                                        if (showModelTask && wanTaskActive) TaskLine(modelTask, modifier = Modifier.padding(bottom = 4.dp))
                                         Text(
                                             tr(R.string.models_wan_note),
                                             color = OmniColors.Dim,
@@ -1459,6 +1468,7 @@ fun MirrorSourceSheet(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
+            var tokenVisible by remember { mutableStateOf(false) }
             OmniTextField(
                 value = token,
                 onValueChange = {
@@ -1467,6 +1477,20 @@ fun MirrorSourceSheet(
                 },
                 label = tr(R.string.models_mirror_token),
                 placeholder = "hf_...",
+                visualTransformation = if (tokenVisible) {
+                    androidx.compose.ui.text.input.VisualTransformation.None
+                } else {
+                    androidx.compose.ui.text.input.PasswordVisualTransformation()
+                },
+                trailingIcon = {
+                    IconButton(onClick = { tokenVisible = !tokenVisible }) {
+                        Icon(
+                            if (tokenVisible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                            contentDescription = tr(if (tokenVisible) R.string.common_hide_token else R.string.common_show_token),
+                            tint = OmniColors.Muted
+                        )
+                    }
+                },
                 modifier = Modifier.fillMaxWidth()
             )
             state.settingsError?.let {

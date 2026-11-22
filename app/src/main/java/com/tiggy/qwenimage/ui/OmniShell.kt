@@ -190,15 +190,18 @@ fun OmniSidebar(
         Spacer(Modifier.height(8.dp))
     }
     renameFor?.let { conversation ->
-        var title by remember(conversation.id) { mutableStateOf(conversation.title) }
+        val defaultChatTitle = tr(R.string.sidebar_new_chat)
+        val initialTitle = if (conversation.title == "新对话") defaultChatTitle else conversation.title
+        var title by remember(conversation.id) { mutableStateOf(initialTitle) }
         AlertDialog(onDismissRequest = { renameFor = null }, title = { Text(tr(R.string.sidebar_rename_title)) },
             text = { OutlinedTextField(value = title, onValueChange = { title = it.take(60) }, singleLine = true) },
             confirmButton = { TextButton(onClick = { llmViewModel.renameConversation(conversation.id, title); renameFor = null }) { Text(tr(R.string.common_save)) } },
             dismissButton = { TextButton(onClick = { renameFor = null }) { Text(tr(R.string.common_cancel)) } })
     }
     deleteFor?.let { conversation ->
+        val displayTitle = if (conversation.title == "新对话") tr(R.string.sidebar_new_chat) else conversation.title
         AlertDialog(onDismissRequest = { deleteFor = null }, title = { Text(tr(R.string.sidebar_delete_chat_title)) },
-            text = { Text(conversation.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            text = { Text(displayTitle, maxLines = 2, overflow = TextOverflow.Ellipsis) },
             confirmButton = { TextButton(onClick = { llmViewModel.deleteConversation(conversation.id); deleteFor = null }) {
                 Text(tr(R.string.common_delete), color = OmniColors.Danger)
             } },

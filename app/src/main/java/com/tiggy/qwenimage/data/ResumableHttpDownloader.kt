@@ -1,6 +1,5 @@
 package com.tiggy.qwenimage.data
 
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -92,8 +91,11 @@ object ResumableHttpDownloader {
                 progress(have, expectedSize)
                 return have
             }
-            require(response == HttpURLConnection.HTTP_OK || (have > 0 && response == HttpURLConnection.HTTP_PARTIAL)) {
-                "下载失败：HTTP $response"
+            if (response != HttpURLConnection.HTTP_OK && !(have > 0 && response == HttpURLConnection.HTTP_PARTIAL)) {
+                if (response == 408 || response == 429 || response in 500..599) {
+                    throw IOException("下载暂时失败：HTTP $response")
+                }
+                throw NonRetryableHttpException("下载失败：HTTP $response")
             }
             var totalSize = expectedSize ?: -1L
             if (response == HttpURLConnection.HTTP_PARTIAL) {
@@ -213,7 +215,12 @@ object ResumableHttpDownloader {
                     setRequestProperty("Authorization", "Bearer $token")
                 }
             }
-            val code = conn.responseCode
+            val code = try {
+                conn.responseCode
+            } catch (error: Throwable) {
+                conn.disconnect()
+                throw error
+            }
             if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
                 val location = conn.getHeaderField("Location")
                 conn.disconnect()

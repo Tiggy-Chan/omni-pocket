@@ -478,30 +478,37 @@ class QwenViewModel(
     }
 
     /** Opens the video workspace with a finished image as the first frame. */
-    fun useImageAsVideoFirstFrame(path: String) {
+    fun useImageAsVideoFirstFrame(path: String): Boolean {
         val file = File(path)
         if (!file.isFile) {
             _state.update { it.copy(alert = "图像文件不存在") }
-            return
+            return false
         }
         setVideoInputImage(Uri.fromFile(file))
         setDomain(AppDomain.VideoStudio)
         _state.update { it.copy(videoTab = VideoStudioTab.Compose) }
+        return true
     }
 
     /** Starts a Qwen image edit from a finished image. */
-    fun editImage(path: String) {
+    fun editImage(path: String): Boolean {
         val file = File(path)
         val status = _state.value.modelStatus
-        when {
-            !file.isFile -> _state.update { it.copy(alert = "图像文件不存在") }
-            status == null || status.total == 0 || "image-edit" !in status.manifest.features ->
+        return when {
+            !file.isFile -> {
+                _state.update { it.copy(alert = "图像文件不存在") }
+                false
+            }
+            status == null || status.total == 0 || "image-edit" !in status.manifest.features -> {
                 _state.update { it.copy(alert = "当前 Qwen 模型不支持图片编辑") }
+                false
+            }
             else -> {
                 setImageBackend(ImageGenerationBackend.QwenLocal)
                 setInput(Uri.fromFile(file))
                 _state.update { it.copy(tab = WorkspaceTab.Generate) }
                 setDomain(AppDomain.ImageStudio)
+                true
             }
         }
     }
@@ -737,7 +744,7 @@ class QwenViewModel(
         )
     }
     fun musicMissingComponents(): List<String> = musicEngine.missingComponents(_state.value.musicSettings.modelId)
-    fun setMusicGuidanceScale(scale: Float) = updateMusicSettings { it.copy(guidanceScale = scale) }
+    fun setMusicGuidanceScale(scale: Float) = updateMusicSettings { it.copy(guidanceScale = scale.coerceIn(1f, 20f)) }
 
     fun playMusic(track: MusicTrack) {
         if (_state.value.nowPlayingTrack?.id == track.id) {

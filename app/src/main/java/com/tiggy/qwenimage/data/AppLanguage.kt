@@ -1,8 +1,10 @@
 package com.tiggy.qwenimage.data
 
+import android.app.LocaleManager
 import android.content.Context
 import android.content.res.Configuration
 import android.content.res.Resources
+import android.os.Build
 import android.os.LocaleList
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -101,8 +103,22 @@ object AppLanguageManager {
                 if (!initialized) {
                     val saved = context.applicationContext
                         .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                        .getString(KEY_LANGUAGE, AppLanguage.System.tag)
-                    _language.value = AppLanguage.fromTag(saved)
+                        .getString(KEY_LANGUAGE, null)
+                    val resolved = if (saved != null) {
+                        AppLanguage.fromTag(saved)
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val appLocales = runCatching {
+                            context.getSystemService(LocaleManager::class.java)?.applicationLocales
+                        }.getOrNull()
+                        if (appLocales != null && !appLocales.isEmpty) {
+                            AppLanguage.resolveSystemLocale(appLocales[0])
+                        } else {
+                            AppLanguage.System
+                        }
+                    } else {
+                        AppLanguage.System
+                    }
+                    _language.value = resolved
                     initialized = true
                 }
             }
@@ -119,6 +135,13 @@ object AppLanguageManager {
                 .edit()
                 .putString(KEY_LANGUAGE, language.tag)
                 .apply()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                runCatching {
+                    val manager = context.getSystemService(LocaleManager::class.java)
+                    val locale = language.toLocale()
+                    manager?.applicationLocales = if (locale != null) LocaleList(locale) else LocaleList.getEmptyLocaleList()
+                }
+            }
         }
     }
 

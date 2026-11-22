@@ -423,6 +423,7 @@ fun OmniTextField(
     enabled: Boolean = true,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
+    visualTransformation: androidx.compose.ui.text.input.VisualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
     trailingIcon: (@Composable () -> Unit)? = null
 ) {
     OutlinedTextField(
@@ -435,6 +436,7 @@ fun OmniTextField(
         maxLines = maxLines,
         keyboardOptions = keyboardOptions,
         keyboardActions = keyboardActions,
+        visualTransformation = visualTransformation,
         label = { Text(label) },
         placeholder = placeholder?.let { { Text(it, color = OmniColors.Dim) } },
         trailingIcon = trailingIcon,
@@ -617,12 +619,12 @@ private fun decodeSampledBitmap(path: String, maxDimension: Int): Bitmap? {
     return BitmapFactory.decodeFile(path, request)
 }
 
-private fun decodeSampledBitmap(context: Context, uri: Uri, maxDimension: Int): Bitmap? {
+private fun decodeSampledBitmap(context: Context, uri: Uri, maxDimension: Int): Bitmap? = runCatching {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
     val request = BitmapFactory.Options().apply { inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, maxDimension) }
-    return context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, request) }
-}
+    context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, request) }
+}.getOrNull()
 
 private fun sampleSize(width: Int, height: Int, maxDimension: Int): Int {
     if (width <= 0 || height <= 0) return 1

@@ -22,9 +22,13 @@ ANDROID_PLATFORM="android-28"
 CPU_ARCH="${YUE2_CPU_ARCH:-armv8.2-a+dotprod}"
 MUSIC_MODELS="${YUE2_MODELS:-yue2;ace_step;heartmula;stable_audio}"
 
-if [[ -z "${ANDROID_NDK:-}" ]]; then
-    : "${ANDROID_HOME:?set ANDROID_HOME or ANDROID_NDK}"
-    ANDROID_NDK="$ANDROID_HOME/ndk/$NDK_REVISION"
+if [[ -z "${ANDROID_NDK:-}" || ! -f "${ANDROID_NDK}/source.properties" ]] || ! grep -q "Pkg.Revision = $NDK_REVISION" "${ANDROID_NDK}/source.properties" 2>/dev/null; then
+    if [[ -n "${ANDROID_HOME:-}" && -d "$ANDROID_HOME/ndk/$NDK_REVISION" ]]; then
+        ANDROID_NDK="$ANDROID_HOME/ndk/$NDK_REVISION"
+    elif [[ -z "${ANDROID_NDK:-}" ]]; then
+        : "${ANDROID_HOME:?set ANDROID_HOME or ANDROID_NDK}"
+        ANDROID_NDK="$ANDROID_HOME/ndk/$NDK_REVISION"
+    fi
 fi
 for tool in cmake ninja git; do
     command -v "$tool" >/dev/null 2>&1 || { echo "required tool not found: $tool" >&2; exit 1; }

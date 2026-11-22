@@ -203,7 +203,6 @@
     <string name="decision_notes">說明</string>
     <string name="decision_run">開始決策</string>
     <string name="decision_prepare_model">準備模型</string>
-    <string name="decision_loading_9b">正在載入 9B 模型</string>
     <string name="decision_verifying">正在驗證模型</string>
     <string name="decision_evaluating">正在計算 %1$d/%2$d</string>
     <string name="decision_loaded_suffix"> · 已載入</string>
@@ -287,7 +286,7 @@
     <string name="video_frames_label">影格數（4n+1）</string>
     <string name="video_fps">影格率</string>
     <string name="video_models_title">影片模型</string>
-    <string name="video_builtin_ready">已就緒 · 5B 4步加速</string>
+    <string name="video_builtin_ready">已就緒 · 5B 本機</string>
     <string name="video_search_more">從模型頁搜尋更多影片模型</string>
     <string name="video_search_more_sub">支援 Wan2.2 / Wan2.1 GGUF（自動複用 UMT5 與 TAE）</string>
     <string name="video_delete_title">刪除影片？</string>
@@ -519,4 +518,19 @@
     <string name="bench_str_stable_audio">純音樂、氛圍配樂與環境音效生成極快，普通手機即可流暢執行</string>
     <string name="bench_str_wan22">目前手機端畫質與物理動態最強的單 DiT 開源影片模型，Turbo 4 步可跑</string>
     <string name="bench_str_wan21">體積極小（Q4 僅 ~0.9 GB），8–12 GB 記憶體手機首選文生影片方案</string>
+    <string name="download_notif_channel">模型下載</string>
+    <string name="download_notif_channel_desc">背景下載本機 AI 模型權重</string>
+    <string name="download_notif_downloading">正在下載 %1$s</string>
+    <string name="download_notif_preparing">準備中…</string>
+    <string name="image_backend_qwen_local">Qwen · 本機</string>
+    <string name="image_backend_moss_local">MOSS · 本機</string>
+    <string name="image_backend_custom_sd_local">通用擴散 · 本機</string>
+    <string name="decision_choice_placeholder">哪個選項最符合目前情境？</string>
+    <string name="decision_yesno_placeholder">該陳述是否成立，或問題答案是否為「是」？</string>
+    <string name="decision_score_placeholder">哪個等級最符合目前情境？</string>
+    <string name="video_cfg_label">CFG（預設 1.0）</string>
+    <string name="models_repo_label">Hugging Face 倉庫（owner/repo）</string>
+    <string name="models_revision_label">分支版本（Revision）</string>
+    <string name="common_show_token">顯示權杖</string>
+    <string name="common_hide_token">隱藏權杖</string>
 </resources>

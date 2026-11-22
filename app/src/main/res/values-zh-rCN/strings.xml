@@ -203,7 +203,6 @@
     <string name="decision_notes">说明</string>
     <string name="decision_run">开始决策</string>
     <string name="decision_prepare_model">准备模型</string>
-    <string name="decision_loading_9b">正在加载 9B 模型</string>
     <string name="decision_verifying">正在校验模型</string>
     <string name="decision_evaluating">正在计算 %1$d/%2$d</string>
     <string name="decision_loaded_suffix"> · 已加载</string>
@@ -287,7 +286,7 @@
     <string name="video_frames_label">帧数（4n+1）</string>
     <string name="video_fps">帧率</string>
     <string name="video_models_title">视频模型</string>
-    <string name="video_builtin_ready">已就绪 · 5B 4步加速</string>
+    <string name="video_builtin_ready">已就绪 · 5B 本机</string>
     <string name="video_search_more">从模型页搜索更多视频模型</string>
     <string name="video_search_more_sub">支持 Wan2.2 / Wan2.1 GGUF（自动复用 UMT5 与 TAE）</string>
     <string name="video_delete_title">删除视频？</string>
@@ -519,4 +518,19 @@
     <string name="bench_str_stable_audio">纯音乐、氛围配乐与环境音效生成极快，普通手机即可流畅运行</string>
     <string name="bench_str_wan22">当前手机端画质与物理动态最强的单 DiT 开源视频模型，Turbo 4 步可跑</string>
     <string name="bench_str_wan21">体积极小（Q4 仅 ~0.9 GB），8–12 GB 内存手机首选文生视频方案</string>
+    <string name="download_notif_channel">模型下载</string>
+    <string name="download_notif_channel_desc">后台下载本地 AI 模型权重</string>
+    <string name="download_notif_downloading">正在下载 %1$s</string>
+    <string name="download_notif_preparing">准备中…</string>
+    <string name="image_backend_qwen_local">Qwen · 本机</string>
+    <string name="image_backend_moss_local">MOSS · 本机</string>
+    <string name="image_backend_custom_sd_local">通用扩散 · 本机</string>
+    <string name="decision_choice_placeholder">哪个选项最符合当前情境？</string>
+    <string name="decision_yesno_placeholder">该陈述是否成立，或问题答案是否为「是」？</string>
+    <string name="decision_score_placeholder">哪个等级最符合当前情境？</string>
+    <string name="video_cfg_label">CFG（默认 1.0）</string>
+    <string name="models_repo_label">Hugging Face 仓库（owner/repo）</string>
+    <string name="models_revision_label">分支版本（Revision）</string>
+    <string name="common_show_token">显示令牌</string>
+    <string name="common_hide_token">隐藏令牌</string>
 </resources>

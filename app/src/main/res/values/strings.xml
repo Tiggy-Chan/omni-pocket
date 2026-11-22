@@ -203,7 +203,6 @@
     <string name="decision_notes">Notes</string>
     <string name="decision_run">Run decision</string>
     <string name="decision_prepare_model">Prepare model</string>
-    <string name="decision_loading_9b">Loading 9B model</string>
     <string name="decision_verifying">Verifying model</string>
     <string name="decision_evaluating">Evaluating %1$d/%2$d</string>
     <string name="decision_loaded_suffix"> · Loaded</string>
@@ -287,7 +286,7 @@
     <string name="video_frames_label">Frames (4n+1)</string>
     <string name="video_fps">FPS</string>
     <string name="video_models_title">Video Models</string>
-    <string name="video_builtin_ready">Ready · 5B 4-step Turbo</string>
+    <string name="video_builtin_ready">Ready · 5B on-device</string>
     <string name="video_search_more">Search more video models in Models</string>
     <string name="video_search_more_sub">Supports Wan2.2 / Wan2.1 GGUF (reuses UMT5 &amp; TAE)</string>
     <string name="video_delete_title">Delete video?</string>
@@ -519,4 +518,19 @@
     <string name="bench_str_stable_audio">Ultra-fast ~1.68 GB instrumental, ambient soundtrack &amp; SFX generation</string>
     <string name="bench_str_wan22">Top single-DiT open video model on mobile; 4-step Turbo for T2V &amp; I2V</string>
     <string name="bench_str_wan21">Compact ~0.9 GB Q4 video model; 2–3× faster for 8–12 GB RAM phones</string>
+    <string name="download_notif_channel">Model downloads</string>
+    <string name="download_notif_channel_desc">Background downloads for local AI models</string>
+    <string name="download_notif_downloading">Downloading %1$s</string>
+    <string name="download_notif_preparing">Preparing…</string>
+    <string name="image_backend_qwen_local">Qwen · On-device</string>
+    <string name="image_backend_moss_local">MOSS · On-device</string>
+    <string name="image_backend_custom_sd_local">Diffusion · On-device</string>
+    <string name="decision_choice_placeholder">Which option best fits the situation?</string>
+    <string name="decision_yesno_placeholder">Is the statement true, or is the answer yes?</string>
+    <string name="decision_score_placeholder">Which level best describes the situation?</string>
+    <string name="video_cfg_label">CFG (default 1.0)</string>
+    <string name="models_repo_label">Hugging Face owner/repo</string>
+    <string name="models_revision_label">Revision</string>
+    <string name="common_show_token">Show token</string>
+    <string name="common_hide_token">Hide token</string>
 </resources>
