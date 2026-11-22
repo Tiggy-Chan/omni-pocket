@@ -107,7 +107,7 @@
 
 ```bash
 git submodule update --init --depth 1 third_party/stable-diffusion.cpp third_party/llama.cpp
-git -C third_party/stable-diffusion.cpp submodule update --init --depth 1 ggml
+git -C third_party/stable-diffusion.cpp submodule update --init --depth 1 ggml thirdparty/libwebp thirdparty/libwebm
 
 # 编译统一 stable-diffusion.cpp（Wan2.2 + MOSS + 通用 SD）与 audio.cpp（YuE2 / ACE-Step / HeartMuLa / Stable Audio）
 ANDROID_HOME=<sdk> JOBS=4 bash scripts/build_sd_android.sh

@@ -30,7 +30,7 @@ jobs:
       - name: Check out pinned native runtimes
         run: |
           git submodule update --init --depth 1 third_party/stable-diffusion.cpp third_party/llama.cpp
-          git -C third_party/stable-diffusion.cpp submodule update --init --depth 1 ggml
+          git -C third_party/stable-diffusion.cpp submodule update --init --depth 1 ggml thirdparty/libwebp thirdparty/libwebm
 
       - uses: actions/setup-java@v5
         with:

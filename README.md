@@ -107,7 +107,7 @@ Requirements: JDK 17+, Android SDK 35, Android NDK `28.2.13676358`, CMake, Ninja
 
 ```bash
 git submodule update --init --depth 1 third_party/stable-diffusion.cpp third_party/llama.cpp
-git -C third_party/stable-diffusion.cpp submodule update --init --depth 1 ggml
+git -C third_party/stable-diffusion.cpp submodule update --init --depth 1 ggml thirdparty/libwebp thirdparty/libwebm
 
 # Build unified stable-diffusion.cpp (Wan2.2 + MOSS + generic SD) and audio.cpp (YuE2 / ACE-Step / HeartMuLa / Stable Audio)
 ANDROID_HOME=<sdk> JOBS=4 bash scripts/build_sd_android.sh
