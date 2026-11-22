@@ -3,13 +3,14 @@ package com.tiggy.qwenimage.data
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
-import org.json.JSONObject
 import java.util.Locale
 
 enum class HubSearchCategory(val label: String, val hint: String) {
-    GgufChat("GGUF 对话", "搜索 GGUF 语言模型，如 Qwen3、Gemma、Llama"),
+    GgufChat("GGUF 对话", "搜索 GGUF 对话模型，如 Qwen3、Qwen3.5、Gemma 3"),
     MnnChat("MNN 对话", "搜索 MNN 转换包，如 taobao-mnn"),
-    SdImage("图像模型", "搜索 SD / SDXL / Turbo 单文件权重")
+    SdImage("图像", "搜索 SD / SDXL / Z-Image / FLUX.2 Klein 权重"),
+    VideoWan("视频", "搜索 Wan2.2 / Wan2.1 GGUF 视频模型"),
+    MusicAudio("音乐", "搜索 ACE-Step / YuE2 / HeartMuLa / Stable Audio GGUF")
 }
 
 enum class HfFileFormat { Gguf, Safetensors, Ckpt, MnnBundle }
@@ -29,7 +30,10 @@ data class HfRepoSummary(
 data class HfDownloadFile(
     val path: String,
     val size: Long,
-    val sha256: String?
+    val sha256: String?,
+    val sourceRepo: String? = null,
+    val sourceRevision: String? = null,
+    val sharedCompanionKey: String? = null
 )
 
 data class HfRepoOption(
@@ -43,11 +47,73 @@ data class HfRepoOption(
     val files: List<HfDownloadFile>,
     val totalBytes: Long,
     val quantTag: String?,
-    val splitWarning: String? = null
+    val splitWarning: String? = null,
+    val companionSummary: String? = null,
+    val metadata: Map<String, String> = emptyMap()
 ) {
     /** Approximate minimum device RAM to load and run cleanly on Android. */
     val recommendedRamGb: Int
         get() = ((totalBytes / 1_000_000_000.0) * 1.35 + 1.5).toInt().coerceAtLeast(3)
+}
+
+/** Verified shared companion artifacts reused across modular diffusion/video/audio models. */
+object HubCompanionArtifacts {
+    val UMT5_XXL_Q3_K_S = HfDownloadFile(
+        path = "umt5-xxl-encoder-Q3_K_S.gguf",
+        size = 2_858_489_696L,
+        sha256 = "f64f8d6dc4d8a24276df69d0ccea789aae686f7417950a41e6568c30cb478a5c",
+        sourceRepo = "city96/umt5-xxl-encoder-gguf",
+        sourceRevision = "main",
+        sharedCompanionKey = "umt5-xxl-encoder-Q3_K_S.gguf"
+    )
+    val TAE_WAN2_2 = HfDownloadFile(
+        path = "taew2_2.safetensors",
+        size = 22_848_048L,
+        sha256 = "5243c5c9d77ecf2d74800d672bac3678c0d72462899f1b3b10aa1bbc11eae461",
+        sourceRepo = "lightx2v/Autoencoders",
+        sourceRevision = "main",
+        sharedCompanionKey = "taew2_2.safetensors"
+    )
+    val TAE_WAN2_1 = HfDownloadFile(
+        path = "taew2_1.safetensors",
+        size = 22_642_902L,
+        sha256 = "79482981ab4db9c2ec909f7aae555831e67efe3e7216752411641b90b9600cdb",
+        sourceRepo = "lightx2v/Autoencoders",
+        sourceRevision = "main",
+        sharedCompanionKey = "taew2_1.safetensors"
+    )
+    val FLUX1_AE_VAE = HfDownloadFile(
+        path = "split_files/vae/ae.safetensors",
+        size = 335_304_388L,
+        sha256 = "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+        sourceRepo = "Comfy-Org/z_image_turbo",
+        sourceRevision = "main",
+        sharedCompanionKey = "flux1_ae.safetensors"
+    )
+    val FLUX2_AE_VAE = HfDownloadFile(
+        path = "split_files/vae/flux2-vae.safetensors",
+        size = 336_213_556L,
+        sha256 = "d64f3a68e1cc4f9f4e29b6e0da38a0204fe9a49f2d4053f0ec1fa1ca02f9c4b5",
+        sourceRepo = "Comfy-Org/flux2-dev",
+        sourceRevision = "main",
+        sharedCompanionKey = "flux2_ae.safetensors"
+    )
+    val QWEN3_4B_INSTRUCT_2507 = HfDownloadFile(
+        path = "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        size = 2_497_281_120L,
+        sha256 = "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+        sourceRepo = "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+        sourceRevision = "main",
+        sharedCompanionKey = "Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+    )
+    val QWEN3_4B_BASE_TE = HfDownloadFile(
+        path = "Qwen3-4B-Q4_K_M.gguf",
+        size = 2_497_281_312L,
+        sha256 = "f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a",
+        sourceRepo = "unsloth/Qwen3-4B-GGUF",
+        sourceRevision = "main",
+        sharedCompanionKey = "Qwen3-4B-Q4_K_M.gguf"
+    )
 }
 
 object HuggingFaceHubClient {
@@ -77,8 +143,26 @@ object HuggingFaceHubClient {
                     }
                 }
                 HubSearchCategory.SdImage -> {
-                    add("pipeline_tag=text-to-image")
+                    val lower = trimmed.lowercase(Locale.ROOT)
+                    val wantsGguf = lower.contains("gguf") || lower.contains("z-image") || lower.contains("flux")
+                    if (!wantsGguf) add("pipeline_tag=text-to-image")
                     if (trimmed.isNotEmpty()) add("search=${HubUrlRewriter.encodeSegment(trimmed)}")
+                }
+                HubSearchCategory.VideoWan -> {
+                    val effective = when {
+                        trimmed.isEmpty() -> "Wan2.2 gguf"
+                        trimmed.contains("gguf", ignoreCase = true) -> trimmed
+                        else -> "$trimmed gguf"
+                    }
+                    add("search=${HubUrlRewriter.encodeSegment(effective)}")
+                }
+                HubSearchCategory.MusicAudio -> {
+                    if (trimmed.isEmpty()) {
+                        add("author=audio-cpp")
+                    } else {
+                        val effective = if (trimmed.contains("gguf", ignoreCase = true)) trimmed else "$trimmed gguf"
+                        add("search=${HubUrlRewriter.encodeSegment(effective)}")
+                    }
                 }
             }
         }
@@ -96,7 +180,7 @@ object HuggingFaceHubClient {
         require(repo.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))) { "仓库格式应为 owner/repo" }
         val base = settings.effectiveBaseUrl
         val url = "$base/api/models/$repo/tree/${HubUrlRewriter.encodeSegment(revision)}?recursive=true"
-        val body = ResumableHttpDownloader.fetchText(url, settings, maxBytes = 4 * 1024 * 1024)
+        val body = ResumableHttpDownloader.fetchText(url, settings, maxBytes = 6 * 1024 * 1024)
         parseRepoTree(repo, revision, body, category)
     }
 
@@ -156,6 +240,8 @@ object HuggingFaceHubClient {
             HubSearchCategory.GgufChat -> extractGgufChatOptions(repo, revision, files)
             HubSearchCategory.MnnChat -> extractMnnChatOptions(repo, revision, files)
             HubSearchCategory.SdImage -> extractSdImageOptions(repo, revision, files)
+            HubSearchCategory.VideoWan -> extractWanVideoOptions(repo, revision, files)
+            HubSearchCategory.MusicAudio -> extractMusicAudioOptions(repo, revision, files)
         }
     }
 
@@ -224,27 +310,70 @@ object HuggingFaceHubClient {
         revision: String,
         files: List<HfDownloadFile>
     ): List<HfRepoOption> {
+        val repoLower = repo.lowercase(Locale.ROOT)
+        val isZImage = repoLower.contains("z-image") || repoLower.contains("z_image")
+        val isFlux2Klein4B = repoLower.contains("flux.2-klein-4b") || repoLower.contains("flux-2-klein-4b") ||
+            repoLower.contains("flux2-klein-4b") || repoLower.contains("flux.2-klein-base-4b")
+
         val candidates = files.filter { file ->
             val lower = file.path.lowercase(Locale.ROOT)
             val name = lower.substringAfterLast('/')
             val validExt = lower.endsWith(".safetensors") || lower.endsWith(".gguf") || lower.endsWith(".ckpt")
             if (!validExt) return@filter false
-            // Exclude diffusers sub-component folders (unet/, vae/, text_encoder/) and tiny LoRA/embedding files.
             val isComponentSubdir = lower.startsWith("unet/") || lower.startsWith("vae/") ||
                 lower.startsWith("text_encoder") || lower.startsWith("safety_checker/") ||
                 lower.startsWith("transformer/") || lower.startsWith("tokenizer/")
             val looksAuxiliary = name.contains("vae") || name.contains("lora") || name.contains("clip") ||
                 name.contains("t5") || name.contains("mmproj") || name.contains("controlnet") ||
-                name.contains("embedding")
+                name.contains("embedding") || name.contains("imatrix")
             !isComponentSubdir && !looksAuxiliary && file.size >= 400_000_000L
         }
+
         return candidates.map { file ->
             val fileName = file.path.substringAfterLast('/')
+            val isSplit = SPLIT_GGUF_REGEX.containsMatchIn(fileName)
             val format = when {
                 fileName.endsWith(".gguf", ignoreCase = true) -> HfFileFormat.Gguf
                 fileName.endsWith(".ckpt", ignoreCase = true) -> HfFileFormat.Ckpt
                 else -> HfFileFormat.Safetensors
             }
+            val fileLower = fileName.lowercase(Locale.ROOT)
+            val modularZImage = isZImage || fileLower.contains("z-image") || fileLower.contains("z_image")
+            val modularFlux2Klein = isFlux2Klein4B || (fileLower.contains("flux-2-klein-4b") || fileLower.contains("flux2-klein-4b"))
+
+            val (bundleFiles, companionNote, meta) = when {
+                modularZImage -> {
+                    val companions = listOf(HubCompanionArtifacts.QWEN3_4B_INSTRUCT_2507, HubCompanionArtifacts.FLUX1_AE_VAE)
+                    Triple(
+                        listOf(file) + companions,
+                        "自动附带共享 Qwen3-4B 文本编码器 + FLUX VAE（已下载则自动复用）",
+                        mapOf(
+                            "arch" to "z_image",
+                            "llmCompanion" to HubCompanionArtifacts.QWEN3_4B_INSTRUCT_2507.sharedCompanionKey.orEmpty(),
+                            "vaeCompanion" to HubCompanionArtifacts.FLUX1_AE_VAE.sharedCompanionKey.orEmpty(),
+                            "defaultSteps" to if (repoLower.contains("turbo") || fileLower.contains("turbo")) "8" else "20",
+                            "defaultCfg" to if (repoLower.contains("turbo") || fileLower.contains("turbo")) "1.0" else "4.5"
+                        )
+                    )
+                }
+                modularFlux2Klein -> {
+                    val companions = listOf(HubCompanionArtifacts.QWEN3_4B_BASE_TE, HubCompanionArtifacts.FLUX2_AE_VAE)
+                    val isBase = repoLower.contains("base") || fileLower.contains("base")
+                    Triple(
+                        listOf(file) + companions,
+                        "自动附带共享 Qwen3-4B 文本编码器 + FLUX.2 VAE（已下载则自动复用）",
+                        mapOf(
+                            "arch" to "flux2_klein",
+                            "llmCompanion" to HubCompanionArtifacts.QWEN3_4B_BASE_TE.sharedCompanionKey.orEmpty(),
+                            "vaeCompanion" to HubCompanionArtifacts.FLUX2_AE_VAE.sharedCompanionKey.orEmpty(),
+                            "defaultSteps" to if (isBase) "20" else "4",
+                            "defaultCfg" to if (isBase) "4.0" else "1.0"
+                        )
+                    )
+                }
+                else -> Triple(listOf(file), null, mapOf("arch" to "sd_single"))
+            }
+
             HfRepoOption(
                 id = sanitizeModelId("sd", repo, file.path),
                 label = fileName,
@@ -253,35 +382,227 @@ object HuggingFaceHubClient {
                 type = HubModelType.SdImage,
                 format = format,
                 entryFile = file.path,
-                files = listOf(file),
-                totalBytes = file.size,
-                quantTag = extractQuantTag(fileName) ?: if (fileName.contains("fp16", ignoreCase = true)) "FP16" else null
+                files = bundleFiles,
+                totalBytes = bundleFiles.sumOf { it.size },
+                quantTag = extractQuantTag(fileName) ?: if (fileName.contains("fp16", ignoreCase = true)) "FP16" else null,
+                splitWarning = if (isSplit) "分片 GGUF 文件暂不支持单文件加载" else null,
+                companionSummary = companionNote,
+                metadata = meta
             )
-        }.sortedBy { it.totalBytes }
+        }.sortedWith(compareBy<HfRepoOption> { it.splitWarning != null }.thenBy { quantPriority(it.quantTag) }.thenBy { it.totalBytes })
+    }
+
+    private fun extractWanVideoOptions(
+        repo: String,
+        revision: String,
+        files: List<HfDownloadFile>
+    ): List<HfRepoOption> {
+        val repoLower = repo.lowercase(Locale.ROOT)
+        val candidates = files.filter { file ->
+            val lower = file.path.lowercase(Locale.ROOT)
+            val name = lower.substringAfterLast('/')
+            lower.endsWith(".gguf") &&
+                !name.contains("umt5") && !name.contains("t5xxl") && !name.contains("clip") &&
+                !name.contains("vae") && !name.contains("tae") && !name.contains("imatrix") &&
+                !name.contains("high_noise") && !name.contains("high-noise") &&
+                file.size >= 400_000_000L
+        }
+        return candidates.map { file ->
+            val fileName = file.path.substringAfterLast('/')
+            val lower = (repo + " " + fileName).lowercase(Locale.ROOT)
+            val isSplit = SPLIT_GGUF_REGEX.containsMatchIn(fileName)
+            val isWan22Ti2v5B = lower.contains("ti2v") || (lower.contains("wan2.2") && lower.contains("5b")) ||
+                (lower.contains("wan2_2") && lower.contains("5b")) || (lower.contains("wan-2.2") && lower.contains("5b"))
+            val isTurbo = lower.contains("turbo") || lower.contains("lightx2v") || lower.contains("distill") || lower.contains("selfforcing")
+            val isMoE14B = lower.contains("a14b") || lower.contains("lownoise") || lower.contains("low_noise")
+            val tae = if (isWan22Ti2v5B) HubCompanionArtifacts.TAE_WAN2_2 else HubCompanionArtifacts.TAE_WAN2_1
+            val companions = listOf(HubCompanionArtifacts.UMT5_XXL_Q3_K_S, tae)
+            val allFiles = listOf(file) + companions
+            val quant = extractQuantTag(fileName)
+            HfRepoOption(
+                id = sanitizeModelId("wan", repo, file.path),
+                label = fileName,
+                repo = repo,
+                revision = revision,
+                type = HubModelType.VideoWan,
+                format = HfFileFormat.Gguf,
+                entryFile = file.path,
+                files = allFiles,
+                totalBytes = allFiles.sumOf { it.size },
+                quantTag = quant,
+                splitWarning = when {
+                    isSplit -> "分片 GGUF 文件暂不支持单文件直接加载"
+                    isMoE14B -> "Wan2.2 A14B 需要高低噪双模型且内存占用 >16 GB，手机端建议选择 Wan2.2-TI2V-5B 或 Wan2.1-1.3B"
+                    else -> null
+                },
+                companionSummary = "自动复用或附带共享 UMT5-XXL 文本编码器 + ${tae.sharedCompanionKey}",
+                metadata = mapOf(
+                    "arch" to if (isWan22Ti2v5B) "wan22_ti2v" else "wan21_t2v",
+                    "t5Companion" to HubCompanionArtifacts.UMT5_XXL_Q3_K_S.sharedCompanionKey.orEmpty(),
+                    "taeCompanion" to tae.sharedCompanionKey.orEmpty(),
+                    "defaultSteps" to if (isTurbo) "4" else "10",
+                    "defaultCfg" to if (isTurbo) "1.0" else "5.0",
+                    "defaultShift" to if (isWan22Ti2v5B) "5.0" else "3.0"
+                )
+            )
+        }.sortedWith(compareBy<HfRepoOption> { it.splitWarning != null }.thenBy { quantPriority(it.quantTag) }.thenBy { it.totalBytes })
+    }
+
+    private fun extractMusicAudioOptions(
+        repo: String,
+        revision: String,
+        files: List<HfDownloadFile>
+    ): List<HfRepoOption> {
+        val byPath = files.associateBy { it.path }
+        val results = mutableListOf<HfRepoOption>()
+
+        // 1) YuE2 GGUF packages (requires vae + sidecars from the same repo).
+        val yueSidecars = listOf(
+            "sidecars/yue2-generation-config.json",
+            "sidecars/yue2-model-config.json",
+            "sidecars/yue2-qwen.tiktoken",
+            "sidecars/yue2-vae-config.json"
+        )
+        val yueVae = byPath["yue2-vae-f16.gguf"] ?: byPath["yue2-vae-f32.gguf"]
+        if (yueVae != null && yueSidecars.all { it in byPath }) {
+            val sidecarFiles = yueSidecars.mapNotNull { byPath[it] }
+            val yueModels = files.filter { file ->
+                val lower = file.path.lowercase(Locale.ROOT)
+                lower.endsWith(".gguf") && lower.contains("yue2") && !lower.contains("vae") && file.size >= 500_000_000L
+            }
+            yueModels.forEach { mainFile ->
+                val fileName = mainFile.path.substringAfterLast('/')
+                val quant = extractQuantTag(fileName)
+                val bundle = sidecarFiles + yueVae + mainFile
+                results += HfRepoOption(
+                    id = sanitizeModelId("music", repo, mainFile.path),
+                    label = "YuE2-3B · ${quant ?: fileName}",
+                    repo = repo,
+                    revision = revision,
+                    type = HubModelType.MusicAudio,
+                    format = HfFileFormat.Gguf,
+                    entryFile = mainFile.path,
+                    files = bundle,
+                    totalBytes = bundle.sumOf { it.size },
+                    quantTag = quant,
+                    companionSummary = "含 ${yueVae.path} 与 YuE2 词表/配置 sidecar",
+                    metadata = mapOf(
+                        "family" to "yue2",
+                        "modelGguf" to mainFile.path,
+                        "vaeGguf" to yueVae.path
+                    )
+                )
+            }
+        }
+
+        // 2) Self-contained single-file audio.cpp music GGUFs (ACE-Step 1.5, HeartMuLa, Stable Audio 3).
+        files.filter { file ->
+            val lower = file.path.lowercase(Locale.ROOT)
+            lower.endsWith(".gguf") && file.size >= 300_000_000L
+        }.forEach { file ->
+            val lower = file.path.lowercase(Locale.ROOT)
+            val fileName = file.path.substringAfterLast('/')
+            val familyInfo: Triple<String, String, Map<String, String>>? = when {
+                lower.contains("ace-step") || lower.contains("acestep") -> {
+                    val isTurbo = lower.contains("turbo")
+                    val variant = when {
+                        lower.contains("xl-turbo") -> "XL Turbo"
+                        lower.contains("xl-sft") -> "XL SFT"
+                        isTurbo -> "1.5 Turbo"
+                        else -> "1.5 Base"
+                    }
+                    val ditPath = when {
+                        lower.contains("xl-turbo") -> "acestep-v15-xl-turbo"
+                        lower.contains("xl-sft") -> "acestep-v15-xl-sft"
+                        isTurbo -> "acestep-v15-turbo"
+                        else -> "acestep-v15-base"
+                    }
+                    Triple(
+                        "ace_step",
+                        "ACE-Step $variant · ${extractQuantTag(fileName) ?: "GGUF"}",
+                        mapOf(
+                            "family" to "ace_step",
+                            "ditVariant" to ditPath,
+                            "defaultSteps" to if (isTurbo) "8" else "24"
+                        )
+                    )
+                }
+                lower.contains("heartmula") -> Triple(
+                    "heartmula",
+                    "HeartMuLa 3B · ${extractQuantTag(fileName) ?: "GGUF"}",
+                    mapOf("family" to "heartmula", "defaultSteps" to "10")
+                )
+                lower.contains("stable-audio") || lower.contains("stable_audio") -> {
+                    val flavor = when {
+                        lower.contains("sfx") -> "3 Small SFX"
+                        lower.contains("medium") -> "3 Medium"
+                        else -> "3 Small Music"
+                    }
+                    Triple(
+                        "stable_audio",
+                        "Stable Audio $flavor · ${extractQuantTag(fileName) ?: "GGUF"}",
+                        mapOf("family" to "stable_audio", "defaultSteps" to "8")
+                    )
+                }
+                else -> null
+            }
+            if (familyInfo != null) {
+                val (_, label, meta) = familyInfo
+                results += HfRepoOption(
+                    id = sanitizeModelId("music", repo, file.path),
+                    label = label,
+                    repo = repo,
+                    revision = revision,
+                    type = HubModelType.MusicAudio,
+                    format = HfFileFormat.Gguf,
+                    entryFile = file.path,
+                    files = listOf(file),
+                    totalBytes = file.size,
+                    quantTag = extractQuantTag(fileName),
+                    companionSummary = "单文件自包含 GGUF（已内嵌配置与词表）",
+                    metadata = meta
+                )
+            }
+        }
+
+        return results.sortedWith(compareBy<HfRepoOption> { quantPriority(it.quantTag) }.thenBy { it.totalBytes })
     }
 
     fun curatedRecommendations(category: HubSearchCategory): List<HfRepoSummary> = when (category) {
         HubSearchCategory.GgufChat -> listOf(
             HfRepoSummary("unsloth/Qwen3-0.6B-GGUF", "unsloth", "Qwen3-0.6B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "超轻量体验，支持深度思考，约 400 MB"),
-            HfRepoSummary("Qwen/Qwen2.5-1.5B-Instruct-GGUF", "Qwen", "Qwen2.5-1.5B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen2"), false, "轻量中英双语，手机端速度极快"),
-            HfRepoSummary("Qwen/Qwen2.5-3B-Instruct-GGUF", "Qwen", "Qwen2.5-3B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen2"), false, "均衡推荐，中英问答与总结表现优秀"),
             HfRepoSummary("unsloth/Qwen3-1.7B-GGUF", "unsloth", "Qwen3-1.7B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "支持深度思考模式的新一代小模型，含 Q4_K_M"),
-            HfRepoSummary("Qwen/Qwen3-4B-GGUF", "Qwen", "Qwen3-4B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "推理与中文能力强，建议 8 GB+ 内存"),
-            HfRepoSummary("bartowski/Llama-3.2-3B-Instruct-GGUF", "bartowski", "Llama-3.2-3B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "llama"), false, "Meta 轻量端侧对话模型"),
-            HfRepoSummary("unsloth/gemma-3-1b-it-GGUF", "unsloth", "gemma-3-1b-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma3"), false, "Google Gemma 3 1B 轻量对话模型"),
-            HfRepoSummary("bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF", "bartowski", "DeepSeek-R1-Distill-Qwen-1.5B-GGUF", 0, 0, "text-generation", listOf("gguf", "deepseek"), false, "DeepSeek R1 1.5B 蒸馏思考模型")
+            HfRepoSummary("unsloth/Qwen3-4B-GGUF", "unsloth", "Qwen3-4B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "4B 级别综合推理与中文能力领先，建议 8 GB+ 内存"),
+            HfRepoSummary("Qwen/Qwen2.5-3B-Instruct-GGUF", "Qwen", "Qwen2.5-3B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen2"), false, "均衡稳定，中英问答与总结速度快"),
+            HfRepoSummary("unsloth/gemma-3-4b-it-GGUF", "unsloth", "gemma-3-4b-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma3"), false, "Google Gemma 3 4B 多语言端侧模型"),
+            HfRepoSummary("unsloth/gemma-3-1b-it-GGUF", "unsloth", "gemma-3-1b-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma3"), false, "Google Gemma 3 1B 轻量快速模型"),
+            HfRepoSummary("bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF", "bartowski", "DeepSeek-R1-Distill-Qwen-1.5B-GGUF", 0, 0, "text-generation", listOf("gguf", "deepseek"), false, "DeepSeek R1 1.5B 数学与逻辑推理蒸馏模型"),
+            HfRepoSummary("bartowski/Llama-3.2-3B-Instruct-GGUF", "bartowski", "Llama-3.2-3B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "llama"), false, "Meta 轻量端侧英文/通用对话模型")
         )
         HubSearchCategory.MnnChat -> listOf(
-            HfRepoSummary("taobao-mnn/Qwen3-1.7B-MNN", "taobao-mnn", "Qwen3-1.7B-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 Qwen3 1.7B"),
+            HfRepoSummary("taobao-mnn/Qwen3-1.7B-MNN", "taobao-mnn", "Qwen3-1.7B-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 Qwen3 1.7B（支持 OpenCL）"),
             HfRepoSummary("taobao-mnn/Qwen3-4B-MNN", "taobao-mnn", "Qwen3-4B-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 Qwen3 4B"),
             HfRepoSummary("taobao-mnn/DeepSeek-R1-1.5B-Qwen-MNN", "taobao-mnn", "DeepSeek-R1-1.5B-Qwen-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 DeepSeek-R1 1.5B"),
             HfRepoSummary("taobao-mnn/Qwen2.5-3B-Instruct-MNN", "taobao-mnn", "Qwen2.5-3B-Instruct-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 Qwen2.5 3B")
         )
         HubSearchCategory.SdImage -> listOf(
+            HfRepoSummary("unsloth/Z-Image-Turbo-GGUF", "unsloth", "Z-Image-Turbo-GGUF", 0, 0, "text-to-image", listOf("z-image", "gguf"), false, "通义 Z-Image 6B Turbo，8 步高质量出图与中英文文字渲染"),
+            HfRepoSummary("unsloth/FLUX.2-klein-4B-GGUF", "unsloth", "FLUX.2-klein-4B-GGUF", 0, 0, "text-to-image", listOf("flux2", "gguf"), false, "Black Forest Labs 4B 4 步极速出图（Q4 仅 2.5 GB）"),
             HfRepoSummary("stabilityai/sdxl-turbo", "stabilityai", "sdxl-turbo", 0, 0, "text-to-image", listOf("sdxl", "turbo"), false, "1–4 步快速出图，单文件 safetensors"),
             HfRepoSummary("stabilityai/sd-turbo", "stabilityai", "sd-turbo", 0, 0, "text-to-image", listOf("sd2", "turbo"), false, "轻量快速文生图，内存占用低"),
             HfRepoSummary("Lykon/DreamShaper", "Lykon", "DreamShaper", 0, 0, "text-to-image", listOf("sd15"), false, "经典 SD 1.5 风格化通用生图模型"),
             HfRepoSummary("stable-diffusion-v1-5/stable-diffusion-v1-5", "stable-diffusion-v1-5", "stable-diffusion-v1-5", 0, 0, "text-to-image", listOf("sd15"), false, "SD 1.5 基础单文件权重")
+        )
+        HubSearchCategory.VideoWan -> listOf(
+            HfRepoSummary("hum-ma/Wan2.2-TI2V-5B-Turbo-GGUF", "hum-ma", "Wan2.2-TI2V-5B-Turbo-GGUF", 0, 0, "text-to-video", listOf("wan2.2", "gguf"), false, "4 步加速版 Wan2.2 5B，支持文生/图生视频"),
+            HfRepoSummary("QuantStack/Wan2.2-TI2V-5B-GGUF", "QuantStack", "Wan2.2-TI2V-5B-GGUF", 0, 0, "text-to-video", listOf("wan2.2", "gguf"), false, "官方 Wan2.2 5B 全系列量化（Q3–Q8 可选）"),
+            HfRepoSummary("unsloth/Wan2.2-TI2V-5B-GGUF", "unsloth", "Wan2.2-TI2V-5B-GGUF", 0, 0, "text-to-video", listOf("wan2.2", "gguf"), false, "Unsloth 动态量化 Wan2.2-TI2V-5B"),
+            HfRepoSummary("samuelchristlie/Wan2.1-T2V-1.3B-GGUF", "samuelchristlie", "Wan2.1-T2V-1.3B-GGUF", 0, 0, "text-to-video", listOf("wan2.1", "gguf"), false, "轻量 1.3B 视频模型，低内存手机运行更快"),
+            HfRepoSummary("off-grid-ai/Wan2.1-T2V-1.3B-GGUF", "off-grid-ai", "Wan2.1-T2V-1.3B-GGUF", 0, 0, "text-to-video", listOf("wan2.1", "gguf"), false, "Wan2.1 1.3B 端侧多量化 GGUF 合集")
+        )
+        HubSearchCategory.MusicAudio -> listOf(
+            HfRepoSummary("audio-cpp/audio.cpp-gguf", "audio-cpp", "audio.cpp-gguf", 0, 0, "text-to-audio", listOf("ace-step", "heartmula", "stable-audio", "gguf"), false, "含 ACE-Step 1.5 Turbo、HeartMuLa 3B、Stable Audio 3 Small/Medium 单文件 GGUF"),
+            HfRepoSummary("audio-cpp/Yue2-3B-GGUF", "audio-cpp", "Yue2-3B-GGUF", 0, 0, "text-to-audio", listOf("yue2", "gguf"), false, "YuE2-3B 多精度版本（含 2.3 GB 轻量版与 Q8_0 高质量版）")
         )
     }
 

@@ -72,6 +72,100 @@ class Yue2CommandTest {
         assertEquals(14.6251, events[2].seconds!!, 1e-4)
     }
 
+    @Test
+    fun buildsVulkanAndMultiFamilyMusicCommands() {
+        val aceCmd = buildAudioCppMusicCommand(
+            AudioCppMusicOptions(
+                nativeLib = File("/app/libyue2_cli.so"),
+                family = AudioCppFamily.AceStep,
+                modelPath = File("/models/hub/acestep/ACE-Step-1.5-Turbo-Q8_0.gguf"),
+                output = File("/music/ace.part.wav"),
+                outputDir = File("/cache/ace"),
+                style = "dreamy synthwave",
+                bpm = 118,
+                lyrics = "[Verse]\nnight drive",
+                cot = CoTMode.Melody,
+                seed = 7L,
+                durationSec = 45,
+                odeSteps = 16,
+                guidanceScale = 3.0f,
+                threads = 6,
+                useVulkan = true,
+                aceStepDitVariant = "acestep-v15-turbo"
+            )
+        )
+        assertEquals("ace_step", aceCmd.valueAfter("--family"))
+        assertEquals("vulkan", aceCmd.valueAfter("--backend"))
+        assertEquals("text2music", aceCmd.valueAfter("--task-route"))
+        assertEquals("dreamy synthwave", aceCmd.valueAfter("--text"))
+        // Turbo caps steps at 8 and ignores diffusion guidance_scale
+        assertEquals("8", aceCmd.valueAfter("--num-inference-steps"))
+        assertFalse(aceCmd.contains("--guidance-scale"))
+        assertTrue("ace_step.dit_model_path=acestep-v15-turbo" in aceCmd.valuesAfter("--load-option"))
+
+        val heartCmd = buildAudioCppMusicCommand(
+            AudioCppMusicOptions(
+                nativeLib = File("/app/libyue2_cli.so"),
+                family = AudioCppFamily.HeartMula,
+                modelPath = File("/models/hub/heartmula/HeartMuLa-Q8_0.gguf"),
+                output = File("/music/hm.part.wav"),
+                outputDir = File("/cache/hm"),
+                style = "warm acoustic folk",
+                bpm = 90,
+                lyrics = "",
+                cot = CoTMode.Off,
+                seed = 9L,
+                durationSec = 30,
+                odeSteps = 10,
+                guidanceScale = null,
+                useVulkan = false
+            )
+        )
+        assertEquals("heartmula", heartCmd.valueAfter("--family"))
+        assertEquals("[Instrumental]", heartCmd.valueAfter("--lyrics"))
+        assertTrue("tags=warm acoustic folk" in heartCmd.valuesAfter("--request-option"))
+        assertTrue("duration_sec=30" in heartCmd.valuesAfter("--request-option"))
+
+        val saCmd = buildAudioCppMusicCommand(
+            AudioCppMusicOptions(
+                nativeLib = File("/app/libyue2_cli.so"),
+                family = AudioCppFamily.StableAudio,
+                modelPath = File("/models/hub/sa/Stable-Audio-3-Small-Music-Q8_0.gguf"),
+                output = File("/music/sa.part.wav"),
+                outputDir = File("/cache/sa"),
+                style = "ambient rain piano",
+                bpm = 80,
+                lyrics = "",
+                cot = CoTMode.Off,
+                seed = 11L,
+                durationSec = 20,
+                odeSteps = 8,
+                guidanceScale = 1.5f,
+                useVulkan = true
+            )
+        )
+        assertEquals("stable_audio", saCmd.valueAfter("--family"))
+        assertEquals("vulkan", saCmd.valueAfter("--backend"))
+        assertEquals("ambient rain piano", saCmd.valueAfter("--text"))
+        assertEquals("20", saCmd.valueAfter("--duration-seconds"))
+        assertEquals("1.50", saCmd.valueAfter("--guidance-scale"))
+    }
+
+    @Test
+    fun parsesAceStepTimingStages() {
+        val parser = Yue2ProgressParser()
+        val events = parser.feed(
+            "[TIMING] ace_step.planner.cot.phase_ms 1200\n" +
+                "[TIMING] ace_step.planner.total_ms 3400\n" +
+                "[TIMING] ace_step.dit.total_ms 5600\n" +
+                "[TIMING] ace_step.vae.decode.total_ms 900\n"
+        ) + parser.finish()
+        assertEquals(
+            listOf(Yue2Stage.Semantic, Yue2Stage.Acoustic, Yue2Stage.Decoding, Yue2Stage.Done),
+            events.map { it.stage }
+        )
+    }
+
     private fun List<String>.valueAfter(flag: String): String = this[indexOf(flag) + 1]
     private fun List<String>.valuesAfter(flag: String): List<String> =
         indices.filter { this[it] == flag }.map { this[it + 1] }

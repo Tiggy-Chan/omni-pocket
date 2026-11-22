@@ -118,6 +118,7 @@ class PackagedModelRepository(
         val hubSettings = hubPreferences.current()
 
         // Reuse already-complete files from existing modelDir into staging if present and valid.
+        onProgress("检查本地已有文件…", 0L, manifest.totalBytes)
         val validPaths = mutableSetOf<String>()
         val reusableFromExisting = mutableListOf<PackagedModelArtifact>()
         val remaining = manifest.artifacts.sumOf { artifact ->

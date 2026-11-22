@@ -34,13 +34,18 @@ data class MusicSettings(
     val seed: Long = 42L,
     val targetDurationSec: Int = 30,
     val odeSteps: Int = 8,
-    val guidanceScale: Float = 1.0f
+    val guidanceScale: Float = 1.0f,
+    val useVulkan: Boolean = false,
+    val threads: Int = 6,
+    /** Empty selects built-in YuE2-3B; otherwise a Hub MusicAudio model ID (YuE2 / ACE-Step / HeartMuLa / Stable Audio 3). */
+    val modelId: String = ""
 ) {
     fun validate() {
         require(style.isNotBlank()) { "请输入音乐风格描述 (Style)" }
         require(bpm in 50..220) { "BPM 范围应在 50 至 220 之间" }
         require(odeSteps in 4..32) { "ODE 步数必须在 4 至 32 之间" }
         require(targetDurationSec in 10..240) { "时长必须在 10 至 240 秒之间" }
+        require(threads in 2..8) { "线程数必须在 2 至 8 之间" }
     }
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -53,6 +58,9 @@ data class MusicSettings(
         put("targetDurationSec", targetDurationSec)
         put("odeSteps", odeSteps)
         put("guidanceScale", guidanceScale.toDouble())
+        put("useVulkan", useVulkan)
+        put("threads", threads)
+        put("modelId", modelId)
     }
 
     companion object {
@@ -60,12 +68,15 @@ data class MusicSettings(
             title = o.optString("title", ""),
             style = o.optString("style", ""),
             lyrics = o.optString("lyrics", ""),
-            bpm = o.optInt("bpm", 112),
+            bpm = o.optInt("bpm", 112).coerceIn(50, 220),
             cotMode = runCatching { CoTMode.valueOf(o.optString("cotMode")) }.getOrDefault(CoTMode.Melody),
             seed = o.optLong("seed", 42L),
-            targetDurationSec = o.optInt("targetDurationSec", 30),
-            odeSteps = o.optInt("odeSteps", 8),
-            guidanceScale = o.optDouble("guidanceScale", 1.0).toFloat()
+            targetDurationSec = o.optInt("targetDurationSec", 30).coerceIn(10, 240),
+            odeSteps = o.optInt("odeSteps", 8).coerceIn(4, 32),
+            guidanceScale = o.optDouble("guidanceScale", 1.0).toFloat(),
+            useVulkan = o.optBoolean("useVulkan", false),
+            threads = o.optInt("threads", 6).coerceIn(2, 8),
+            modelId = o.optString("modelId", "")
         )
     }
 }

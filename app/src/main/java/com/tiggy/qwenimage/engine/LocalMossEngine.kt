@@ -29,10 +29,12 @@ class LocalMossEngine(
     suspend fun executeGeneration(
         jobId: String,
         settings: MossSettings,
+        threadsOverride: Int? = null,
         onUpdate: (EngineUpdate) -> Unit = {}
     ): MossGenerationResult = withContext(Dispatchers.IO) {
         require(jobId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "MOSS 任务 ID 无效" }
-        if (cancelRequested) throw CancellationException("已取消 MOSS 本机生成")
+        cancelRequested = false
+        currentCoroutineContext().ensureActive()
         settings.validateLocal()
         val modelStatus = repository.status()
         check(modelStatus.ready) { modelStatus.message }
@@ -45,6 +47,7 @@ class LocalMossEngine(
         val partialFile = File(outputDirectory, "$jobId.part.png")
         check(!outputFile.exists()) { "MOSS 输出文件已存在" }
         partialFile.delete()
+        val effectiveThreads = (threadsOverride ?: settings.local.threads).coerceIn(2, 8)
         val options = SdCliMossOptions(
             nativeLib = nativeLib,
             diffusionModel = repository.artifactPath(MossModelRepository.SFT_FILE),
@@ -60,11 +63,14 @@ class LocalMossEngine(
             seed = settings.seed,
             cfg = settings.local.cfg,
             shift = settings.shift,
-            threads = settings.local.threads
+            threads = effectiveThreads,
+            useOpenCl = settings.local.useOpenCl,
+            vaeTiling = settings.local.vaeTiling
         )
         var process: Process? = null
         try {
-            onUpdate(EngineUpdate(0f, "正在启动 MOSS 本机", "stable-diffusion.cpp · CPU · ${settings.local.steps} 步"))
+            val backendLabel = if (settings.local.useOpenCl) "OpenCL" else "CPU"
+            onUpdate(EngineUpdate(0f, "正在启动 MOSS 本机", "stable-diffusion.cpp · $backendLabel · ${settings.local.steps} 步"))
             val builder = ProcessBuilder(buildSdCliMossCommand(options))
             builder.environment()["LD_LIBRARY_PATH"] = "/vendor/lib64:${context.applicationInfo.nativeLibraryDir}"
             builder.environment()["GGML_OPENCL_KERNEL_CACHE_DIR"] = File(context.cacheDir, "opencl-kernels").apply { mkdirs() }.absolutePath
@@ -115,7 +121,7 @@ class LocalMossEngine(
             throw error
         } finally {
             activeProcess = null
-            process?.let { if (it.isAlive) it.destroy() }
+            terminateProcessGracefully(process)
             partialFile.delete()
             cancelRequested = false
         }
@@ -123,7 +129,8 @@ class LocalMossEngine(
 
     fun cancelGeneration() {
         cancelRequested = true
-        activeProcess?.destroy()
+        val target = activeProcess
+        if (target != null) Thread({ terminateProcessGracefully(target) }, "moss-cancel").start()
     }
 
     override fun close() = cancelGeneration()

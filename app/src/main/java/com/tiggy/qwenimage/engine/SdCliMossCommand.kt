@@ -18,7 +18,9 @@ internal data class SdCliMossOptions(
     val seed: Long,
     val cfg: Double,
     val shift: Double,
-    val threads: Int = 6
+    val threads: Int = 6,
+    val useOpenCl: Boolean = false,
+    val vaeTiling: Boolean = true
 )
 
 internal fun buildSdCliMossCommand(options: SdCliMossOptions): List<String> {
@@ -45,8 +47,14 @@ internal fun buildSdCliMossCommand(options: SdCliMossOptions): List<String> {
         add("--vae"); add(options.vae.absolutePath)
         add("--vae-format"); add("flux2")
         add("--tokenizer"); add(options.tokenizer.absolutePath)
-        add("--backend"); add("cpu")
-        add("--offload-to-cpu")
+        if (options.useOpenCl) {
+            add("--backend"); add("diffusion=GPUOpenCL,te=CPU,vae=CPU")
+            add("--diffusion-fa")
+        } else {
+            add("--backend"); add("cpu")
+            add("--offload-to-cpu")
+        }
+        if (options.vaeTiling) add("--vae-tiling")
         add("--mmap")
         add("-t"); add(options.threads.toString())
         add("-p"); add(options.prompt)

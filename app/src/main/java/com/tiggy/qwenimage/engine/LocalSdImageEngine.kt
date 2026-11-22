@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.util.Locale
@@ -23,7 +24,9 @@ data class CustomSdSettings(
     val steps: Int = 20,
     val cfg: Double = 7.0,
     val seed: Long = 42L,
-    val useOpenCl: Boolean = false
+    val useOpenCl: Boolean = false,
+    val sampler: String = "euler",
+    val vaeTiling: Boolean = true
 ) {
     fun validate() {
         require(modelId.isNotBlank()) { "请先选择已下载的图像模型" }
@@ -34,24 +37,58 @@ data class CustomSdSettings(
         require(steps in 1..60) { "步数必须为 1–60" }
         require(cfg.isFinite() && cfg in 0.0..20.0) { "CFG 必须在 0 到 20 之间" }
         require(seed >= 0L) { "Seed 不能为负数" }
+        require(sampler in SUPPORTED_SD_SAMPLERS) { "不支持的采样器：$sampler" }
+    }
+
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("modelId", modelId)
+        put("prompt", prompt)
+        put("negativePrompt", negativePrompt)
+        put("width", width)
+        put("height", height)
+        put("steps", steps)
+        put("cfg", cfg)
+        put("seed", seed)
+        put("useOpenCl", useOpenCl)
+        put("sampler", sampler)
+        put("vaeTiling", vaeTiling)
     }
 
     companion object {
+        fun fromJson(o: JSONObject?): CustomSdSettings = CustomSdSettings(
+            modelId = o?.optString("modelId", "") ?: "",
+            prompt = o?.optString("prompt", "") ?: "",
+            negativePrompt = o?.optString("negativePrompt", "lowres, bad anatomy, blurry, watermark, text")
+                ?: "lowres, bad anatomy, blurry, watermark, text",
+            width = o?.optInt("width", 512) ?: 512,
+            height = o?.optInt("height", 512) ?: 512,
+            steps = (o?.optInt("steps", 20) ?: 20).coerceIn(1, 60),
+            cfg = (o?.optDouble("cfg", 7.0) ?: 7.0).coerceIn(0.0, 20.0),
+            seed = (o?.optLong("seed", 42L) ?: 42L).coerceAtLeast(0L),
+            useOpenCl = o?.optBoolean("useOpenCl", false) ?: false,
+            sampler = o?.optString("sampler", "euler")?.takeIf { it in SUPPORTED_SD_SAMPLERS } ?: "euler",
+            vaeTiling = o?.optBoolean("vaeTiling", true) ?: true
+        )
+
         fun defaultsFor(model: InstalledHubModel, current: CustomSdSettings): CustomSdSettings {
             val lower = (model.repo + " " + model.entryFile).lowercase(Locale.ROOT)
             val isTurbo = lower.contains("turbo") || lower.contains("lightning") || lower.contains("lcm")
+            val metaSteps = model.metadata["defaultSteps"]?.toIntOrNull()?.coerceIn(1, 60)
+            val metaCfg = model.metadata["defaultCfg"]?.toDoubleOrNull()?.coerceIn(0.0, 20.0)
+            val defaultSampler = if (lower.contains("lcm")) "lcm" else "euler"
             return current.copy(
                 modelId = model.id,
-                steps = if (isTurbo) 4 else 20,
-                cfg = if (isTurbo) 1.0 else 7.0
+                steps = metaSteps ?: if (isTurbo) 4 else 20,
+                cfg = metaCfg ?: if (isTurbo) 1.0 else 7.0,
+                sampler = defaultSampler
             )
         }
     }
 }
 
 /**
- * Executes any single-file Stable Diffusion / SDXL / Turbo checkpoint downloaded from
- * Hugging Face / hf-mirror via the unified stable-diffusion.cpp binary (libsd_cli.so).
+ * Executes single-file (SD 1.5 / SDXL / Turbo) and modular (Z-Image-Turbo / FLUX.2-Klein)
+ * diffusion checkpoints downloaded from Hugging Face / hf-mirror via libsd_cli.so.
  */
 class LocalSdImageEngine(
     private val context: Context,
@@ -69,12 +106,20 @@ class LocalSdImageEngine(
         onUpdate: (EngineUpdate) -> Unit = {}
     ): MossGenerationResult = withContext(Dispatchers.IO) {
         require(jobId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "任务 ID 无效" }
-        if (cancelRequested) throw CancellationException("已取消图像生成")
+        cancelRequested = false
+        currentCoroutineContext().ensureActive()
         settings.validate()
         val model = hubModels.find(settings.modelId)
             ?: throw IOException("所选图像模型不存在，请重新下载")
         val modelFile = hubModels.entryFile(model)
         check(modelFile.isFile) { "模型文件缺失：${modelFile.name}" }
+        val arch = model.metadata["arch"]
+        val llmFile = hubModels.resolveCompanionByMeta(model, "llmCompanion")
+        val vaeFile = hubModels.resolveCompanionByMeta(model, "vaeCompanion")
+        if (arch == "z_image" || arch == "flux2_klein") {
+            check(llmFile != null && llmFile.isFile) { "缺少共享文本编码器组件，请在模型页重新下载 ${model.name}" }
+            check(vaeFile != null && vaeFile.isFile) { "缺少共享 VAE 解码器组件，请在模型页重新下载 ${model.name}" }
+        }
         val nativeLib = resolveSdCliBinary(context.applicationInfo.nativeLibraryDir)
         check(nativeLib.isFile) { "本机图像推理库（libsd_cli.so）未安装" }
         check(activeProcess == null) { "已有图像任务正在执行" }
@@ -96,7 +141,12 @@ class LocalSdImageEngine(
             seed = settings.seed,
             cfg = settings.cfg,
             threads = threads.coerceIn(2, 8),
-            useOpenCl = settings.useOpenCl
+            useOpenCl = settings.useOpenCl,
+            llmFile = llmFile,
+            vaeFile = vaeFile,
+            sampler = settings.sampler,
+            vaeTiling = settings.vaeTiling,
+            flashAttn = settings.useOpenCl
         )
         var process: Process? = null
         try {
@@ -104,7 +154,7 @@ class LocalSdImageEngine(
                 EngineUpdate(
                     0f,
                     "正在启动 ${model.name}",
-                    "${modelFile.name} · ${if (settings.useOpenCl) "OpenCL" else "CPU"} · ${settings.steps} 步"
+                    "${modelFile.name} · ${if (settings.useOpenCl) "OpenCL" else "CPU"} · ${settings.sampler} · ${settings.steps} 步"
                 )
             )
             val builder = ProcessBuilder(buildSdCliGenericImageCommand(options))
@@ -155,7 +205,7 @@ class LocalSdImageEngine(
             throw error
         } finally {
             activeProcess = null
-            process?.let { if (it.isAlive) it.destroy() }
+            terminateProcessGracefully(process)
             partialFile.delete()
             cancelRequested = false
         }
@@ -163,7 +213,8 @@ class LocalSdImageEngine(
 
     fun cancelGeneration() {
         cancelRequested = true
-        activeProcess?.destroy()
+        val target = activeProcess
+        if (target != null) Thread({ terminateProcessGracefully(target) }, "sd-cancel").start()
     }
 
     override fun close() = cancelGeneration()

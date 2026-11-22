@@ -1,5 +1,6 @@
 package com.tiggy.qwenimage.engine
 
+import com.tiggy.qwenimage.data.VideoSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -51,8 +52,43 @@ class SdCliCommandTest {
         buildSdCliVideoCommand(options(frames = 81))
     }
 
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsNonFourNPlusOneFrameCounts() {
+        buildSdCliVideoCommand(options(frames = 12))
+    }
+
+    @Test
+    fun supportsCpuFallbackCustomCfgAndVaeTiling() {
+        val command = buildSdCliVideoCommand(
+            options(frames = 33).copy(
+                steps = 10,
+                cfgScale = 5.0f,
+                useOpenCl = false,
+                vaeTiling = true,
+                negativePrompt = "blurry"
+            )
+        )
+        assertEquals("cpu", command.valueAfter("--backend"))
+        assertTrue(command.contains("--offload-to-cpu"))
+        assertTrue(command.contains("--vae-tiling"))
+        assertFalse(command.contains("--diffusion-fa"))
+        assertEquals("33", command.valueAfter("--video-frames"))
+        assertEquals("10", command.valueAfter("--steps"))
+        assertEquals("5", command.valueAfter("--cfg-scale"))
+        assertEquals("blurry", command.valueAfter("-n"))
+    }
+
+    @Test
+    fun snapsVideoFramesToFourNPlusOneRule() {
+        assertEquals(5, VideoSettings.snapValidFrameCount(1))
+        assertEquals(9, VideoSettings.snapValidFrameCount(10))
+        assertEquals(13, VideoSettings.snapValidFrameCount(12))
+        assertEquals(25, VideoSettings.snapValidFrameCount(25))
+        assertEquals(41, VideoSettings.snapValidFrameCount(50))
+    }
+
     private fun List<String>.valueAfter(flag: String): String {
-        val index = indexOf(flag)
+        val index = lastIndexOf(flag)
         assertTrue("missing $flag", index >= 0 && index + 1 < size)
         return this[index + 1]
     }

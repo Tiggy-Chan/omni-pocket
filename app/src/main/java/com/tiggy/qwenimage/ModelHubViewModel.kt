@@ -4,6 +4,8 @@ import android.app.Application
 import android.os.StatFs
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.tiggy.qwenimage.data.DeviceHardwareProbe
+import com.tiggy.qwenimage.data.DeviceHardwareSnapshot
 import com.tiggy.qwenimage.data.DownloadManagerState
 import com.tiggy.qwenimage.data.HfRepoOption
 import com.tiggy.qwenimage.data.HfRepoSummary
@@ -50,7 +52,8 @@ data class ModelHubUiState(
     val repoError: String? = null,
     val installedModels: List<InstalledHubModel> = emptyList(),
     val downloads: DownloadManagerState = DownloadManagerState(),
-    val storage: StorageSummary = StorageSummary()
+    val storage: StorageSummary = StorageSummary(),
+    val deviceHardware: DeviceHardwareSnapshot? = null
 )
 
 class ModelHubViewModel(application: Application) : AndroidViewModel(application) {
@@ -60,7 +63,8 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
         ModelHubUiState(
             hubSettings = hubPreferences.current(),
             installedModels = installedRepo.models.value,
-            downloads = ModelDownloadManager.state.value
+            downloads = ModelDownloadManager.state.value,
+            deviceHardware = runCatching { DeviceHardwareProbe.read(application) }.getOrNull()
         )
     )
     val state: StateFlow<ModelHubUiState> = _state.asStateFlow()
@@ -188,9 +192,26 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun inspectRepo(repo: String) {
+    fun openRepoInCategory(repo: String, category: HubSearchCategory) {
+        if (_state.value.category != category) {
+            searchJob?.cancel()
+            _state.update {
+                it.copy(
+                    category = category,
+                    query = "",
+                    searching = false,
+                    searchError = null,
+                    searchResults = HuggingFaceHubClient.curatedRecommendations(category),
+                    showingRecommendations = true
+                )
+            }
+        }
+        inspectRepo(repo, category)
+    }
+
+    fun inspectRepo(repo: String, categoryOverride: HubSearchCategory? = null) {
         inspectJob?.cancel()
-        val category = _state.value.category
+        val category = categoryOverride ?: _state.value.category
         _state.update {
             it.copy(
                 inspectedRepo = repo,
@@ -208,9 +229,11 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
                         repoOptions = options,
                         repoError = if (options.isEmpty()) {
                             when (category) {
-                                HubSearchCategory.GgufChat -> "该仓库未找到可直接加载的 GGUF 模型文件"
+                                HubSearchCategory.GgufChat -> "该仓库未找到可直接加载的 GGUF 对话模型文件"
                                 HubSearchCategory.MnnChat -> "该仓库缺少 MNN 完整文件（需包含 config.json、llm_config.json、llm.mnn、llm.mnn.weight 与 tokenizer.mtok/txt）"
-                                HubSearchCategory.SdImage -> "该仓库未找到单文件图像权重（.safetensors / .gguf / .ckpt），Diffusers 拆包格式暂不支持"
+                                HubSearchCategory.SdImage -> "该仓库未找到支持的图像权重（SD/SDXL 单文件，或 Z-Image / FLUX.2-Klein GGUF）"
+                                HubSearchCategory.VideoWan -> "该仓库未找到支持的 Wan2.2 / Wan2.1 GGUF 视频 DiT 权重"
+                                HubSearchCategory.MusicAudio -> "该仓库未找到支持的 audio.cpp 音乐 GGUF（YuE2 / ACE-Step / HeartMuLa / Stable Audio 3）"
                             }
                         } else null
                     )
@@ -246,9 +269,10 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
         closeRepoSheet()
     }
 
-    fun deleteInstalled(id: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching { installedRepo.delete(id) }
+    fun deleteInstalled(id: String, beforeDelete: (suspend () -> Unit)? = null) {
+        viewModelScope.launch {
+            if (beforeDelete != null) runCatching { beforeDelete() }
+            withContext(Dispatchers.IO) { runCatching { installedRepo.delete(id) } }
             refreshStorage()
         }
     }

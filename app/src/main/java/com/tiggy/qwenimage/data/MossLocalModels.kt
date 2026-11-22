@@ -7,7 +7,9 @@ data class MossLocalSettings(
     val height: Int = 512,
     val steps: Int = 20,
     val cfg: Double = 3.0,
-    val threads: Int = 6
+    val threads: Int = 6,
+    val useOpenCl: Boolean = false,
+    val vaeTiling: Boolean = true
 ) {
     fun validate() {
         require(steps in 1..100) { "本机 MOSS 步数必须为 1–100" }
@@ -21,6 +23,8 @@ data class MossLocalSettings(
         put("steps", steps)
         put("cfg", cfg)
         put("threads", threads)
+        put("useOpenCl", useOpenCl)
+        put("vaeTiling", vaeTiling)
     }
 
     companion object {
@@ -29,7 +33,9 @@ data class MossLocalSettings(
             height = o?.optInt("height", 512) ?: 512,
             steps = o?.optInt("steps", 20) ?: 20,
             cfg = o?.optDouble("cfg", 3.0) ?: 3.0,
-            threads = o?.optInt("threads", 6) ?: 6
+            threads = o?.optInt("threads", 6) ?: 6,
+            useOpenCl = o?.optBoolean("useOpenCl", false) ?: false,
+            vaeTiling = o?.optBoolean("vaeTiling", true) ?: true
         )
     }
 }

@@ -59,6 +59,15 @@ class SdCliMossCommandTest {
     }
 
     @Test
+    fun enablesOpenClAndVaeTilingWhenConfigured() {
+        val command = buildSdCliMossCommand(options().copy(useOpenCl = true, vaeTiling = true))
+        assertEquals("diffusion=GPUOpenCL,te=CPU,vae=CPU", command.valueAfter("--backend"))
+        assertFalse(command.contains("--offload-to-cpu"))
+        assertEquals(1, command.count { it == "--diffusion-fa" })
+        assertEquals(1, command.count { it == "--vae-tiling" })
+    }
+
+    @Test
     fun rejectsInvalidLocalParametersInsteadOfChangingThem() {
         assertThrows(IllegalArgumentException::class.java) {
             buildSdCliMossCommand(options().copy(width = 500))

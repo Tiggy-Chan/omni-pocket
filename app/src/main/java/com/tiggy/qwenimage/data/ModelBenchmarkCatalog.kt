@@ -1,0 +1,609 @@
+package com.tiggy.qwenimage.data
+
+import android.app.ActivityManager
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import java.io.File
+import java.util.Locale
+
+data class DeviceHardwareSnapshot(
+    val totalRamBytes: Long,
+    val availableRamBytes: Long,
+    val cpuCores: Int,
+    val hasVulkan: Boolean,
+    val hasOpenCl: Boolean,
+    val socLabel: String
+) {
+    val totalRamGb: Double get() = totalRamBytes / 1_073_741_824.0
+    val availableRamGb: Double get() = availableRamBytes / 1_073_741_824.0
+
+    fun summaryLine(): String {
+        val ram = String.format(Locale.getDefault(), "%.0f GB 内存", totalRamGb)
+        val accel = buildList {
+            if (hasVulkan) add("Vulkan")
+            if (hasOpenCl) add("OpenCL")
+        }.ifEmpty { listOf("CPU") }.joinToString(" / ")
+        return "$ram · ${cpuCores} 核 · $accel"
+    }
+}
+
+object DeviceHardwareProbe {
+    fun read(context: Context): DeviceHardwareSnapshot {
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val memInfo = ActivityManager.MemoryInfo()
+        am?.getMemoryInfo(memInfo)
+        val hasVulkan = context.packageManager.hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_LEVEL)
+        val hasOpenCl = OPENCL_CANDIDATES.any { File(it).isFile }
+        val soc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Build.SOC_MODEL.takeIf { it.isNotBlank() && it != Build.UNKNOWN } ?: Build.HARDWARE
+        } else {
+            Build.HARDWARE
+        }
+        return DeviceHardwareSnapshot(
+            totalRamBytes = memInfo.totalMem.coerceAtLeast(1L),
+            availableRamBytes = memInfo.availMem.coerceAtLeast(0L),
+            cpuCores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1),
+            hasVulkan = hasVulkan,
+            hasOpenCl = hasOpenCl,
+            socLabel = soc.orEmpty()
+        )
+    }
+
+    private val OPENCL_CANDIDATES = listOf(
+        "/vendor/lib64/libOpenCL.so",
+        "/system/vendor/lib64/libOpenCL.so",
+        "/vendor/lib64/egl/libGLES_mali.so",
+        "/system/lib64/libOpenCL.so"
+    )
+}
+
+enum class BenchmarkModality(val label: String) {
+    Chat("对话"),
+    Decision("决策"),
+    Image("图像"),
+    Music("音乐"),
+    Video("视频")
+}
+
+/**
+ * Transparent evidence grading so edge/quantized models without public leaderboard coverage
+ * never get fabricated scores.
+ */
+enum class EvidenceTier(val label: String) {
+    PublicLeaderboard("公开独立榜单"),
+    OfficialReport("官方技术报告"),
+    EdgeReference("端侧专项参考")
+}
+
+enum class DeviceFitLevel(val label: String) {
+    Smooth("本机流畅"),
+    Usable("本机可用"),
+    Tight("内存吃紧"),
+    LikelyOom("可能内存不足")
+}
+
+data class ModelBenchmarkEntry(
+    val id: String,
+    val familyName: String,
+    val modality: BenchmarkModality,
+    val paramScale: String,
+    val evidenceTier: EvidenceTier,
+    val source: String,
+    val primaryScoreLabel: String,
+    val secondaryScoreLabel: String = "",
+    val strengths: String,
+    val recommendedQuant: String,
+    val minRamGb: Int,
+    /** Optional HF repo + search category so users can jump straight to downloading this model. */
+    val recommendedRepo: String? = null,
+    val searchCategory: HubSearchCategory? = null,
+    val aliases: List<String> = emptyList()
+)
+
+data class QuantQualityHint(
+    val tag: String,
+    val retentionPercent: Int,
+    val note: String
+)
+
+/**
+ * High-credibility, source-attributed capability reference for on-device models across all 5 modalities.
+ *
+ * Design principles:
+ * 1. Public leaderboards (Artificial Analysis, VBench, SongEval) evaluate upstream base model families,
+ *    not third-party quantized HF repackages — so we map community repos back to their base family.
+ * 2. Every score explicitly declares its evidence tier and published source; unmapped repos are
+ *    honestly marked "未收录于公开榜单" and paired with HF community signals & device RAM fit instead.
+ */
+object ModelBenchmarkCatalog {
+
+    val TRUSTED_PACKAGERS = setOf(
+        "qwen", "taobao-mnn", "google", "meta-llama", "microsoft", "deepseek-ai",
+        "unsloth", "bartowski", "ggml-org", "city96", "quantstack", "leejet",
+        "stabilityai", "black-forest-labs", "comfy-org", "tongyi-mai",
+        "audio-cpp", "heartmula", "openmoss-team", "baselabs", "hum-ma", "lightx2v"
+    )
+
+    val entries: List<ModelBenchmarkEntry> = listOf(
+        // --- Chat / LLM (ordered by mobile capability tier within practical phone RAM budgets) ---
+        ModelBenchmarkEntry(
+            id = "qwen3.5-9b",
+            familyName = "Qwen3.5-9B",
+            modality = BenchmarkModality.Chat,
+            paramScale = "9B",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "Qwen3.5 官方技术报告 (2026)",
+            primaryScoreLabel = "MMLU-Pro 82.5",
+            secondaryScoreLabel = "GPQA Diamond 81.7",
+            strengths = "混合线性注意力架构，旗舰大内存手机长文与深度思考最强档",
+            recommendedQuant = "Q4_K_M (~5.7 GB)",
+            minRamGb = 12,
+            recommendedRepo = "unsloth/Qwen3.5-9B-GGUF",
+            searchCategory = HubSearchCategory.GgufChat,
+            aliases = listOf("qwen3.5-9b", "qwen3_5-9b", "qwen35-9b")
+        ),
+        ModelBenchmarkEntry(
+            id = "qwen3-4b",
+            familyName = "Qwen3-4B",
+            modality = BenchmarkModality.Chat,
+            paramScale = "4B",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "Artificial Analysis / Qwen3 模型卡",
+            primaryScoreLabel = "MMLU-Pro 70.4",
+            secondaryScoreLabel = "AIME25 65.6 · GPQA 55.9",
+            strengths = "4B 级综合推理、中文与代码性价比极高，支持开关深度思考",
+            recommendedQuant = "Q4_K_M (~2.5 GB)",
+            minRamGb = 8,
+            recommendedRepo = "unsloth/Qwen3-4B-GGUF",
+            searchCategory = HubSearchCategory.GgufChat,
+            aliases = listOf("qwen3-4b", "qwen-3-4b")
+        ),
+        ModelBenchmarkEntry(
+            id = "qwen3.5-4b",
+            familyName = "Qwen3.5-4B",
+            modality = BenchmarkModality.Chat,
+            paramScale = "4B",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "Qwen3.5 官方技术报告 (2026)",
+            primaryScoreLabel = "MMLU-Pro 69.6",
+            secondaryScoreLabel = "GPQA 65.8",
+            strengths = "内置 MNN 首选旗舰档，长上下文显存/内存增长平缓",
+            recommendedQuant = "MNN 4-bit (~2.8 GB)",
+            minRamGb = 8,
+            recommendedRepo = "taobao-mnn/Qwen3.5-4B-MNN",
+            searchCategory = HubSearchCategory.MnnChat,
+            aliases = listOf("qwen3.5-4b", "qwen35-4b", "qwen3_5-4b")
+        ),
+        ModelBenchmarkEntry(
+            id = "deepseek-r1-distill-qwen-1.5b",
+            familyName = "DeepSeek-R1-Distill-Qwen-1.5B",
+            modality = BenchmarkModality.Chat,
+            paramScale = "1.5B",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "DeepSeek-R1 技术报告",
+            primaryScoreLabel = "MATH-500 83.9",
+            secondaryScoreLabel = "AIME24 28.9",
+            strengths = "极轻量数学与逻辑思维链特化，手机端高速推理",
+            recommendedQuant = "Q4_K_M (~1.1 GB)",
+            minRamGb = 4,
+            recommendedRepo = "bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF",
+            searchCategory = HubSearchCategory.GgufChat,
+            aliases = listOf("deepseek-r1-distill-qwen-1.5b", "deepseek-r1-1.5b")
+        ),
+        ModelBenchmarkEntry(
+            id = "qwen3.5-2b",
+            familyName = "Qwen3.5-2B",
+            modality = BenchmarkModality.Chat,
+            paramScale = "2B",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "Qwen3.5 官方技术报告 (2026)",
+            primaryScoreLabel = "MMLU-Pro 55.3",
+            secondaryScoreLabel = "GPQA 51.6",
+            strengths = "速度与理解力平衡，日常问答与摘要主力",
+            recommendedQuant = "MNN 4-bit (~1.4 GB)",
+            minRamGb = 6,
+            recommendedRepo = "taobao-mnn/Qwen3.5-2B-MNN",
+            searchCategory = HubSearchCategory.MnnChat,
+            aliases = listOf("qwen3.5-2b", "qwen35-2b", "qwen3_5-2b")
+        ),
+        ModelBenchmarkEntry(
+            id = "phi-4-mini",
+            familyName = "Phi-4-mini (3.8B)",
+            modality = BenchmarkModality.Chat,
+            paramScale = "3.8B",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "Artificial Analysis / Microsoft 模型卡",
+            primaryScoreLabel = "MMLU-Pro 52.8",
+            secondaryScoreLabel = "GPQA Diamond 33.1",
+            strengths = "英文逻辑、指令遵循与结构化输出扎实",
+            recommendedQuant = "Q4_K_M (~2.5 GB)",
+            minRamGb = 8,
+            recommendedRepo = "bartowski/microsoft_Phi-4-mini-instruct-GGUF",
+            searchCategory = HubSearchCategory.GgufChat,
+            aliases = listOf("phi-4-mini", "phi4-mini")
+        ),
+        ModelBenchmarkEntry(
+            id = "qwen3-1.7b",
+            familyName = "Qwen3-1.7B",
+            modality = BenchmarkModality.Chat,
+            paramScale = "1.7B",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "Qwen3 官方技术报告",
+            primaryScoreLabel = "32K 原生上下文",
+            secondaryScoreLabel = "支持双模思考",
+            strengths = "仅约 1.1 GB，中文与工具对话流畅度兼顾",
+            recommendedQuant = "Q4_K_M (~1.1 GB)",
+            minRamGb = 4,
+            recommendedRepo = "unsloth/Qwen3-1.7B-GGUF",
+            searchCategory = HubSearchCategory.GgufChat,
+            aliases = listOf("qwen3-1.7b", "qwen-3-1.7b")
+        ),
+        ModelBenchmarkEntry(
+            id = "gemma-3-4b",
+            familyName = "Gemma 3 4B IT",
+            modality = BenchmarkModality.Chat,
+            paramScale = "4B",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "Artificial Analysis / Gemma 3 模型卡",
+            primaryScoreLabel = "MMLU-Pro 43.6",
+            secondaryScoreLabel = "GPQA 30.8 · 128K 上下文",
+            strengths = "Google 端侧标杆，128K 超长窗口与多语种均衡",
+            recommendedQuant = "Q4_K_M (~2.5 GB)",
+            minRamGb = 8,
+            recommendedRepo = "unsloth/gemma-3-4b-it-GGUF",
+            searchCategory = HubSearchCategory.GgufChat,
+            aliases = listOf("gemma-3-4b", "gemma3-4b")
+        ),
+        ModelBenchmarkEntry(
+            id = "qwen2.5-3b",
+            familyName = "Qwen2.5-3B-Instruct",
+            modality = BenchmarkModality.Chat,
+            paramScale = "3B",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "Open LLM / Qwen2.5 技术报告",
+            primaryScoreLabel = "MMLU 65.6",
+            secondaryScoreLabel = "GSM8K 79.1",
+            strengths = "成熟稳定、无思考标签开销、中英日常回复快",
+            recommendedQuant = "Q4_K_M (~1.9 GB)",
+            minRamGb = 6,
+            recommendedRepo = "Qwen/Qwen2.5-3B-Instruct-GGUF",
+            searchCategory = HubSearchCategory.GgufChat,
+            aliases = listOf("qwen2.5-3b", "qwen2-5-3b")
+        ),
+        ModelBenchmarkEntry(
+            id = "llama-3.2-3b",
+            familyName = "Llama 3.2 3B Instruct",
+            modality = BenchmarkModality.Chat,
+            paramScale = "3B",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "Artificial Analysis / Meta 模型卡",
+            primaryScoreLabel = "MMLU-Pro 35.4",
+            secondaryScoreLabel = "128K 上下文",
+            strengths = "Meta 端侧高生态兼容模型，英文总结与改写迅速",
+            recommendedQuant = "Q4_K_M (~2.0 GB)",
+            minRamGb = 6,
+            recommendedRepo = "bartowski/Llama-3.2-3B-Instruct-GGUF",
+            searchCategory = HubSearchCategory.GgufChat,
+            aliases = listOf("llama-3.2-3b", "llama3.2-3b")
+        ),
+        ModelBenchmarkEntry(
+            id = "qwen3.5-0.8b",
+            familyName = "Qwen3.5-0.8B",
+            modality = BenchmarkModality.Chat,
+            paramScale = "0.8B",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "Qwen3.5 官方技术报告 (2026)",
+            primaryScoreLabel = "MMLU-Pro 29.7 (直出)",
+            secondaryScoreLabel = "极速起步 (~540 MB)",
+            strengths = "几乎所有手机秒级加载，适合轻量对话与离线备忘",
+            recommendedQuant = "MNN 4-bit (~540 MB)",
+            minRamGb = 4,
+            recommendedRepo = "taobao-mnn/Qwen3.5-0.8B-MNN",
+            searchCategory = HubSearchCategory.MnnChat,
+            aliases = listOf("qwen3.5-0.8b", "qwen35-0.8b")
+        ),
+        ModelBenchmarkEntry(
+            id = "qwen3-0.6b",
+            familyName = "Qwen3-0.6B",
+            modality = BenchmarkModality.Chat,
+            paramScale = "0.6B",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "Qwen3 官方技术报告",
+            primaryScoreLabel = "超轻量 0.6B",
+            secondaryScoreLabel = "Q4_K_M 仅 397 MB",
+            strengths = "实测手机端 70 tok/s 极速响应，适合快速体验 GGUF 引擎",
+            recommendedQuant = "Q4_K_M (~397 MB)",
+            minRamGb = 3,
+            recommendedRepo = "unsloth/Qwen3-0.6B-GGUF",
+            searchCategory = HubSearchCategory.GgufChat,
+            aliases = listOf("qwen3-0.6b", "qwen-3-0.6b")
+        ),
+        ModelBenchmarkEntry(
+            id = "gemma-3-1b",
+            familyName = "Gemma 3 1B IT",
+            modality = BenchmarkModality.Chat,
+            paramScale = "1B",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "Gemma 3 模型卡",
+            primaryScoreLabel = "MMLU-Pro 14.7",
+            secondaryScoreLabel = "32K 上下文 · 约 800 MB",
+            strengths = "超低功耗轻量模型，英文与短文本处理快",
+            recommendedQuant = "Q4_K_M (~800 MB)",
+            minRamGb = 4,
+            recommendedRepo = "unsloth/gemma-3-1b-it-GGUF",
+            searchCategory = HubSearchCategory.GgufChat,
+            aliases = listOf("gemma-3-1b", "gemma3-1b")
+        ),
+
+        // --- Decision ---
+        ModelBenchmarkEntry(
+            id = "elephant-1-9b",
+            familyName = "Elephant-1 9B",
+            modality = BenchmarkModality.Decision,
+            paramScale = "9B",
+            evidenceTier = EvidenceTier.EdgeReference,
+            source = "baselabs/elephant-1 协议 (qev-labels-v2)",
+            primaryScoreLabel = "单次前向校准概率",
+            secondaryScoreLabel = "支持最多 256 槽位并行打分",
+            strengths = "专精结构化判断/多选/打分，共享前缀 KV 缓存，无需自回归解码",
+            recommendedQuant = "Q4_K_M (~5.6 GB)",
+            minRamGb = 12,
+            aliases = listOf("elephant-1")
+        ),
+
+        // --- Image ---
+        ModelBenchmarkEntry(
+            id = "qwen-image-2.1",
+            familyName = "Qwen-Image 2.1",
+            modality = BenchmarkModality.Image,
+            paramScale = "20B DiT (4-bit)",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "Artificial Analysis Image Arena 开源第一梯队",
+            primaryScoreLabel = "开源顶梯文生图/编辑",
+            secondaryScoreLabel = "支持双图参考与中文文字",
+            strengths = "画质、构图与中文字体渲染极强，支持 MNN OpenCL 本机加速与图片编辑",
+            recommendedQuant = "MNN 4-bit (~15 GB)",
+            minRamGb = 16,
+            aliases = listOf("qwen-image", "qwen_image")
+        ),
+        ModelBenchmarkEntry(
+            id = "z-image-turbo",
+            familyName = "Z-Image-Turbo",
+            modality = BenchmarkModality.Image,
+            paramScale = "6B DiT + Qwen3-4B",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "Artificial Analysis / 通义模型卡",
+            primaryScoreLabel = "8 步写实与文字标杆",
+            secondaryScoreLabel = "CFG=1.0 极速蒸馏",
+            strengths = "手机端体积/画质比最惊艳的开源新一代模型，中英文排版清晰",
+            recommendedQuant = "Q4_0 / Q4_K (~3.7 GB + 共享组件)",
+            minRamGb = 12,
+            recommendedRepo = "unsloth/Z-Image-Turbo-GGUF",
+            searchCategory = HubSearchCategory.SdImage,
+            aliases = listOf("z-image-turbo", "z_image_turbo", "z-image")
+        ),
+        ModelBenchmarkEntry(
+            id = "flux2-klein-4b",
+            familyName = "FLUX.2 Klein 4B",
+            modality = BenchmarkModality.Image,
+            paramScale = "4B DiT + Qwen3-4B",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "Artificial Analysis / Black Forest Labs",
+            primaryScoreLabel = "4 步蒸馏新世代 FLUX",
+            secondaryScoreLabel = "Q4 权重仅 ~2.5 GB",
+            strengths = "紧凑 4B 流匹配架构，4 步即可出高审美写实画面",
+            recommendedQuant = "Q4_K_M (~2.6 GB + 共享组件)",
+            minRamGb = 10,
+            recommendedRepo = "unsloth/FLUX.2-klein-4B-GGUF",
+            searchCategory = HubSearchCategory.SdImage,
+            aliases = listOf("flux.2-klein-4b", "flux-2-klein-4b", "flux2-klein-4b")
+        ),
+        ModelBenchmarkEntry(
+            id = "moss-image",
+            familyName = "MOSS-Image SFT",
+            modality = BenchmarkModality.Image,
+            paramScale = "DiT + Qwen3.5-9B",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "OpenMOSS-Team 官方报告",
+            primaryScoreLabel = "区域布局精确可控",
+            secondaryScoreLabel = "内置可视化布局编辑器",
+            strengths = "支持多区域坐标框构图与复杂指令遵循",
+            recommendedQuant = "Q4_0 (~9.2 GB 全套)",
+            minRamGb = 16,
+            aliases = listOf("moss-image", "moss_image")
+        ),
+        ModelBenchmarkEntry(
+            id = "sdxl-turbo",
+            familyName = "SDXL-Turbo",
+            modality = BenchmarkModality.Image,
+            paramScale = "3.5B 单文件",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "Artificial Analysis / Stability AI",
+            primaryScoreLabel = "1–4 步单文件即下即用",
+            secondaryScoreLabel = "无需额外编码器",
+            strengths = "零依赖单文件权重，出图速度快，生态成熟",
+            recommendedQuant = "FP16 / GGUF (~2.5–6.9 GB)",
+            minRamGb = 8,
+            recommendedRepo = "stabilityai/sdxl-turbo",
+            searchCategory = HubSearchCategory.SdImage,
+            aliases = listOf("sdxl-turbo", "sdxl")
+        ),
+        ModelBenchmarkEntry(
+            id = "sd-turbo-15",
+            familyName = "SD-Turbo / DreamShaper (SD 1.5)",
+            modality = BenchmarkModality.Image,
+            paramScale = "0.9B 单文件",
+            evidenceTier = EvidenceTier.EdgeReference,
+            source = "社区广泛验证端侧轻量档",
+            primaryScoreLabel = "低内存手机首选",
+            secondaryScoreLabel = "仅约 2 GB 单文件",
+            strengths = "6–8 GB 内存手机也能稳定出图，风格化选择丰富",
+            recommendedQuant = "FP16 (~2.0 GB)",
+            minRamGb = 6,
+            recommendedRepo = "Lykon/DreamShaper",
+            searchCategory = HubSearchCategory.SdImage,
+            aliases = listOf("sd-turbo", "dreamshaper", "stable-diffusion-v1-5")
+        ),
+
+        // --- Music ---
+        ModelBenchmarkEntry(
+            id = "ace-step-1.5",
+            familyName = "ACE-Step 1.5 Turbo",
+            modality = BenchmarkModality.Music,
+            paramScale = "DiT + 1.7B Planner",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "ACE-Step 1.5 技术报告 / SongEval 社区评测",
+            primaryScoreLabel = "8 步流匹配 · 50+ 语种",
+            secondaryScoreLabel = "支持中英文人声演唱",
+            strengths = "生成速度远快于纯自回归架构，支持 Vulkan GPU 加速，单文件 GGUF",
+            recommendedQuant = "Q8_0 (~6.2 GB)",
+            minRamGb = 12,
+            recommendedRepo = "audio-cpp/audio.cpp-gguf",
+            searchCategory = HubSearchCategory.MusicAudio,
+            aliases = listOf("ace-step", "acestep")
+        ),
+        ModelBenchmarkEntry(
+            id = "yue2-3b",
+            familyName = "YuE2-3B",
+            modality = BenchmarkModality.Music,
+            paramScale = "3B + Oobleck VAE",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "M-A-P YuE2 / audio.cpp 端侧实测",
+            primaryScoreLabel = "ABC 乐谱思维链编曲",
+            secondaryScoreLabel = "全曲段落清晰 · 仅 2.9 GB",
+            strengths = "体积紧凑（Q4_0 约 2.9 GB），可输出可读 ABC 乐谱与完整人声段落",
+            recommendedQuant = "Q4_0 (~2.9 GB)",
+            minRamGb = 8,
+            recommendedRepo = "audio-cpp/Yue2-3B-GGUF",
+            searchCategory = HubSearchCategory.MusicAudio,
+            aliases = listOf("yue2", "yue-2")
+        ),
+        ModelBenchmarkEntry(
+            id = "heartmula-3b",
+            familyName = "HeartMuLa 3B",
+            modality = BenchmarkModality.Music,
+            paramScale = "3B + HeartCodec",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "HeartMuLa 官方报告 (Apache-2.0)",
+            primaryScoreLabel = "多语种歌词强可控",
+            secondaryScoreLabel = "Apache-2.0 商用友好",
+            strengths = "结构标签与风格词响应细腻，开源协议宽松，单文件 GGUF",
+            recommendedQuant = "Q8_0 (~7.7 GB)",
+            minRamGb = 12,
+            recommendedRepo = "audio-cpp/audio.cpp-gguf",
+            searchCategory = HubSearchCategory.MusicAudio,
+            aliases = listOf("heartmula")
+        ),
+        ModelBenchmarkEntry(
+            id = "stable-audio-3-small",
+            familyName = "Stable Audio 3 Small",
+            modality = BenchmarkModality.Music,
+            paramScale = "轻量扩散",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "Stability AI / audio.cpp",
+            primaryScoreLabel = "仅 1.68 GB 极速配乐/音效",
+            secondaryScoreLabel = "8 步出片 · 低内存友好",
+            strengths = "纯音乐、氛围配乐与环境音效生成极快，普通手机即可流畅运行",
+            recommendedQuant = "Q8_0 (~1.68 GB)",
+            minRamGb = 6,
+            recommendedRepo = "audio-cpp/audio.cpp-gguf",
+            searchCategory = HubSearchCategory.MusicAudio,
+            aliases = listOf("stable-audio", "stable_audio")
+        ),
+
+        // --- Video ---
+        ModelBenchmarkEntry(
+            id = "wan2.2-ti2v-5b",
+            familyName = "Wan2.2-TI2V-5B (Turbo / Base)",
+            modality = BenchmarkModality.Video,
+            paramScale = "5B DiT + UMT5-XXL",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "Artificial Analysis Video Arena / VBench 83+",
+            primaryScoreLabel = "VBench 开源第一梯队",
+            secondaryScoreLabel = "原生支持文生 + 首帧图生视频",
+            strengths = "当前手机端画质与物理动态最强的单 DiT 开源视频模型，Turbo 4 步可跑",
+            recommendedQuant = "Q4_0 (~3.0 GB + 共享编码器)",
+            minRamGb = 12,
+            recommendedRepo = "hum-ma/Wan2.2-TI2V-5B-Turbo-GGUF",
+            searchCategory = HubSearchCategory.VideoWan,
+            aliases = listOf("wan2.2-ti2v-5b", "wan2_2-ti2v-5b", "wan-2.2-5b")
+        ),
+        ModelBenchmarkEntry(
+            id = "wan2.1-t2v-1.3b",
+            familyName = "Wan2.1-T2V-1.3B",
+            modality = BenchmarkModality.Video,
+            paramScale = "1.3B DiT + UMT5-XXL",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "VBench / Wan2.1 官方报告",
+            primaryScoreLabel = "VBench ~83.3 (1.3B 轻量级)",
+            secondaryScoreLabel = "比 5B 快 2–3 倍",
+            strengths = "体积极小（Q4 仅 ~0.9 GB），8–12 GB 内存手机首选文生视频方案",
+            recommendedQuant = "Q4_K_M / Q8_0 (~0.9–1.5 GB)",
+            minRamGb = 8,
+            recommendedRepo = "samuelchristlie/Wan2.1-T2V-1.3B-GGUF",
+            searchCategory = HubSearchCategory.VideoWan,
+            aliases = listOf("wan2.1-t2v-1.3b", "wan2.1_t2v_1.3b", "wan21-1.3b")
+        )
+    )
+
+    fun byModality(modality: BenchmarkModality): List<ModelBenchmarkEntry> =
+        entries.filter { it.modality == modality }
+
+    /** Maps a community HF repo slug or model name back to its canonical upstream base model benchmark entry. */
+    fun matchRepoOrName(repoOrName: String): ModelBenchmarkEntry? {
+        val norm = repoOrName.lowercase(Locale.ROOT)
+        // Longest alias match wins so "qwen3.5-4b" matches before "qwen3-4b" and "z-image-turbo" before "z-image".
+        return entries
+            .flatMap { entry -> entry.aliases.map { alias -> alias to entry } }
+            .sortedByDescending { it.first.length }
+            .firstOrNull { (alias, _) -> norm.contains(alias) }
+            ?.second
+    }
+
+    fun isTrustedPackager(author: String): Boolean =
+        author.lowercase(Locale.ROOT) in TRUSTED_PACKAGERS
+
+    /** Empirical perplexity/quality retention reference for GGUF quant levels. */
+    fun quantQualityHint(quantTag: String?): QuantQualityHint? {
+        val tag = quantTag?.uppercase(Locale.ROOT) ?: return null
+        return when {
+            tag == "F16" || tag == "BF16" || tag == "FP16" || tag == "FP32" ->
+                QuantQualityHint(tag, 100, "无损原精度，体积最大")
+            tag.startsWith("Q8") ->
+                QuantQualityHint(tag, 99, "几乎无损，大内存首选")
+            tag.startsWith("Q6") ->
+                QuantQualityHint(tag, 98, "极低折损，画质/推理极佳")
+            tag.startsWith("Q5_K_M") || tag.startsWith("Q5_K_L") || tag == "Q5_1" ->
+                QuantQualityHint(tag, 97, "高质量均衡档")
+            tag.startsWith("Q5") ->
+                QuantQualityHint(tag, 96, "高质量偏轻档")
+            tag == "Q4_K_M" || tag == "Q4_K_L" || tag == "Q4_K" ->
+                QuantQualityHint(tag, 94, "端侧黄金甜点，速度与精度最均衡")
+            tag == "IQ4_XS" || tag == "IQ4_NL" || tag == "Q4_K_S" ->
+                QuantQualityHint(tag, 92, "紧凑 4-bit，省内存推荐")
+            tag == "Q4_0" || tag == "Q4_1" ->
+                QuantQualityHint(tag, 91, "ARM dotprod 原生最快，略有折损")
+            tag.startsWith("Q3_K_M") || tag.startsWith("Q3_K_L") || tag == "Q3_K" ->
+                QuantQualityHint(tag, 87, "3-bit 压缩，复杂推理略有下降")
+            tag.startsWith("Q3") || tag.startsWith("IQ3") ->
+                QuantQualityHint(tag, 84, "高压缩 3-bit，适合小内存尝鲜")
+            tag.startsWith("Q2") || tag.startsWith("IQ2") ->
+                QuantQualityHint(tag, 75, "极限 2-bit，精度折损明显，仅建议兜底")
+            else -> null
+        }
+    }
+
+    /** Evaluates how comfortably a model of [modelBytes] will fit in this device's RAM. */
+    fun evaluateDeviceFit(modelBytes: Long, device: DeviceHardwareSnapshot?): DeviceFitLevel {
+        if (device == null || device.totalRamBytes <= 0L) return DeviceFitLevel.Usable
+        val estimatedRuntimeBytes = (modelBytes * 1.35 + 1_200_000_000L).toLong()
+        val ratio = estimatedRuntimeBytes.toDouble() / device.totalRamBytes.toDouble()
+        return when {
+            ratio <= 0.45 -> DeviceFitLevel.Smooth
+            ratio <= 0.68 -> DeviceFitLevel.Usable
+            ratio <= 0.85 -> DeviceFitLevel.Tight
+            else -> DeviceFitLevel.LikelyOom
+        }
+    }
+}

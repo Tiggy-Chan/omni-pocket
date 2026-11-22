@@ -7,6 +7,8 @@ import android.media.MediaPlayer
 import android.os.Handler
 import android.os.Looper
 import com.tiggy.qwenimage.data.CoTMode
+import com.tiggy.qwenimage.data.HubModelType
+import com.tiggy.qwenimage.data.InstalledHubModelsRepository
 import com.tiggy.qwenimage.data.MusicJob
 import com.tiggy.qwenimage.data.MusicSettings
 import com.tiggy.qwenimage.data.MusicTrack
@@ -24,7 +26,10 @@ import java.io.IOException
 import java.util.Locale
 import java.util.UUID
 
-class MusicEngine(private val context: Context) : AutoCloseable {
+class MusicEngine(
+    private val context: Context,
+    private val hubModels: InstalledHubModelsRepository = InstalledHubModelsRepository.get(context)
+) : AutoCloseable {
     private var mediaPlayer: MediaPlayer? = null
     private var preparing = false
     private val handler = Handler(Looper.getMainLooper())
@@ -63,13 +68,22 @@ class MusicEngine(private val context: Context) : AutoCloseable {
     private val musicDir = File(context.filesDir, "omni_music").apply { mkdirs() }
     private val modelDir = File(context.getExternalFilesDir(null) ?: context.filesDir, "models/yue2")
 
-    /** Missing or incomplete YuE2 files; empty when local generation can run. */
-    fun missingComponents(): List<String> = buildList {
+    /** Missing or incomplete audio model files; empty when local generation can run. */
+    fun missingComponents(modelId: String = ""): List<String> = buildList {
+        if (!File(context.applicationInfo.nativeLibraryDir, NATIVE_LIB).isFile) add(NATIVE_LIB)
+        if (modelId.isNotBlank()) {
+            val hubModel = hubModels.find(modelId)?.takeIf { it.type == HubModelType.MusicAudio }
+            if (hubModel == null) {
+                add("所选音乐模型未安装")
+            } else if (!hubModels.isPresent(hubModel)) {
+                add(hubModel.entryFile.substringAfterLast('/'))
+            }
+            return@buildList
+        }
         REQUIRED_FILES.forEach { (name, size) ->
             val file = File(modelDir, name)
             if (!file.isFile || file.length() != size) add(name)
         }
-        if (!File(context.applicationInfo.nativeLibraryDir, NATIVE_LIB).isFile) add(NATIVE_LIB)
     }
 
     fun playTrack(track: MusicTrack, onCompletion: (() -> Unit)? = null) {
@@ -159,9 +173,11 @@ class MusicEngine(private val context: Context) : AutoCloseable {
     }
 
     fun seekTo(positionMs: Int) {
+        val player = mediaPlayer ?: return
+        if (preparing) return
         try {
-            mediaPlayer?.seekTo(positionMs)
-            _currentPositionMs.value = positionMs
+            player.seekTo(positionMs.coerceAtLeast(0))
+            _currentPositionMs.value = positionMs.coerceAtLeast(0)
         } catch (error: Exception) {
             playbackFailed(error.message ?: "无法调整播放位置")
         }
@@ -191,7 +207,8 @@ class MusicEngine(private val context: Context) : AutoCloseable {
 
     fun cancelGeneration() {
         cancelRequested = true
-        activeProcess?.destroy()
+        val target = activeProcess
+        if (target != null) Thread({ terminateProcessGracefully(target) }, "music-cancel").start()
     }
 
     suspend fun executeGeneration(
@@ -199,22 +216,25 @@ class MusicEngine(private val context: Context) : AutoCloseable {
         onUpdate: (EngineUpdate) -> Unit
     ): MusicTrack = withContext(Dispatchers.IO) {
         cancelRequested = false
+        currentCoroutineContext().ensureActive()
         job.settings.validate()
         val settings = job.settings
-        val missing = missingComponents()
-        if (missing.isNotEmpty()) throw IOException("本机 YuE2 缺少：${missing.joinToString("、")}")
+        val missing = missingComponents(settings.modelId)
+        if (missing.isNotEmpty()) throw IOException("本机音乐模型缺少：${missing.joinToString("、")}")
 
-        val trackId = "yue2_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
+        val resolved = resolveMusicTarget(settings.modelId)
+        val trackId = "${resolved.family.wire}_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
         val outputFile = File(musicDir, "$trackId.wav")
         val partialFile = File(musicDir, "$trackId.part.wav")
-        val workDir = File(context.cacheDir, "yue2-$trackId")
+        val workDir = File(context.cacheDir, "music-$trackId")
         var process: Process? = null
         try {
             if (!workDir.mkdirs()) throw IOException("无法创建音乐临时目录")
-            val command = buildYue2Command(
-                Yue2Options(
+            val command = buildAudioCppMusicCommand(
+                AudioCppMusicOptions(
                     nativeLib = File(context.applicationInfo.nativeLibraryDir, NATIVE_LIB),
-                    modelDir = modelDir,
+                    family = resolved.family,
+                    modelPath = resolved.modelPath,
                     output = partialFile,
                     outputDir = workDir,
                     style = settings.style,
@@ -224,12 +244,24 @@ class MusicEngine(private val context: Context) : AutoCloseable {
                     seed = settings.seed,
                     durationSec = settings.targetDurationSec,
                     odeSteps = settings.odeSteps,
-                    guidanceScale = settings.guidanceScale.takeIf { it != DEFAULT_GUIDANCE }
+                    guidanceScale = settings.guidanceScale.takeIf { it != DEFAULT_GUIDANCE },
+                    threads = settings.threads,
+                    useVulkan = settings.useVulkan,
+                    yueModelFile = resolved.yueModelFile,
+                    yueVaeFile = resolved.yueVaeFile,
+                    aceStepDitVariant = resolved.aceStepDitVariant
                 )
             )
-            onUpdate(EngineUpdate(0f, "正在加载 YuE2", "YuE2-3B Q4_0 · CPU · seed=${settings.seed} · ${settings.targetDurationSec} 秒 · ${settings.odeSteps} 步"))
+            val accelLabel = if (settings.useVulkan) "Vulkan GPU" else "CPU"
+            onUpdate(
+                EngineUpdate(
+                    0f,
+                    "正在加载 ${resolved.label}",
+                    "${resolved.label} · $accelLabel · seed=${settings.seed} · ${settings.targetDurationSec} 秒 · ${settings.odeSteps} 步"
+                )
+            )
             val builder = ProcessBuilder(command).directory(workDir).redirectErrorStream(true)
-            builder.environment()["LD_LIBRARY_PATH"] = context.applicationInfo.nativeLibraryDir
+            builder.environment()["LD_LIBRARY_PATH"] = "/vendor/lib64:${context.applicationInfo.nativeLibraryDir}"
             process = builder.start()
             activeProcess = process
             if (cancelRequested) throw CancellationException("已取消音乐生成")
@@ -279,10 +311,45 @@ class MusicEngine(private val context: Context) : AutoCloseable {
             if (cancelRequested) throw CancellationException("已取消音乐生成") else throw error
         } finally {
             activeProcess = null
-            process?.let { if (it.isAlive) it.destroy() }
+            terminateProcessGracefully(process)
             partialFile.delete()
             workDir.deleteRecursively()
         }
+    }
+
+    private data class ResolvedMusicTarget(
+        val family: AudioCppFamily,
+        val modelPath: File,
+        val label: String,
+        val yueModelFile: String = YUE2_MODEL_FILE,
+        val yueVaeFile: String = YUE2_VAE_FILE,
+        val aceStepDitVariant: String? = null
+    )
+
+    private fun resolveMusicTarget(modelId: String): ResolvedMusicTarget {
+        if (modelId.isBlank()) {
+            return ResolvedMusicTarget(
+                family = AudioCppFamily.Yue2,
+                modelPath = modelDir,
+                label = "YuE2-3B Q4_0"
+            )
+        }
+        val hubModel = hubModels.find(modelId)?.takeIf { it.type == HubModelType.MusicAudio }
+            ?: throw IOException("所选音乐模型不存在，请重新下载")
+        val family = AudioCppFamily.fromWire(hubModel.metadata["family"])
+        val path = if (family == AudioCppFamily.Yue2) {
+            hubModels.modelDir(hubModel.id)
+        } else {
+            hubModels.entryFile(hubModel)
+        }
+        return ResolvedMusicTarget(
+            family = family,
+            modelPath = path,
+            label = hubModel.name,
+            yueModelFile = hubModel.metadata["modelGguf"] ?: hubModel.entryFile,
+            yueVaeFile = hubModel.metadata["vaeGguf"] ?: YUE2_VAE_FILE,
+            aceStepDitVariant = hubModel.metadata["ditVariant"]
+        )
     }
 
     private fun dispatchYue2Event(event: Yue2Event, cot: CoTMode, onUpdate: (EngineUpdate) -> Unit) {

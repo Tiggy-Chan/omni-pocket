@@ -68,7 +68,11 @@ data class GenerationJob(
     val backend: ImageGenerationBackend = ImageGenerationBackend.QwenLocal,
     val mossSettings: MossSettings? = null,
     val customModelId: String? = null,
-    val customModelName: String? = null
+    val customModelName: String? = null,
+    val customSdCfg: Double? = null,
+    val customSdSampler: String? = null,
+    val customSdUseOpenCl: Boolean? = null,
+    val customSdVaeTiling: Boolean? = null
 ) {
     fun toJson() = JSONObject().apply {
         put("id", id); put("settings", settings.toJson()); put("state", state); put("progress", progress)
@@ -78,6 +82,10 @@ data class GenerationJob(
         put("mossSettings", mossSettings?.toJson() ?: JSONObject.NULL)
         if (!customModelId.isNullOrBlank()) put("customModelId", customModelId)
         if (!customModelName.isNullOrBlank()) put("customModelName", customModelName)
+        customSdCfg?.let { put("customSdCfg", it) }
+        customSdSampler?.let { put("customSdSampler", it) }
+        customSdUseOpenCl?.let { put("customSdUseOpenCl", it) }
+        customSdVaeTiling?.let { put("customSdVaeTiling", it) }
     }
     companion object {
         fun fromJson(o: JSONObject) = GenerationJob(
@@ -98,7 +106,11 @@ data class GenerationJob(
             },
             mossSettings = o.optJSONObject("mossSettings")?.let(MossSettings::fromJson),
             customModelId = o.optString("customModelId").takeIf { it.isNotBlank() && it != "null" },
-            customModelName = o.optString("customModelName").takeIf { it.isNotBlank() && it != "null" }
+            customModelName = o.optString("customModelName").takeIf { it.isNotBlank() && it != "null" },
+            customSdCfg = if (o.has("customSdCfg")) o.optDouble("customSdCfg") else null,
+            customSdSampler = o.optString("customSdSampler").takeIf { it.isNotBlank() && it != "null" },
+            customSdUseOpenCl = if (o.has("customSdUseOpenCl")) o.optBoolean("customSdUseOpenCl") else null,
+            customSdVaeTiling = if (o.has("customSdVaeTiling")) o.optBoolean("customSdVaeTiling") else null
         )
     }
 }

@@ -106,4 +106,68 @@ class HuggingFaceHubClientTest {
         assertEquals(false, list[0].gated)
         assertTrue(list[1].gated)
     }
+
+    @Test
+    fun attachesVerifiedCompanionsForModularZImageAndFlux2Klein() {
+        val zImageJson = """
+            [
+              {"type":"file","path":"z-image-turbo-Q4_0.gguf","size":3700000000}
+            ]
+        """.trimIndent()
+        val zOpts = HuggingFaceHubClient.parseRepoTree("unsloth/Z-Image-Turbo-GGUF", "main", zImageJson, HubSearchCategory.SdImage)
+        assertEquals(1, zOpts.size)
+        val zOpt = zOpts.single()
+        assertEquals("z_image", zOpt.metadata["arch"])
+        assertEquals("8", zOpt.metadata["defaultSteps"])
+        assertEquals("1.0", zOpt.metadata["defaultCfg"])
+        assertEquals(3, zOpt.files.size)
+        assertTrue(zOpt.files.any { it.sharedCompanionKey == "Qwen3-4B-Instruct-2507-Q4_K_M.gguf" })
+        assertTrue(zOpt.files.any { it.sharedCompanionKey == "flux1_ae.safetensors" })
+
+        val fluxJson = """
+            [
+              {"type":"file","path":"flux-2-klein-4b-Q4_K_M.gguf","size":2500000000}
+            ]
+        """.trimIndent()
+        val fOpts = HuggingFaceHubClient.parseRepoTree("unsloth/FLUX.2-klein-4B-GGUF", "main", fluxJson, HubSearchCategory.SdImage)
+        assertEquals(1, fOpts.size)
+        assertEquals("flux2_klein", fOpts.single().metadata["arch"])
+        assertEquals("4", fOpts.single().metadata["defaultSteps"])
+        assertTrue(fOpts.single().files.any { it.sharedCompanionKey == "flux2_ae.safetensors" })
+    }
+
+    @Test
+    fun extractsWanVideoOptionsWithCompanionsAndFlagsMoE14B() {
+        val json = """
+            [
+              {"type":"file","path":"Wan2.1-T2V-1.3B-Q4_K_M.gguf","size":950000000},
+              {"type":"file","path":"Wan2.2-T2V-A14B-LowNoise-Q4_K_M.gguf","size":8000000000},
+              {"type":"file","path":"umt5-xxl-encoder-Q3_K_S.gguf","size":2858489696}
+            ]
+        """.trimIndent()
+        val opts = HuggingFaceHubClient.parseRepoTree("samuelchristlie/Wan2.1-T2V-1.3B-GGUF", "main", json, HubSearchCategory.VideoWan)
+        assertEquals(2, opts.size)
+        assertNull(opts[0].splitWarning)
+        assertEquals("wan21_t2v", opts[0].metadata["arch"])
+        assertEquals("taew2_1.safetensors", opts[0].metadata["taeCompanion"])
+        assertEquals(3, opts[0].files.size)
+        assertNotNull(opts[1].splitWarning)
+    }
+
+    @Test
+    fun extractsMultiFamilyMusicAudioOptionsFromAudioCppRepo() {
+        val json = """
+            [
+              {"type":"file","path":"ACE-Step-1.5-Turbo-Q8_0.gguf","size":6190000000},
+              {"type":"file","path":"HeartMuLa-Q8_0.gguf","size":7660000000},
+              {"type":"file","path":"Stable-Audio-3-Small-Music-Q8_0.gguf","size":1680000000}
+            ]
+        """.trimIndent()
+        val opts = HuggingFaceHubClient.parseRepoTree("audio-cpp/audio.cpp-gguf", "main", json, HubSearchCategory.MusicAudio)
+        assertEquals(3, opts.size)
+        val families = opts.map { it.metadata["family"] }.toSet()
+        assertEquals(setOf("ace_step", "heartmula", "stable_audio"), families)
+        val ace = opts.first { it.metadata["family"] == "ace_step" }
+        assertEquals("acestep-v15-turbo", ace.metadata["ditVariant"])
+    }
 }

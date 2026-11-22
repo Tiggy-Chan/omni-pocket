@@ -40,7 +40,33 @@ class SdCliGenericImageCommandTest {
     fun buildsOpenClCommandWhenEnabled() {
         val cmd = buildSdCliGenericImageCommand(options(useOpenCl = true))
         assertEquals("diffusion=GPUOpenCL,te=CPU,vae=CPU", cmd.valueAfter("--backend"))
+        assertTrue(cmd.contains("--diffusion-fa"))
+        assertTrue(cmd.contains("--vae-tiling"))
         assertFalse(cmd.contains("--offload-to-cpu"))
+    }
+
+    @Test
+    fun buildsModularZImageCommandWithCustomSampler() {
+        val cmd = buildSdCliGenericImageCommand(
+            options(useOpenCl = true).copy(
+                modelFile = File("/models/hub/z-image/z-image-turbo-Q4_0.gguf"),
+                llmFile = File("/models/hub/_companions/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"),
+                vaeFile = File("/models/hub/_companions/flux1_ae.safetensors"),
+                sampler = "dpm++2m",
+                vaeTiling = false
+            )
+        )
+        assertFalse(cmd.contains("--model"))
+        assertEquals("/models/hub/z-image/z-image-turbo-Q4_0.gguf", cmd.valueAfter("--diffusion-model"))
+        assertEquals("/models/hub/_companions/Qwen3-4B-Instruct-2507-Q4_K_M.gguf", cmd.valueAfter("--llm"))
+        assertEquals("/models/hub/_companions/flux1_ae.safetensors", cmd.valueAfter("--vae"))
+        assertEquals("dpm++2m", cmd.valueAfter("--sampling-method"))
+        assertFalse(cmd.contains("--vae-tiling"))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun rejectsUnsupportedSampler() {
+        buildSdCliGenericImageCommand(options().copy(sampler = "invalid_sampler"))
     }
 
     @Test(expected = IllegalArgumentException::class)

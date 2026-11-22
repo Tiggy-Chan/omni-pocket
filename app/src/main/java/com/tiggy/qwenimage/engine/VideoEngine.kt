@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import com.tiggy.qwenimage.data.HubModelType
+import com.tiggy.qwenimage.data.InstalledHubModelsRepository
 import com.tiggy.qwenimage.data.VideoBackend
 import com.tiggy.qwenimage.data.VideoItem
 import com.tiggy.qwenimage.data.VideoJob
@@ -21,7 +23,10 @@ import java.io.IOException
 import java.util.Locale
 import java.util.UUID
 
-class VideoEngine(private val context: Context) : AutoCloseable {
+class VideoEngine(
+    private val context: Context,
+    private val hubModels: InstalledHubModelsRepository = InstalledHubModelsRepository.get(context)
+) : AutoCloseable {
     private val videoDir = File(context.filesDir, "omni_video").apply { mkdirs() }
     private val thumbDir = File(context.filesDir, "omni_video_thumbs").apply { mkdirs() }
     private val externalFilesDir = context.getExternalFilesDir(null)
@@ -33,12 +38,25 @@ class VideoEngine(private val context: Context) : AutoCloseable {
     @Volatile
     private var cancelRequested = false
 
-    fun runtimeStatus(): VideoRuntimeStatus {
+    fun runtimeStatus(modelId: String = ""): VideoRuntimeStatus {
+        val nativeLib = resolveSdCliBinary(context.applicationInfo.nativeLibraryDir)
+        if (modelId.isNotBlank()) {
+            val hubModel = hubModels.find(modelId)?.takeIf { it.type == HubModelType.VideoWan }
+            if (hubModel == null) {
+                return VideoRuntimeStatus(false, listOf("所选视频模型未安装"))
+            }
+            val missing = buildList {
+                if (!hubModels.entryFile(hubModel).isFile) add(hubModel.entryFile.substringAfterLast('/'))
+                if (hubModels.resolveCompanionByMeta(hubModel, "t5Companion") == null) add(T5)
+                if (hubModels.resolveCompanionByMeta(hubModel, "taeCompanion") == null) add(VAE)
+                if (!nativeLib.isFile) add("libsd_cli.so")
+            }
+            return VideoRuntimeStatus(missing.isEmpty(), missing)
+        }
         // Exact sizes catch half-pushed files, which would otherwise fail only once sd-cli starts.
         val missing = requiredLocalFiles().filter { (name, file) ->
             !file.isFile || file.length() != EXPECTED_SIZES.getValue(name)
         }.keys.toList()
-        val nativeLib = File(context.applicationInfo.nativeLibraryDir, "libsd_cli.so")
         val allMissing = if (!nativeLib.isFile) missing + "libsd_cli.so" else missing
         return VideoRuntimeStatus(allMissing.isEmpty(), allMissing)
     }
@@ -94,11 +112,13 @@ class VideoEngine(private val context: Context) : AutoCloseable {
         job: VideoJob,
         onUpdate: (EngineUpdate) -> Unit
     ): VideoItem = withContext(Dispatchers.IO) {
+        cancelRequested = false
         try {
+            currentCoroutineContext().ensureActive()
             job.settings.validate()
             if (cancelRequested) throw CancellationException("已取消视频生成")
-            val status = runtimeStatus()
-            if (!status.localReady) throw IOException("本机 Wan2.2 缺少：${status.missingComponents.joinToString("、")}")
+            val status = runtimeStatus(job.settings.modelId)
+            if (!status.localReady) throw IOException("本机视频模型缺少：${status.missingComponents.joinToString("、")}")
             executeOnDevice(job, onUpdate)
         } catch (error: CancellationException) {
             throw error
@@ -111,7 +131,8 @@ class VideoEngine(private val context: Context) : AutoCloseable {
 
     fun cancelGeneration() {
         cancelRequested = true
-        activeProcess?.destroy()
+        val target = activeProcess
+        if (target != null) Thread({ terminateProcessGracefully(target) }, "video-cancel").start()
     }
 
     override fun close() = cancelGeneration()
@@ -122,8 +143,8 @@ class VideoEngine(private val context: Context) : AutoCloseable {
     ): VideoItem {
         val settings = job.settings
         settings.validateOnDevice()
-        val files = requiredLocalFiles()
-        val nativeLib = File(context.applicationInfo.nativeLibraryDir, "libsd_cli.so")
+        val (ditFile, t5File, taeFile, modelLabel) = resolveVideoWeights(settings.modelId)
+        val nativeLib = resolveSdCliBinary(context.applicationInfo.nativeLibraryDir)
         val videoId = "ondevice_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
         val outputFile = File(videoDir, "$videoId.webm")
         val partialFile = File(videoDir, "$videoId.part.webm")
@@ -134,9 +155,9 @@ class VideoEngine(private val context: Context) : AutoCloseable {
             initImageFile = settings.inputImageUri?.let { copyReferenceImage(it, videoId) }
             val options = SdCliVideoOptions(
                 nativeLib = nativeLib,
-                diffusionModel = files.getValue(DIT),
-                textEncoder = files.getValue(T5),
-                vae = files.getValue(VAE),
+                diffusionModel = ditFile,
+                textEncoder = t5File,
+                vae = taeFile,
                 output = partialFile,
                 prompt = settings.prompt,
                 width = settings.width,
@@ -146,10 +167,16 @@ class VideoEngine(private val context: Context) : AutoCloseable {
                 steps = settings.steps,
                 seed = settings.seed,
                 shift = settings.shift,
-                initImage = initImageFile
+                initImage = initImageFile,
+                threads = settings.threads,
+                negativePrompt = settings.negativePrompt,
+                cfgScale = settings.cfgScale,
+                useOpenCl = settings.useOpenCl,
+                vaeTiling = settings.vaeTiling
             )
             val command = buildSdCliVideoCommand(options)
-            onUpdate(EngineUpdate(0f, "正在启动本机 Wan", "Wan2.2 · seed=${settings.seed} · ${settings.numFrames} 帧 @ ${settings.fps}fps · ${settings.steps} 步"))
+            val accelLabel = if (settings.useOpenCl) "OpenCL DiT / CPU VAE" else "CPU"
+            onUpdate(EngineUpdate(0f, "正在启动 $modelLabel", "$modelLabel · $accelLabel · seed=${settings.seed} · ${settings.numFrames} 帧 @ ${settings.fps}fps · ${settings.steps} 步"))
             if (initImageFile != null) onUpdate(EngineUpdate(null, "已载入参考首帧"))
 
             val builder = ProcessBuilder(command)
@@ -192,10 +219,32 @@ class VideoEngine(private val context: Context) : AutoCloseable {
             return item
         } finally {
             activeProcess = null
-            process?.let { if (it.isAlive) it.destroy() }
+            terminateProcessGracefully(process)
             initImageFile?.delete()
             partialFile.delete()
         }
+    }
+
+    private data class ResolvedVideoWeights(
+        val dit: File,
+        val textEncoder: File,
+        val vae: File,
+        val label: String
+    )
+
+    private fun resolveVideoWeights(modelId: String): ResolvedVideoWeights {
+        if (modelId.isNotBlank()) {
+            val hubModel = hubModels.find(modelId)?.takeIf { it.type == HubModelType.VideoWan }
+                ?: throw IOException("所选视频模型不存在，请重新下载")
+            val dit = hubModels.entryFile(hubModel)
+            val t5 = hubModels.resolveCompanionByMeta(hubModel, "t5Companion")
+                ?: throw IOException("缺少共享 UMT5 文本编码器，请在模型页重新下载")
+            val tae = hubModels.resolveCompanionByMeta(hubModel, "taeCompanion")
+                ?: throw IOException("缺少共享 TAE 视频解码器，请在模型页重新下载")
+            return ResolvedVideoWeights(dit, t5, tae, hubModel.name)
+        }
+        val files = requiredLocalFiles()
+        return ResolvedVideoWeights(files.getValue(DIT), files.getValue(T5), files.getValue(VAE), "Wan2.2 Turbo")
     }
 
     private fun dispatchEvent(event: SdCliEvent, onUpdate: (EngineUpdate) -> Unit) {
