@@ -194,10 +194,15 @@ object HuggingFaceHubClient {
         files: List<HfDownloadFile>
     ): List<HfRepoOption> {
         val byPath = files.associateBy { it.path }
-        val coreRequired = listOf("config.json", "llm_config.json", "llm.mnn", "llm.mnn.weight", "tokenizer.txt")
+        val coreRequired = listOf("config.json", "llm_config.json", "llm.mnn", "llm.mnn.weight")
         if (!coreRequired.all { it in byPath }) return emptyList()
-        val optional = listOf("visual.mnn", "visual.mnn.weight", "embeddings_bf16.bin", "embeddings_int4.bin", "embeddings_int8.bin")
-        val bundle = (coreRequired + optional).mapNotNull { byPath[it] }
+        val tokenizer = byPath["tokenizer.mtok"] ?: byPath["tokenizer.txt"] ?: return emptyList()
+        val optional = listOf(
+            "visual.mnn", "visual.mnn.weight",
+            "audio.mnn", "audio.mnn.weight",
+            "embeddings_bf16.bin", "embeddings_fp16.bin", "embeddings_int4.bin", "embeddings_int8.bin"
+        )
+        val bundle = coreRequired.mapNotNull { byPath[it] } + tokenizer + optional.mapNotNull { byPath[it] }
         return listOf(
             HfRepoOption(
                 id = sanitizeModelId("mnn", repo, "bundle"),
@@ -257,9 +262,10 @@ object HuggingFaceHubClient {
 
     fun curatedRecommendations(category: HubSearchCategory): List<HfRepoSummary> = when (category) {
         HubSearchCategory.GgufChat -> listOf(
+            HfRepoSummary("unsloth/Qwen3-0.6B-GGUF", "unsloth", "Qwen3-0.6B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "超轻量体验，支持深度思考，约 400 MB"),
             HfRepoSummary("Qwen/Qwen2.5-1.5B-Instruct-GGUF", "Qwen", "Qwen2.5-1.5B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen2"), false, "轻量中英双语，手机端速度极快"),
             HfRepoSummary("Qwen/Qwen2.5-3B-Instruct-GGUF", "Qwen", "Qwen2.5-3B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen2"), false, "均衡推荐，中英问答与总结表现优秀"),
-            HfRepoSummary("Qwen/Qwen3-1.7B-GGUF", "Qwen", "Qwen3-1.7B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "支持深度思考模式的新一代小模型"),
+            HfRepoSummary("unsloth/Qwen3-1.7B-GGUF", "unsloth", "Qwen3-1.7B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "支持深度思考模式的新一代小模型，含 Q4_K_M"),
             HfRepoSummary("Qwen/Qwen3-4B-GGUF", "Qwen", "Qwen3-4B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "推理与中文能力强，建议 8 GB+ 内存"),
             HfRepoSummary("bartowski/Llama-3.2-3B-Instruct-GGUF", "bartowski", "Llama-3.2-3B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "llama"), false, "Meta 轻量端侧对话模型"),
             HfRepoSummary("unsloth/gemma-3-1b-it-GGUF", "unsloth", "gemma-3-1b-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma3"), false, "Google Gemma 3 1B 轻量对话模型"),

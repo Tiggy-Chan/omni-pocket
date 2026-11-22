@@ -37,6 +37,8 @@ object ResumableHttpDownloader {
             operation.ensureActive()
             try {
                 return downloadOnce(rewrittenUrl, part, expectedSize, operation, hubSettings, progress)
+            } catch (error: NonRetryableHttpException) {
+                throw error
             } catch (error: IllegalArgumentException) {
                 // Protocol / Range contract error should fail fast without retrying.
                 throw error
@@ -81,10 +83,10 @@ object ResumableHttpDownloader {
         try {
             val response = connection.responseCode
             if (response == 401 || response == 403) {
-                throw IOException("需要访问权限（HTTP $response），如为受限模型请在设置中填写 Hugging Face Token")
+                throw NonRetryableHttpException("需要访问权限（HTTP $response），如为受限模型请在设置中填写 Hugging Face Token")
             }
             if (response == 404) {
-                throw IOException("模型文件不存在（HTTP 404），请切换镜像源或检查仓库版本")
+                throw NonRetryableHttpException("模型文件不存在（HTTP 404），请切换镜像源或检查仓库版本")
             }
             if (response == 416 && expectedSize != null && have == expectedSize) {
                 progress(have, expectedSize)
@@ -216,13 +218,16 @@ object ResumableHttpDownloader {
                 val location = conn.getHeaderField("Location")
                 conn.disconnect()
                 if (location.isNullOrBlank()) throw IOException("重定向缺少目标地址")
-                current = URI(current).resolve(location).toString()
+                current = runCatching { URI(current).resolve(location).toString() }
+                    .getOrElse { URL(URL(current), location).toString() }
                 continue
             }
             return conn
         }
         throw IOException("重定向次数过多")
     }
+
+    private class NonRetryableHttpException(message: String) : IOException(message)
 
     fun readLimited(input: InputStream, maximum: Int): String {
         val output = ByteArrayOutputStream()

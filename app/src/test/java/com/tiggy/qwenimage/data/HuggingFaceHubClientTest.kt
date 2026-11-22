@@ -47,11 +47,33 @@ class HuggingFaceHubClientTest {
               {"type":"file","path":"README.md","size":1000}
             ]
         """.trimIndent()
-        val options = HuggingFaceHubClient.parseRepoTree("taobao-mnn/Qwen3-1.7B-MNN", "main", json, HubSearchCategory.MnnChat)
+        val options = HuggingFaceHubClient.parseRepoTree("taobao-mnn/Qwen2.5-3B-Instruct-MNN", "main", json, HubSearchCategory.MnnChat)
         assertEquals(1, options.size)
         assertEquals(HubModelType.MnnChat, options.single().type)
         assertEquals(5, options.single().files.size)
         assertEquals("config.json", options.single().entryFile)
+    }
+
+    @Test
+    fun detectsModernMnnPackageBundleWithBinaryMtokTokenizer() {
+        val json = """
+            [
+              {"type":"file","path":"config.json","size":457},
+              {"type":"file","path":"llm_config.json","size":4867},
+              {"type":"file","path":"llm.mnn","size":1285272},
+              {"type":"file","path":"llm.mnn.weight","size":1124274658},
+              {"type":"file","path":"embeddings_int4.bin","size":145858560},
+              {"type":"file","path":"tokenizer.mtok","size":4111426},
+              {"type":"file","path":"llm.mnn.json","size":3083331}
+            ]
+        """.trimIndent()
+        val options = HuggingFaceHubClient.parseRepoTree("taobao-mnn/Qwen3-1.7B-MNN", "main", json, HubSearchCategory.MnnChat)
+        assertEquals(1, options.size)
+        val bundle = options.single()
+        assertEquals(HubModelType.MnnChat, bundle.type)
+        assertEquals(6, bundle.files.size)
+        assertTrue(bundle.files.any { it.path == "tokenizer.mtok" })
+        assertTrue(bundle.files.any { it.path == "embeddings_int4.bin" })
     }
 
     @Test

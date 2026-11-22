@@ -209,7 +209,7 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
                         repoError = if (options.isEmpty()) {
                             when (category) {
                                 HubSearchCategory.GgufChat -> "该仓库未找到可直接加载的 GGUF 模型文件"
-                                HubSearchCategory.MnnChat -> "该仓库缺少 MNN 完整文件（需包含 config.json、llm.mnn、llm.mnn.weight、tokenizer.txt）"
+                                HubSearchCategory.MnnChat -> "该仓库缺少 MNN 完整文件（需包含 config.json、llm_config.json、llm.mnn、llm.mnn.weight 与 tokenizer.mtok/txt）"
                                 HubSearchCategory.SdImage -> "该仓库未找到单文件图像权重（.safetensors / .gguf / .ckpt），Diffusers 拆包格式暂不支持"
                             }
                         } else null

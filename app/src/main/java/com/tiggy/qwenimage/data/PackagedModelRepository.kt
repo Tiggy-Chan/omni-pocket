@@ -119,6 +119,7 @@ class PackagedModelRepository(
 
         // Reuse already-complete files from existing modelDir into staging if present and valid.
         val validPaths = mutableSetOf<String>()
+        val reusableFromExisting = mutableListOf<PackagedModelArtifact>()
         val remaining = manifest.artifacts.sumOf { artifact ->
             val staged = safeChild(staging, artifact.path)
             val existing = safeChild(modelDir, artifact.path)
@@ -128,10 +129,8 @@ class PackagedModelRepository(
                     0L
                 }
                 matches(existing, artifact, op) -> {
-                    staged.parentFile?.mkdirs()
-                    existing.copyTo(staged, overwrite = true)
-                    validPaths += artifact.path
-                    0L
+                    reusableFromExisting += artifact
+                    artifact.size
                 }
                 else -> {
                     val part = File(staged.path + ".part")
@@ -146,6 +145,13 @@ class PackagedModelRepository(
         val available = StatFs(staging.path).availableBytes
         check(available >= remaining + RESERVE_BYTES) {
             "空间不足，还需 ${String.format("%.2f", (remaining + RESERVE_BYTES) / 1_000_000_000.0)} GB 可用空间"
+        }
+        for (artifact in reusableFromExisting) {
+            op.ensureActive()
+            val staged = safeChild(staging, artifact.path)
+            staged.parentFile?.mkdirs()
+            safeChild(modelDir, artifact.path).copyTo(staged, overwrite = true)
+            validPaths += artifact.path
         }
 
         val total = manifest.totalBytes

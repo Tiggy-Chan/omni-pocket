@@ -95,7 +95,7 @@ object HubUrlRewriter {
     fun apiHostMatches(url: String, settings: HubSettings): Boolean {
         val targetHost = runCatching { URI(url).host?.lowercase(Locale.ROOT) }.getOrNull() ?: return false
         val configuredHost = runCatching { URI(effectiveBaseUrl(settings)).host?.lowercase(Locale.ROOT) }.getOrNull()
-        return targetHost == configuredHost || targetHost == "huggingface.co" || targetHost == "hf-mirror.com"
+        return configuredHost != null && targetHost == configuredHost
     }
 
     fun encodeSegment(segment: String): String =

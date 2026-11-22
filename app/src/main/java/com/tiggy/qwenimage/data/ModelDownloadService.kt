@@ -168,7 +168,10 @@ object ModelDownloadManager {
             } catch (_: CancellationException) {
                 // User cancelled; keep partial file for future resume.
             } catch (error: Throwable) {
-                errorMessage = "${task.title} 下载失败：${error.message ?: error.toString()}"
+                val mirrorHint = if (HubPreferences.get(appContext).current().mode == HubMirrorMode.Official) {
+                    "（如在国内网络环境，可在右上角切换至 HF-Mirror）"
+                } else ""
+                errorMessage = "${task.title} 下载失败：${error.message ?: error.toString()}$mirrorHint"
             } finally {
                 val next: PendingDownloadTask?
                 synchronized(lock) {
@@ -242,6 +245,11 @@ class ModelDownloadService : Service() {
             startForeground(NOTIFICATION_ID, initial, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
             startForeground(NOTIFICATION_ID, initial)
+        }
+        if (ModelDownloadManager.state.value.active == null) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
         }
         if (collector == null) {
             var lastNotifyMs = 0L

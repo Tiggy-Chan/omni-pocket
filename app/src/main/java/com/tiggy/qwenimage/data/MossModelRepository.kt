@@ -216,7 +216,7 @@ class MossModelRepository(
     private fun ensureSpace(directory: File, remaining: Long) {
         val available = StatFs(directory.path).availableBytes
         check(available >= remaining + RESERVE_BYTES) {
-            "空间不足，还需下载 ${remaining / 1_000_000_000.0} GB，并保留 512MB 余量"
+            "空间不足，还需下载 ${String.format("%.2f", remaining / 1_000_000_000.0)} GB，并保留 512MB 余量"
         }
     }
 
