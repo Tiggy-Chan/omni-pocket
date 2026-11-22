@@ -210,7 +210,10 @@ private fun Destination(
 private fun ImagePreviewDialog(path: String, viewModel: QwenViewModel, onDismiss: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val shareTitle = tr(R.string.image_share_title)
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -223,10 +226,10 @@ private fun ImagePreviewDialog(path: String, viewModel: QwenViewModel, onDismiss
                     Icon(Icons.Outlined.Close, tr(R.string.common_close_preview), tint = androidx.compose.ui.graphics.Color.White)
                 }
             }
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                OmniAsyncImage(path, null, Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), maxDimension = 2048)
+            Box(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+                OmniAsyncImage(path, null, Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)), maxDimension = 2048)
             }
-            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { onDismiss(); viewModel.editImage(path) }) { Text(tr(R.string.common_continue_edit), color = androidx.compose.ui.graphics.Color.White) }
                 TextButton(onClick = { onDismiss(); viewModel.useImageAsVideoFirstFrame(path) }) { Text(tr(R.string.common_make_video), color = androidx.compose.ui.graphics.Color.White) }
                 TextButton(onClick = {

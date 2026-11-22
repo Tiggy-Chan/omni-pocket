@@ -163,8 +163,7 @@ class DecisionViewModel(
             DecisionKind.Choice -> question.options.mapIndexed { index, option ->
                 option.copy(name = option.name.ifBlank { "option-${index + 1}" })
             }.ifEmpty {
-                listOf(DecisionOption("yes", "the statement is true"),
-                    DecisionOption("no", "the statement is false"))
+                listOf(DecisionOption("", ""), DecisionOption("", ""))
             }
             DecisionKind.Score -> question.options.take(10).ifEmpty {
                 listOf(DecisionOption(description = "Low"),
