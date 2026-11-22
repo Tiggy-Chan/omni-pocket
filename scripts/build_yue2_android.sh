@@ -12,8 +12,9 @@ AUDIOCPP_URL="https://github.com/0xShug0/audio.cpp.git"
 AUDIOCPP_REVISION="3a0dd44293fc706f5c375ec96d3e6fd9c54b6c45"
 NDK_REVISION="28.2.13676358"
 ANDROID_PLATFORM="android-28"
-# Snapdragon 8 Gen 3 and other ARMv8.6 cores; i8mm speeds up the Q4_0/Q8_0 matmuls.
-CPU_ARCH="armv8.6-a+dotprod+i8mm+bf16+fp16"
+# Portable ARMv8.2+dotprod default so release APKs run across broad arm64 devices without SIGILL.
+# Override with YUE2_CPU_ARCH=armv8.6-a+dotprod+i8mm+bf16+fp16 for local Snapdragon 8 Gen 3 builds.
+CPU_ARCH="${YUE2_CPU_ARCH:-armv8.2-a+dotprod}"
 
 if [[ -z "${ANDROID_NDK:-}" ]]; then
     : "${ANDROID_HOME:?set ANDROID_HOME or ANDROID_NDK}"
@@ -53,6 +54,8 @@ cmake -S "$SRC" -B "$OUT_BUILD" -G Ninja \
     -DANDROID_ABI=arm64-v8a \
     -DANDROID_PLATFORM="$ANDROID_PLATFORM" \
     -DANDROID_STL=c++_static \
+    -DCMAKE_C_FLAGS="-ffile-prefix-map=$BUILD_ROOT=." \
+    -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$BUILD_ROOT=." \
     -DAUDIOCPP_MODEL_SET=custom \
     -DAUDIOCPP_MODELS=yue2 \
     -DENGINE_ENABLE_CUDA=OFF \
@@ -67,7 +70,7 @@ cmake -S "$SRC" -B "$OUT_BUILD" -G Ninja \
     -DGGML_BACKEND_DL=OFF \
     -DOpenMP_omp_LIBRARY="$OPENMP_STATIC" \
     -DCMAKE_EXE_LINKER_FLAGS="-static-openmp"
-cmake --build "$OUT_BUILD" --target audiocpp_cli --parallel "${JOBS:-8}"
+cmake --build "$OUT_BUILD" --target audiocpp_cli --parallel "${JOBS:-4}"
 
 mkdir -p "$(dirname "$OUTPUT")"
 cp "$OUT_BUILD/bin/audiocpp_cli" "$OUTPUT"

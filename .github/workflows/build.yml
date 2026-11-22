@@ -1,8 +1,10 @@
 name: Build
 
-# Builds the Compose app, demo APK and the qwenimage21 AAR. Qwen uses the prebuilt libMNN.so and headers
-# checked in under qwenimage21/src/main/, so the MNN submodule is not needed. Only the pinned MOSS
-# stable-diffusion.cpp/ggml submodules are checked out to build libmoss_cli.so below.
+# Builds Omni Pocket (arm64-v8a) with all local inference runtimes:
+# - MNN (prebuilt libMNN.so in qwenimage21/src/main/jniLibs/)
+# - llama.cpp (Decision + generic GGUF chat via CMake in app/src/main/cpp/)
+# - unified stable-diffusion.cpp (libsd_cli.so with OpenCL + WebM: MOSS, Wan2.2, generic SD)
+# - audio.cpp (libyue2_cli.so: YuE2-3B music)
 on:
   push:
     branches: [main]
@@ -18,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write   # only exercised on a v* tag push, to attach assets to that release
+  contents: write
 
 jobs:
   build:
@@ -26,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check out the pinned MOSS and decision runtimes
+      - name: Check out pinned native runtimes
         run: |
           git submodule update --init --depth 1 third_party/stable-diffusion.cpp third_party/llama.cpp
           git -C third_party/stable-diffusion.cpp submodule update --init --depth 1 ggml
@@ -37,59 +39,104 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      # ubuntu-latest already ships a full Android SDK (cmdline-tools, platform-tools, licenses accepted);
-      # android-actions/setup-android tries to install the long-removed legacy "tools" package and fails.
-      - name: Install the pinned NDK
+      - name: Install pinned Android NDK
         run: |
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
           "$SDKMANAGER" --install "ndk;28.2.13676358"
 
-      - name: Build the MOSS Android runtime
-        run: bash scripts/build_moss_android.sh
+      - name: Build unified stable-diffusion.cpp Android runtime (MOSS + Wan2.2 + SD)
+        run: JOBS=4 bash scripts/build_sd_android.sh
 
-      - name: Version and hash for the artifact names
+      - name: Build YuE2 Android music runtime
+        run: JOBS=4 bash scripts/build_yue2_android.sh
+
+      - name: Version and hash for build outputs
         id: v
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "is_tag=true" >> "$GITHUB_OUTPUT"
           else
             echo "version=dev" >> "$GITHUB_OUTPUT"
+            echo "is_tag=false" >> "$GITHUB_OUTPUT"
           fi
           echo "hash=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Run unit tests
+      - name: Run Python conversion & script syntax checks
+        run: |
+          python3 -m unittest discover -s export -p 'test_conversion_utils.py'
+          bash -n scripts/build_sd_android.sh scripts/build_yue2_android.sh scripts/push_models.sh scripts/push_llm_models.sh scripts/push_moss_models.sh scripts/push_music_models.sh scripts/push_video_models.sh
+
+      - name: Run Android unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon
 
-      - name: Build APK and AAR
-        run: ./gradlew :app:assembleDebug :demo:assembleDebug :qwenimage21:assembleRelease --no-daemon
+      - name: Prepare release signing keystore (if configured)
+        id: sign
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [[ -n "$RELEASE_KEYSTORE_BASE64" ]]; then
+            KEYSTORE_FILE="$RUNNER_TEMP/omni-release.jks"
+            printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_FILE"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "keystore=$KEYSTORE_FILE" >> "$GITHUB_OUTPUT"
+          else
+            if [[ "${{ steps.v.outputs.is_tag }}" == "true" ]]; then
+              echo "::error::Tag releases require RELEASE_KEYSTORE_BASE64 / RELEASE_KEYSTORE_PASSWORD / RELEASE_KEY_ALIAS / RELEASE_KEY_PASSWORD secrets so users can upgrade in-place without losing downloaded models."
+              exit 1
+            fi
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Name the build outputs with version + commit hash
+      - name: Build APK and AAR
+        env:
+          OMNI_KEYSTORE_PATH: ${{ steps.sign.outputs.keystore }}
+          OMNI_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          OMNI_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          OMNI_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          if [[ "${{ steps.sign.outputs.signed }}" == "true" ]]; then
+            ./gradlew :app:assembleRelease :qwenimage21:assembleRelease --no-daemon
+          else
+            ./gradlew :app:assembleDebug :demo:assembleDebug :qwenimage21:assembleRelease --no-daemon
+          fi
+
+      - name: Package build outputs and SHA-256 checksums
         id: out
         run: |
           set -e
-          mkdir out
-          V="${{ steps.v.outputs.version }}"; H="${{ steps.v.outputs.hash }}"
-          apk="out/qwen-pocket-$V-$H.apk"
-          aar="out/qwenimage21-$V-$H.aar"
-          cp app/build/outputs/apk/debug/app-debug.apk "$apk"
+          mkdir -p out
+          V="${{ steps.v.outputs.version }}"
+          H="${{ steps.v.outputs.hash }}"
+          if [[ "${{ steps.sign.outputs.signed }}" == "true" ]]; then
+            apk="out/omni-pocket-${V}-arm64-v8a.apk"
+            cp app/build/outputs/apk/release/app-release.apk "$apk"
+          else
+            apk="out/omni-pocket-${V}-${H}-debug.apk"
+            cp app/build/outputs/apk/debug/app-debug.apk "$apk"
+          fi
+          aar="out/qwenimage21-${V}-${H}.aar"
           cp qwenimage21/build/outputs/aar/qwenimage21-release.aar "$aar"
+          (cd out && sha256sum "$(basename "$apk")" "$(basename "$aar")" > SHA256SUMS.txt)
+          cat out/SHA256SUMS.txt
           echo "apk=$apk" >> "$GITHUB_OUTPUT"
           echo "aar=$aar" >> "$GITHUB_OUTPUT"
+          echo "sums=out/SHA256SUMS.txt" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: libQwenImage21-${{ steps.v.outputs.version }}-${{ steps.v.outputs.hash }}
+          name: omni-pocket-${{ steps.v.outputs.version }}-${{ steps.v.outputs.hash }}
           path: out/*
           retention-days: 30
 
-      - name: Attach to the GitHub Release for this tag
+      - name: Attach assets to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           V="${{ steps.v.outputs.version }}"
           gh release view "$V" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create "$V" -R "$GITHUB_REPOSITORY" --title "$V" --generate-notes
-          gh release upload "$V" ${{ steps.out.outputs.apk }} ${{ steps.out.outputs.aar }} \
+            gh release create "$V" -R "$GITHUB_REPOSITORY" --title "Omni Pocket $V" --generate-notes
+          gh release upload "$V" "${{ steps.out.outputs.apk }}" "${{ steps.out.outputs.aar }}" "${{ steps.out.outputs.sums }}" \
             --clobber -R "$GITHUB_REPOSITORY"

@@ -14,8 +14,10 @@ done
 
 FILE_LIST="$ROOT/build/llm-download-$MODEL_ID.tsv"
 mkdir -p "$ROOT/build"
-python3 - "$CATALOG" "$MODEL_ID" "$FILE_LIST" <<'PY'
+HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
+python3 - "$CATALOG" "$MODEL_ID" "$FILE_LIST" "$HF_ENDPOINT" <<'PY'
 import json, sys
+endpoint = sys.argv[4].rstrip('/')
 with open(sys.argv[1], encoding='utf-8') as source:
     catalog = json.load(source)
 models = [model for model in catalog['models'] if model['id'] == sys.argv[2]]
@@ -23,7 +25,10 @@ assert len(models) == 1, 'unknown model'
 with open(sys.argv[3], 'w', encoding='utf-8') as output:
     for file in models[0]['files']:
         assert '/' not in file['path'] and file['path'] not in ('', '.', '..')
-        output.write('\t'.join((file['path'], str(file['size']), file['sha256'], file['url'])) + '\n')
+        url = file['url']
+        if url.startswith('https://huggingface.co/'):
+            url = endpoint + url[len('https://huggingface.co'):]
+        output.write('\t'.join((file['path'], str(file['size']), file['sha256'], url)) + '\n')
 PY
 ROOT_DIR="$ROOT/models/llm"
 TARGET="$ROOT_DIR/$MODEL_ID"

@@ -3,7 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/models/moss_image"
-DST=/sdcard/Android/data/com.tiggy.qwenimage/files/models/moss_image
+APP_ID="${OMNI_APP_ID:-com.tiggy.omnipocket}"
+DST="/sdcard/Android/data/$APP_ID/files/models/moss_image"
 ADB=(adb)
 
 if [ "$#" -gt 1 ]; then

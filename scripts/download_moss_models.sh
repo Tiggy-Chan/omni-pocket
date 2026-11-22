@@ -2,7 +2,8 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="${1:-$ROOT/models/moss_image}"
-HF_ROOT="${MOSS_HF_ROOT:-https://huggingface.co}"
+HF_ROOT="${MOSS_HF_ROOT:-${HF_ENDPOINT:-https://huggingface.co}}"
+HF_ROOT="${HF_ROOT%/}"
 mkdir -p "$DEST"
 
 hash_file() {

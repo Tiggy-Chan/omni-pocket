@@ -41,7 +41,8 @@ for file in expected['files']:
 print('Local SHA-256 verification passed')
 PY
 [[ "$(adb get-state)" == "device" ]] || { echo "no ready Android device" >&2; exit 1; }
-BASE="/sdcard/Android/data/com.tiggy.qwenimage/files/models/llm"
+APP_ID="${OMNI_APP_ID:-com.tiggy.omnipocket}"
+BASE="/sdcard/Android/data/$APP_ID/files/models/llm"
 REMOTE="$BASE/$MODEL_ID"
 STAGING="$BASE/.$MODEL_ID.uploading"
 BACKUP="$BASE/.$MODEL_ID.backup"

@@ -3,8 +3,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$ROOT/models/yue2/Yue2-3B-GGUF"
-DST=/sdcard/Android/data/com.tiggy.qwenimage/files/models/yue2
-HF_BASE="https://huggingface.co/audio-cpp/Yue2-3B-GGUF/resolve/main"
+APP_ID="${OMNI_APP_ID:-com.tiggy.omnipocket}"
+DST="/sdcard/Android/data/$APP_ID/files/models/yue2"
+HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
+HF_BASE="${HF_ENDPOINT%/}/audio-cpp/Yue2-3B-GGUF/resolve/main"
 ADB=(adb)
 
 if [ "$#" -gt 1 ]; then
