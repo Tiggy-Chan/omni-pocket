@@ -37,6 +37,7 @@ Omni Pocket is an Android studio for on-device text conversations, structured de
 - **Multi-modality discovery**: open **模型 → 发现模型** to search Hugging Face / `hf-mirror` across all 5 categories (`GGUF 对话`, `MNN 对话`, `图像`, `视频`, `音乐`) or enter an exact `owner/repo`, inspect file sizes, quantization retention hints, shared companions, and live on-device RAM suitability before downloading.
 - **Evidence-graded capability reference (`能力参考`)**: compares on-device base model families across Chat, Decision, Image, Music, and Video with explicit source attribution (`公开独立榜单` / `官方技术报告` / `端侧专项参考`), maps third-party quantized community repositories back to their base family, never fabricates scores for uncataloged repos, and evaluates real-time RAM suitability against the phone's hardware.
 - **Reliable foreground downloads**: multi-GB downloads run via `ModelDownloadService` (`dataSync` foreground service) with live speed/progress notifications, HTTP `Range` resume, strict `Content-Range` validation, and SHA-256 / LFS OID verification.
+- **14 Languages, Tabbed Settings & About**: automatically follows your system language with instant live switching across 14 languages (`English`, `简体中文`, `繁體中文`, `日本語`, `한국어`, `Deutsch`, `Français`, `Español`, `Italiano`, `Português (Brasil)`, `Русский`, `Nederlands`, `Polski`, `Türkçe`), clean tabbed Settings (`General` / `Chat` / `Decision` / `Image` / `Video` / `Music`), and an in-app **About** page.
 
 ## Build & Test
 
@@ -116,3 +117,13 @@ bash scripts/test_decision_host.sh
 - [Elephant-1](https://huggingface.co/baselabs/elephant-1), MIT; [OneJev](https://github.com/OmniJev/OneJev) protocol, Apache-2.0.
 - [Haze](https://github.com/chrisbanes/haze), Apache-2.0.
 - Omni Pocket application code, Apache-2.0.
+
+## Support the Author
+
+If Omni Pocket helps you, please consider giving this repository a **Star** on GitHub ([`Tiggy-Chan/omni-pocket`](https://github.com/Tiggy-Chan/omni-pocket)) — and feel free to check out my other open-source project [`ClawKiller`](https://github.com/Tiggy-Chan/ClawKiller).
+
+Omni Pocket is free, open-source, and runs offline on your phone. If you'd like to support ongoing development, you can buy the author a coffee via WeChat Pay or Alipay:
+
+| WeChat Pay | Alipay |
+| :---: | :---: |
+| <img src="docs/assets/donate-wechat.png" width="260" alt="WeChat Pay QR Code" /> | <img src="docs/assets/donate-alipay.jpg" width="260" alt="Alipay QR Code" /> |

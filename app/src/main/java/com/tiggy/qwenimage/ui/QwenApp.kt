@@ -45,6 +45,7 @@ import com.tiggy.qwenimage.LlmViewModel
 import com.tiggy.qwenimage.ModelHubViewModel
 import com.tiggy.qwenimage.QwenUiState
 import com.tiggy.qwenimage.QwenViewModel
+import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.AppDomain
 import com.tiggy.qwenimage.data.HubModelType
 import com.tiggy.qwenimage.data.TaskDomain
@@ -126,9 +127,9 @@ fun QwenApp(
     state.alert?.let { message ->
         AlertDialog(
             onDismissRequest = viewModel::clearError,
-            title = { Text("需要处理") },
+            title = { Text(tr(R.string.common_action_needed)) },
             text = { Text(message) },
-            confirmButton = { TextButton(onClick = viewModel::clearError) { Text("知道了") } },
+            confirmButton = { TextButton(onClick = viewModel::clearError) { Text(tr(R.string.common_got_it)) } },
             containerColor = OmniColors.Raised
         )
     }
@@ -193,6 +194,7 @@ private fun Destination(
             }
         )
         AppPage.Settings -> SettingsPage(state, viewModel, llmViewModel, decisionViewModel, hubViewModel, onMenu)
+        AppPage.About -> AboutPage(onMenu)
     }
 }
 
@@ -200,22 +202,23 @@ private fun Destination(
 @Composable
 private fun ImagePreviewDialog(path: String, viewModel: QwenViewModel, onDismiss: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val shareTitle = tr(R.string.image_share_title)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Outlined.Close, "关闭预览", tint = androidx.compose.ui.graphics.Color.White)
+                    Icon(Icons.Outlined.Close, tr(R.string.common_close_preview), tint = androidx.compose.ui.graphics.Color.White)
                 }
             }
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                OmniAsyncImage(path, "作品大图", Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), maxDimension = 2048)
+                OmniAsyncImage(path, null, Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)), maxDimension = 2048)
             }
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { onDismiss(); viewModel.editImage(path) }) { Text("继续编辑", color = androidx.compose.ui.graphics.Color.White) }
-                TextButton(onClick = { onDismiss(); viewModel.useImageAsVideoFirstFrame(path) }) { Text("生成视频", color = androidx.compose.ui.graphics.Color.White) }
+                TextButton(onClick = { onDismiss(); viewModel.editImage(path) }) { Text(tr(R.string.common_continue_edit), color = androidx.compose.ui.graphics.Color.White) }
+                TextButton(onClick = { onDismiss(); viewModel.useImageAsVideoFirstFrame(path) }) { Text(tr(R.string.common_make_video), color = androidx.compose.ui.graphics.Color.White) }
                 TextButton(onClick = {
-                    runCatching { shareMediaFile(context, java.io.File(path), "image/png", "分享图像") }
-                }) { Text("分享", color = androidx.compose.ui.graphics.Color.White) }
+                    runCatching { shareMediaFile(context, java.io.File(path), "image/png", shareTitle) }
+                }) { Text(tr(R.string.common_share), color = androidx.compose.ui.graphics.Color.White) }
             }
         }
     }

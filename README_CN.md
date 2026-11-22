@@ -37,6 +37,7 @@ Omni Pocket 是一个全端本地运行的 Android 多模态 AI 创作与对话�
 - **全模态社区模型发现**：在 **模型 → 发现模型** 中按 5 大分类（`GGUF 对话` / `MNN 对话` / `图像` / `视频` / `音乐`）搜索关键词或直接输入 `owner/repo` 浏览权重文件，自动展示量化精度保留率、共享组件复用提示、文件大小与本机内存适配度，一键加入下载队列。
 - **高可信度端侧「能力参考」**：针对手机端侧缺乏统一官方榜单的现状，在 **模型 → 能力参考** 中覆盖全部 5 个模态，按可查证来源分级标注（`公开独立榜单` / `官方技术报告` / `端侧专项参考`），将社区量化仓库自动关联回基座家族（未收录仓库不编造分数），并结合手机真实内存实时评估流畅度，支持一键直达下载。
 - **后台断点续传与校验**：通过 `ModelDownloadService`（`dataSync` 前台服务）在后台稳定下载数 GB 大文件，通知栏实时展示进度与速度，支持断点续传、严格 `Content-Range` 校验及 SHA-256 / LFS OID 完整性校验。
+- **14 种语言、分页设置与关于页**：默认跟随系统语言并支持在设置中即时切换 14 种常用语言（`English`、`简体中文`、`繁體中文`、`日本語`、`한국어`、`Deutsch`、`Français`、`Español`、`Italiano`、`Português (Brasil)`、`Русский`、`Nederlands`、`Polski`、`Türkçe`）；设置页按模态分页（通用 / 对话 / 决策 / 图像 / 视频 / 音乐），侧边栏内置「关于」页。
 
 ## 编译与测试
 
@@ -116,3 +117,13 @@ bash scripts/test_decision_host.sh
 - [Elephant-1](https://huggingface.co/baselabs/elephant-1)：MIT；[OneJev](https://github.com/OmniJev/OneJev) 协议：Apache-2.0。
 - [Haze](https://github.com/chrisbanes/haze)：Apache-2.0。
 - Omni Pocket 应用代码：Apache-2.0。
+
+## 支持作者
+
+如果 Omni Pocket 对你有帮助，欢迎到 GitHub 给本仓库点一颗 **Star**（[`Tiggy-Chan/omni-pocket`](https://github.com/Tiggy-Chan/omni-pocket)），也欢迎顺便看看作者的另一个开源项目 [`ClawKiller`](https://github.com/Tiggy-Chan/ClawKiller)。
+
+Omni Pocket 免费开源、全端本地运行。如果你喜欢这个项目，可以通过微信或支付宝赞助支持作者继续维护：
+
+| 微信赞赏 | 支付宝 |
+| :---: | :---: |
+| <img src="docs/assets/donate-wechat.png" width="260" alt="微信赞赏码" /> | <img src="docs/assets/donate-alipay.jpg" width="260" alt="支付宝收款码" /> |

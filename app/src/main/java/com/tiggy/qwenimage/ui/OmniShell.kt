@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.outlined.FactCheck
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.MusicNote
@@ -57,6 +58,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.tiggy.qwenimage.LlmPhase
 import com.tiggy.qwenimage.LlmUiState
@@ -66,7 +68,7 @@ import com.tiggy.qwenimage.data.AppDomain
 import com.tiggy.qwenimage.data.LlmConversation
 
 /** Top-level destinations outside the five workspaces. */
-enum class AppPage { Workspace, Library, Models, Settings }
+enum class AppPage { Workspace, Library, Models, Settings, About }
 
 /** What is running in each workspace, shown as a dot in the sidebar. */
 data class WorkspaceActivity(val running: Set<AppDomain> = emptySet())
@@ -125,14 +127,14 @@ fun OmniSidebar(
             Row(Modifier.padding(horizontal = 12.dp).heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Add, null, tint = OmniColors.Ink, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(10.dp))
-                Text("新对话", color = OmniColors.Ink, style = MaterialTheme.typography.labelLarge)
+                Text(tr(R.string.sidebar_new_chat), color = OmniColors.Ink, style = MaterialTheme.typography.labelLarge)
             }
         }
         Spacer(Modifier.height(16.dp))
-        SectionLabel("工作区", Modifier.padding(start = 10.dp))
+        SectionLabel(tr(R.string.nav_workspaces), Modifier.padding(start = 10.dp))
         AppDomain.entries.forEach { item ->
             SidebarRow(
-                label = item.title,
+                label = item.localizedTitle(),
                 icon = item.icon(),
                 selected = page == AppPage.Workspace && domain == item,
                 running = item in activity.running,
@@ -144,7 +146,7 @@ fun OmniSidebar(
             )
         }
         if (inChat) {
-            SectionLabel("最近对话", Modifier.padding(start = 10.dp, top = 12.dp))
+            SectionLabel(tr(R.string.sidebar_recent_chats), Modifier.padding(start = 10.dp, top = 12.dp))
         }
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (inChat) {
@@ -165,11 +167,11 @@ fun OmniSidebar(
                             if (running) RunningDot()
                             Box {
                                 IconButton(onClick = { menuFor = conversation.id }, modifier = Modifier.size(40.dp)) {
-                                    Icon(Icons.Outlined.MoreHoriz, "对话操作", tint = OmniColors.Dim, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Outlined.MoreHoriz, tr(R.string.sidebar_chat_actions), tint = OmniColors.Dim, modifier = Modifier.size(18.dp))
                                 }
                                 DropdownMenu(expanded = menuFor == conversation.id, onDismissRequest = { menuFor = null }) {
-                                    DropdownMenuItem(text = { Text("重命名") }, onClick = { renameFor = conversation; menuFor = null })
-                                    DropdownMenuItem(text = { Text("删除", color = OmniColors.Danger) },
+                                    DropdownMenuItem(text = { Text(tr(R.string.sidebar_rename_title)) }, onClick = { renameFor = conversation; menuFor = null })
+                                    DropdownMenuItem(text = { Text(tr(R.string.common_delete), color = OmniColors.Danger) },
                                         onClick = { deleteFor = conversation; menuFor = null })
                                 }
                             }
@@ -180,25 +182,26 @@ fun OmniSidebar(
         }
         HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
         Spacer(Modifier.height(4.dp))
-        SidebarRow("工作目录", Icons.Outlined.FolderOpen, page == AppPage.Library) { onPage(AppPage.Library); onNavigated() }
-        SidebarRow("模型", Icons.Outlined.Memory, page == AppPage.Models) { onPage(AppPage.Models); onNavigated() }
-        SidebarRow("设置", Icons.Outlined.Settings, page == AppPage.Settings) { onPage(AppPage.Settings); onNavigated() }
+        SidebarRow(tr(R.string.nav_library), Icons.Outlined.FolderOpen, page == AppPage.Library) { onPage(AppPage.Library); onNavigated() }
+        SidebarRow(tr(R.string.nav_models), Icons.Outlined.Memory, page == AppPage.Models) { onPage(AppPage.Models); onNavigated() }
+        SidebarRow(tr(R.string.nav_settings), Icons.Outlined.Settings, page == AppPage.Settings) { onPage(AppPage.Settings); onNavigated() }
+        SidebarRow(tr(R.string.nav_about), Icons.Outlined.Info, page == AppPage.About) { onPage(AppPage.About); onNavigated() }
         Spacer(Modifier.height(8.dp))
     }
     renameFor?.let { conversation ->
         var title by remember(conversation.id) { mutableStateOf(conversation.title) }
-        AlertDialog(onDismissRequest = { renameFor = null }, title = { Text("重命名") },
+        AlertDialog(onDismissRequest = { renameFor = null }, title = { Text(tr(R.string.sidebar_rename_title)) },
             text = { OutlinedTextField(value = title, onValueChange = { title = it.take(60) }, singleLine = true) },
-            confirmButton = { TextButton(onClick = { llmViewModel.renameConversation(conversation.id, title); renameFor = null }) { Text("保存") } },
-            dismissButton = { TextButton(onClick = { renameFor = null }) { Text("取消") } })
+            confirmButton = { TextButton(onClick = { llmViewModel.renameConversation(conversation.id, title); renameFor = null }) { Text(tr(R.string.common_save)) } },
+            dismissButton = { TextButton(onClick = { renameFor = null }) { Text(tr(R.string.common_cancel)) } })
     }
     deleteFor?.let { conversation ->
-        AlertDialog(onDismissRequest = { deleteFor = null }, title = { Text("删除这个对话？") },
+        AlertDialog(onDismissRequest = { deleteFor = null }, title = { Text(tr(R.string.sidebar_delete_chat_title)) },
             text = { Text(conversation.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
             confirmButton = { TextButton(onClick = { llmViewModel.deleteConversation(conversation.id); deleteFor = null }) {
-                Text("删除", color = OmniColors.Danger)
+                Text(tr(R.string.common_delete), color = OmniColors.Danger)
             } },
-            dismissButton = { TextButton(onClick = { deleteFor = null }) { Text("取消") } })
+            dismissButton = { TextButton(onClick = { deleteFor = null }) { Text(tr(R.string.common_cancel)) } })
     }
 }
 
@@ -228,11 +231,11 @@ private fun SidebarRow(
 }
 
 @Composable
-private fun OmniBrandMark(modifier: Modifier = Modifier) {
+internal fun OmniBrandMark(modifier: Modifier = Modifier, cornerRadius: Dp = 7.dp) {
     val dark = LocalOmniPalette.current.dark
     val bgRes = if (dark) R.drawable.ic_brand_dark_bg else R.drawable.ic_brand_light_bg
     val fgRes = if (dark) R.drawable.ic_brand_dark_fg else R.drawable.ic_brand_light_fg
-    val shape = RoundedCornerShape(7.dp)
+    val shape = RoundedCornerShape(cornerRadius)
     Box(
         modifier = modifier
             .clip(shape)
