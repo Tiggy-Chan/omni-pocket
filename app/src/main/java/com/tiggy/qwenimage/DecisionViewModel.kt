@@ -1,6 +1,7 @@
 package com.tiggy.qwenimage
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tiggy.qwenimage.data.DecisionKind
@@ -47,7 +48,7 @@ data class DecisionUiState(
     val questions: List<DecisionDraft> = listOf(DecisionDraft("q1", DecisionKind.Noul)),
     val phase: DecisionPhase = DecisionPhase.Idle,
     val model: LlmModelStatus? = null,
-    val showModels: Boolean = false,
+    val threads: Int = 4,
     val result: DecisionResult? = null,
     val progress: Int = 0,
     val total: Int = 0,
@@ -63,8 +64,11 @@ class DecisionViewModel(
     private val coordinator: LocalInferenceCoordinator
 ) : AndroidViewModel(application) {
     private val repository = LlmModelRepository(application)
+    private val prefs = application.getSharedPreferences("decision-settings", Context.MODE_PRIVATE)
     private val engine = LocalDecisionEngine(File(application.cacheDir, "decision-runtime"))
-    private val _state = MutableStateFlow(DecisionUiState())
+    private val _state = MutableStateFlow(
+        DecisionUiState(threads = prefs.getInt("threads", DEFAULT_THREADS).coerceIn(2, 8))
+    )
     val state: StateFlow<DecisionUiState> = _state.asStateFlow()
     private var operation: Job? = null
     private var nextId = 2
@@ -184,13 +188,10 @@ class DecisionViewModel(
         }
     }
 
-    fun showModels(show: Boolean) {
-        if (_state.value.busy) return
-        _state.update { it.copy(showModels = show) }
-        if (show) viewModelScope.launch {
-            val model = withContext(Dispatchers.IO) { refreshStatus() }
-            _state.update { it.copy(model = model) }
-        }
+    fun setThreads(value: Int) {
+        val clamped = value.coerceIn(2, 8)
+        prefs.edit().putInt("threads", clamped).apply()
+        _state.update { it.copy(threads = clamped) }
     }
 
     fun refreshModel() {
@@ -251,7 +252,7 @@ class DecisionViewModel(
         val snapshot = _state.value
         if (!snapshot.ready || snapshot.busy) return
         if (!snapshot.modelReady) {
-            _state.update { it.copy(showModels = true, error = "请先在模型页下载并校验 Elephant-1") }
+            _state.update { it.copy(error = "请先在模型页下载并校验 Elephant-1") }
             return
         }
         val questions = try {
@@ -291,8 +292,9 @@ class DecisionViewModel(
                     _state.update { it.copy(model = status, phase = DecisionPhase.Loading) }
                     if (cancelRequested) return@withInference null to CANCELLED
                     val weights = status.spec.artifacts.first { it.path == LlmModelSpec.DECISION_WEIGHTS }.sha256
+                    val threads = _state.value.threads
                     val error = engine.load(File(status.directory, "config.json"),
-                        "${status.spec.revision}:$weights", threads = 4)
+                        "${status.spec.revision}:$weights:$threads", threads = threads)
                     if (cancelRequested) return@withInference null to CANCELLED
                     check(error == null) { error.orEmpty() }
                     _state.update { it.copy(loaded = true) }
@@ -370,6 +372,7 @@ class DecisionViewModel(
 
     private companion object {
         const val MODEL_ID = "elephant-1"
+        const val DEFAULT_THREADS = 4
         val CANCELLED = NativeDecisionResult(true, "", "")
     }
 }

@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -75,6 +76,7 @@ import com.tiggy.qwenimage.data.formatBytesCompact
 import com.tiggy.qwenimage.data.hasVae
 import com.tiggy.qwenimage.data.isMoss
 import com.tiggy.qwenimage.engine.CustomSdSettings
+import com.tiggy.qwenimage.engine.SUPPORTED_SD_SAMPLERS
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -570,7 +572,7 @@ private fun ImageBackendOptions(
         }
         SettingRow(
             title = "从模型页搜索更多图像模型",
-            detail = "支持 Hugging Face / HF-Mirror 单文件权重",
+            detail = "支持 SD / SDXL / Z-Image / FLUX.2 Klein 权重",
             onClick = onManageModels
         )
     }
@@ -655,6 +657,12 @@ private fun MossParams(state: QwenUiState, viewModel: QwenViewModel) {
         minLines = 2,
         modifier = Modifier.fillMaxWidth()
     )
+    SwitchRow("OpenCL GPU 加速", local.useOpenCl) { enabled ->
+        update { it.copy(local = it.local.copy(useOpenCl = enabled)) }
+    }
+    SwitchRow("VAE 分块解码（省内存）", local.vaeTiling) { enabled ->
+        update { it.copy(local = it.local.copy(vaeTiling = enabled)) }
+    }
 }
 
 @Composable
@@ -670,6 +678,16 @@ private fun CustomSdParams(state: QwenUiState, viewModel: QwenViewModel) {
         label = { it.label },
         onSelect = { preset -> update { it.copy(width = preset.width, height = preset.height) } }
     )
+    SectionLabel("采样器")
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(SUPPORTED_SD_SAMPLERS) { sampler ->
+            ComposerChip(
+                label = samplerDisplayLabel(sampler),
+                onClick = { update { it.copy(sampler = sampler) } },
+                selected = sd.sampler == sampler
+            )
+        }
+    }
     NumberField("Seed", sd.seed.toString()) { text ->
         text.toLongOrNull()?.takeIf { it >= 0L }?.let { seed -> update { it.copy(seed = seed) } }
     }
@@ -687,6 +705,7 @@ private fun CustomSdParams(state: QwenUiState, viewModel: QwenViewModel) {
         modifier = Modifier.fillMaxWidth()
     )
     SwitchRow("OpenCL GPU 加速", sd.useOpenCl) { enabled -> update { it.copy(useOpenCl = enabled) } }
+    SwitchRow("VAE 分块解码（省内存）", sd.vaeTiling) { enabled -> update { it.copy(vaeTiling = enabled) } }
 }
 
 @Composable

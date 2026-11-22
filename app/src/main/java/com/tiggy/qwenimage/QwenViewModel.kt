@@ -82,6 +82,8 @@ data class QwenUiState(
     val mossSettings: MossSettings = MossSettings(),
     val customSdSettings: CustomSdSettings = CustomSdSettings(),
     val customImageModels: List<InstalledHubModel> = emptyList(),
+    val customVideoModels: List<InstalledHubModel> = emptyList(),
+    val customMusicModels: List<InstalledHubModel> = emptyList(),
     val jobs: List<GenerationJob> = emptyList(),
     val modelStatus: ModelStatus? = null,
     val mossModelStatus: MossModelStatus? = null,
@@ -159,7 +161,9 @@ class QwenViewModel(
             mossModelStatus = mossRepository.status(),
             wanModelStatus = wanRepository.status(),
             yue2ModelStatus = yue2Repository.status(),
-            customImageModels = hubModels.listByType(HubModelType.SdImage)
+            customImageModels = hubModels.listByType(HubModelType.SdImage),
+            customVideoModels = hubModels.listByType(HubModelType.VideoWan),
+            customMusicModels = hubModels.listByType(HubModelType.MusicAudio)
         )
     )
     val state: StateFlow<QwenUiState> = _state.asStateFlow()
@@ -168,8 +172,8 @@ class QwenViewModel(
     private val cancelledJobIds = ConcurrentHashMap.newKeySet<String>()
     private var engine: QwenEngine? = null
     private var engineKey: String? = null
-    private val musicEngine = MusicEngine(application)
-    private val videoEngine = VideoEngine(application)
+    private val musicEngine = MusicEngine(application, hubModels)
+    private val videoEngine = VideoEngine(application, hubModels)
     private val localMossEngine = LocalMossEngine(application, mossRepository)
     private val localSdImageEngine = LocalSdImageEngine(application, hubModels)
     private val evictionKey = "qwen:${System.identityHashCode(this)}"
@@ -181,13 +185,31 @@ class QwenViewModel(
         val restoredMossSettings = runCatching {
             MossSettings.fromJson(org.json.JSONObject(preferences.getString("mossSettings", null) ?: "{}"))
         }.getOrDefault(MossSettings())
+        val restoredCustomSd = runCatching {
+            CustomSdSettings.fromJson(preferences.getString("customSdSettings", null)?.let { org.json.JSONObject(it) })
+        }.getOrDefault(CustomSdSettings())
+        val restoredVideoSettings = runCatching {
+            preferences.getString("videoSettings", null)?.let { VideoSettings.fromJson(org.json.JSONObject(it)) }
+        }.getOrNull() ?: VideoSettings()
+        val restoredMusicSettings = runCatching {
+            preferences.getString("musicSettings", null)?.let { MusicSettings.fromJson(org.json.JSONObject(it)) }
+        }.getOrNull() ?: MusicSettings()
+        val restoredBackend = runCatching {
+            ImageGenerationBackend.valueOf(preferences.getString("imageBackend", null).orEmpty())
+        }.getOrDefault(ImageGenerationBackend.QwenLocal)
         _state.update { state ->
             state.copy(
                 domain = runCatching { AppDomain.valueOf(preferences.getString("domain", null).orEmpty()) }
                     .getOrDefault(AppDomain.Conversation),
                 themeMode = runCatching { ThemeMode.valueOf(preferences.getString("themeMode", null).orEmpty()) }
                     .getOrDefault(ThemeMode.System),
+                cpuThreads = preferences.getInt("cpuThreads", 6).coerceIn(2, 8),
+                keepModelsLoaded = preferences.getBoolean("keepModelsLoaded", false),
+                imageBackend = restoredBackend,
                 mossSettings = restoredMossSettings,
+                customSdSettings = restoredCustomSd,
+                videoSettings = restoredVideoSettings.copy(prompt = "", inputImageUri = null),
+                musicSettings = restoredMusicSettings.copy(title = "", style = "", lyrics = ""),
                 settings = compatibleSettings(state.settings, initialStatus),
                 modelStatus = initialStatus,
                 tasks = state.tasks.updateTask(TaskDomain.Image) { task ->
@@ -264,6 +286,8 @@ class QwenViewModel(
         viewModelScope.launch {
             hubModels.models.collect { all ->
                 val sdImages = all.filter { it.type == HubModelType.SdImage }
+                val wanVideos = all.filter { it.type == HubModelType.VideoWan }
+                val audioMusic = all.filter { it.type == HubModelType.MusicAudio }
                 _state.update { state ->
                     val currentId = state.customSdSettings.modelId
                     val validCurrent = sdImages.firstOrNull { it.id == currentId }
@@ -272,7 +296,20 @@ class QwenViewModel(
                         sdImages.isNotEmpty() -> CustomSdSettings.defaultsFor(sdImages.first(), state.customSdSettings)
                         else -> state.customSdSettings.copy(modelId = "")
                     }
-                    state.copy(customImageModels = sdImages, customSdSettings = nextCustom)
+                    val nextVideo = if (state.videoSettings.modelId.isNotBlank() &&
+                        wanVideos.none { it.id == state.videoSettings.modelId }
+                    ) state.videoSettings.copy(modelId = "") else state.videoSettings
+                    val nextMusic = if (state.musicSettings.modelId.isNotBlank() &&
+                        audioMusic.none { it.id == state.musicSettings.modelId }
+                    ) state.musicSettings.copy(modelId = "") else state.musicSettings
+                    state.copy(
+                        customImageModels = sdImages,
+                        customVideoModels = wanVideos,
+                        customMusicModels = audioMusic,
+                        customSdSettings = nextCustom,
+                        videoSettings = nextVideo,
+                        musicSettings = nextMusic
+                    )
                 }
             }
         }
@@ -473,22 +510,52 @@ class QwenViewModel(
     fun selectMusicTab(tab: MusicStudioTab) = _state.update { it.copy(musicTab = tab) }
     fun selectVideoTab(tab: VideoStudioTab) = _state.update { it.copy(videoTab = tab) }
 
-    fun videoRuntimeStatus(): VideoRuntimeStatus = videoEngine.runtimeStatus()
+    fun videoRuntimeStatus(): VideoRuntimeStatus = videoEngine.runtimeStatus(_state.value.videoSettings.modelId)
+
+    private fun updateVideoSettings(persist: Boolean = true, transform: (VideoSettings) -> VideoSettings) {
+        _state.update { state ->
+            val next = transform(state.videoSettings)
+            if (persist) preferences.edit().putString("videoSettings", next.copy(prompt = "", inputImageUri = null).toJson().toString()).apply()
+            state.copy(videoSettings = next)
+        }
+    }
 
     // Video settings modifiers
-    fun setVideoPrompt(prompt: String) = _state.update { it.copy(videoSettings = it.videoSettings.copy(prompt = prompt)) }
-    fun setVideoSeed(seed: Long) = _state.update { it.copy(videoSettings = it.videoSettings.copy(seed = seed)) }
-    fun setVideoFps(fps: Int) = _state.update { it.copy(videoSettings = it.videoSettings.copy(fps = fps.coerceIn(8, 30))) }
-    fun setVideoNumFrames(numFrames: Int) = _state.update { it.copy(videoSettings = it.videoSettings.copy(numFrames = numFrames.coerceIn(5, 81))) }
-    fun setVideoSteps(steps: Int) = _state.update { it.copy(videoSettings = it.videoSettings.copy(steps = steps.coerceIn(1, 10))) }
-    fun setVideoShift(shift: Float) = _state.update { it.copy(videoSettings = it.videoSettings.copy(shift = shift.coerceIn(1.0f, 10.0f))) }
+    fun setVideoPrompt(prompt: String) = updateVideoSettings(persist = false) { it.copy(prompt = prompt) }
+    fun setVideoNegativePrompt(prompt: String) = updateVideoSettings { it.copy(negativePrompt = prompt) }
+    fun setVideoSeed(seed: Long) = updateVideoSettings { it.copy(seed = seed.coerceAtLeast(0L)) }
+    fun setVideoFps(fps: Int) = updateVideoSettings { it.copy(fps = fps.coerceIn(8, 30)) }
+    fun setVideoNumFrames(numFrames: Int) = updateVideoSettings { it.copy(numFrames = VideoSettings.snapValidFrameCount(numFrames)) }
+    fun setVideoSteps(steps: Int) = updateVideoSettings { it.copy(steps = steps.coerceIn(1, 12)) }
+    fun setVideoCfgScale(cfg: Float) = updateVideoSettings { it.copy(cfgScale = cfg.coerceIn(0.5f, 15.0f)) }
+    fun setVideoShift(shift: Float) = updateVideoSettings { it.copy(shift = shift.coerceIn(1.0f, 12.0f)) }
+    fun setVideoResolution(width: Int, height: Int) {
+        if (width > 0 && height > 0 && width % 32 == 0 && height % 32 == 0) {
+            updateVideoSettings { it.copy(width = width, height = height) }
+        }
+    }
+    fun setVideoUseOpenCl(value: Boolean) = updateVideoSettings { it.copy(useOpenCl = value) }
+    fun setVideoVaeTiling(value: Boolean) = updateVideoSettings { it.copy(vaeTiling = value) }
+    fun setVideoThreads(value: Int) = updateVideoSettings { it.copy(threads = value.coerceIn(2, 8)) }
+    fun selectVideoModel(modelId: String) {
+        if (modelId.isBlank()) {
+            updateVideoSettings { it.copy(modelId = "", steps = 4, cfgScale = 1.0f, shift = 5.0f) }
+            return
+        }
+        val model = _state.value.customVideoModels.firstOrNull { it.id == modelId } ?: return
+        val defaultSteps = model.metadata["defaultSteps"]?.toIntOrNull()?.coerceIn(1, 12) ?: 4
+        val defaultCfg = model.metadata["defaultCfg"]?.toFloatOrNull()?.coerceIn(0.5f, 15.0f) ?: 1.0f
+        val defaultShift = model.metadata["defaultShift"]?.toFloatOrNull()?.coerceIn(1.0f, 12.0f) ?: 5.0f
+        updateVideoSettings { it.copy(modelId = model.id, steps = defaultSteps, cfgScale = defaultCfg, shift = defaultShift) }
+    }
+    fun reuseVideoItem(video: VideoItem) = updateVideoSettings(persist = false) { it.copy(prompt = video.prompt) }
     fun setVideoInputImage(uri: Uri?) {
         if (uri != null) runCatching {
             getApplication<Application>().contentResolver.takePersistableUriPermission(
                 uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
         }
-        _state.update { it.copy(videoSettings = it.videoSettings.copy(inputImageUri = uri)) }
+        updateVideoSettings(persist = false) { it.copy(inputImageUri = uri) }
     }
     fun setActiveVideo(video: VideoItem) = _state.update { it.copy(activeVideo = video) }
     fun deleteVideo(video: VideoItem) {
@@ -521,9 +588,9 @@ class QwenViewModel(
     fun startVideoGeneration() {
         if (rejectIfBusy(TaskDomain.Video)) return
         val settings = _state.value.videoSettings
-        val runtime = videoEngine.runtimeStatus()
+        val runtime = videoEngine.runtimeStatus(settings.modelId)
         if (!runtime.localReady) {
-            showTaskError(TaskDomain.Video, "本机 Wan2.2 缺少：${runtime.missingComponents.joinToString("、")}")
+            showTaskError(TaskDomain.Video, "本机视频模型缺少：${runtime.missingComponents.joinToString("、")}")
             return
         }
         runCatching { settings.validateOnDevice() }.onFailure { error ->
@@ -531,7 +598,8 @@ class QwenViewModel(
             return
         }
 
-        val initialStage = if (settings.inputImageUri != null) "准备 Wan2.2 图生视频..." else "准备 Wan2.2 文生视频..."
+        val modelLabel = _state.value.customVideoModels.firstOrNull { it.id == settings.modelId }?.name ?: "Wan2.2 Turbo"
+        val initialStage = if (settings.inputImageUri != null) "准备 $modelLabel 图生视频..." else "准备 $modelLabel 文生视频..."
         val job = VideoJob(
             id = UUID.randomUUID().toString(),
             settings = settings,
@@ -542,11 +610,11 @@ class QwenViewModel(
 
         _state.update { it.copy(videoJobs = it.videoJobs + job) }
         appendLog(TaskDomain.Video, "----------------------------------------", job.id)
-        appendLog(TaskDomain.Video, "视频任务启动 [${job.id.take(8)}]：Wan2.2-TI2V-5B-Turbo", job.id)
+        appendLog(TaskDomain.Video, "视频任务启动 [${job.id.take(8)}]：$modelLabel", job.id)
         appendLog(TaskDomain.Video, "提示词：${settings.prompt.take(60)}...", job.id)
         appendLog(TaskDomain.Video, "模式：${if (settings.inputImageUri != null) "图生视频（App 所选参考首帧）" else "文生视频"}", job.id)
-        appendLog(TaskDomain.Video, "规格：${settings.width}×${settings.height} | ${settings.numFrames}帧 | ${settings.fps}fps | ${settings.steps}步 Euler", job.id)
-        appendLog(TaskDomain.Video, "执行设备：本机 Wan2.2 模型与原生推理 CLI；diffusion=GPUOpenCL, text encoder=CPU, VAE=CPU", job.id)
+        appendLog(TaskDomain.Video, "规格：${settings.width}×${settings.height} | ${settings.numFrames}帧 | ${settings.fps}fps | ${settings.steps}步 Euler | CFG ${settings.cfgScale}", job.id)
+        appendLog(TaskDomain.Video, "执行设备：${if (settings.useOpenCl) "diffusion=GPUOpenCL, TE=CPU(${settings.threads}), VAE=CPU" else "全 CPU (${settings.threads} 线程)"}", job.id)
 
         viewModelScope.launch(Dispatchers.Default) {
             runCatching {
@@ -631,17 +699,45 @@ class QwenViewModel(
         }
     }
 
+    private fun updateMusicSettings(persist: Boolean = true, transform: (MusicSettings) -> MusicSettings) {
+        _state.update { state ->
+            val next = transform(state.musicSettings)
+            if (persist) preferences.edit().putString("musicSettings", next.copy(title = "", style = "", lyrics = "").toJson().toString()).apply()
+            state.copy(musicSettings = next)
+        }
+    }
+
     // Music settings modifiers
-    fun setMusicTitle(title: String) = _state.update { it.copy(musicSettings = it.musicSettings.copy(title = title)) }
-    fun setMusicStyle(style: String) = _state.update { it.copy(musicSettings = it.musicSettings.copy(style = style)) }
-    fun setMusicLyrics(lyrics: String) = _state.update { it.copy(musicSettings = it.musicSettings.copy(lyrics = lyrics)) }
-    fun setMusicBpm(bpm: Int) = _state.update { it.copy(musicSettings = it.musicSettings.copy(bpm = bpm.coerceIn(50, 220))) }
-    fun setMusicCotMode(mode: CoTMode) = _state.update { it.copy(musicSettings = it.musicSettings.copy(cotMode = mode)) }
-    fun setMusicSeed(seed: Long) = _state.update { it.copy(musicSettings = it.musicSettings.copy(seed = seed)) }
-    fun setMusicTargetDuration(sec: Int) = _state.update { it.copy(musicSettings = it.musicSettings.copy(targetDurationSec = sec)) }
-    fun setMusicOdeSteps(steps: Int) = _state.update { it.copy(musicSettings = it.musicSettings.copy(odeSteps = steps.coerceIn(4, 32))) }
-    fun musicMissingComponents(): List<String> = musicEngine.missingComponents()
-    fun setMusicGuidanceScale(scale: Float) = _state.update { it.copy(musicSettings = it.musicSettings.copy(guidanceScale = scale)) }
+    fun setMusicTitle(title: String) = updateMusicSettings(persist = false) { it.copy(title = title) }
+    fun setMusicStyle(style: String) = updateMusicSettings(persist = false) { it.copy(style = style) }
+    fun setMusicLyrics(lyrics: String) = updateMusicSettings(persist = false) { it.copy(lyrics = lyrics) }
+    fun setMusicBpm(bpm: Int) = updateMusicSettings { it.copy(bpm = bpm.coerceIn(50, 220)) }
+    fun setMusicCotMode(mode: CoTMode) = updateMusicSettings { it.copy(cotMode = mode) }
+    fun setMusicSeed(seed: Long) = updateMusicSettings { it.copy(seed = seed.coerceAtLeast(0L)) }
+    fun setMusicTargetDuration(sec: Int) = updateMusicSettings { it.copy(targetDurationSec = sec.coerceIn(10, 240)) }
+    fun setMusicOdeSteps(steps: Int) = updateMusicSettings { it.copy(odeSteps = steps.coerceIn(4, 32)) }
+    fun setMusicUseVulkan(value: Boolean) = updateMusicSettings { it.copy(useVulkan = value) }
+    fun setMusicThreads(value: Int) = updateMusicSettings { it.copy(threads = value.coerceIn(2, 8)) }
+    fun selectMusicModel(modelId: String) {
+        if (modelId.isBlank()) {
+            updateMusicSettings { it.copy(modelId = "", odeSteps = 8) }
+            return
+        }
+        val model = _state.value.customMusicModels.firstOrNull { it.id == modelId } ?: return
+        val defaultSteps = model.metadata["defaultSteps"]?.toIntOrNull()?.coerceIn(4, 32) ?: 8
+        updateMusicSettings { it.copy(modelId = model.id, odeSteps = defaultSteps) }
+    }
+    fun reuseMusicTrack(track: MusicTrack) = updateMusicSettings(persist = false) {
+        it.copy(
+            title = track.title.takeUnless { t -> t == "未命名曲目" }.orEmpty(),
+            style = track.style,
+            lyrics = track.lyrics,
+            bpm = track.bpm.coerceIn(50, 220),
+            cotMode = track.cotMode
+        )
+    }
+    fun musicMissingComponents(): List<String> = musicEngine.missingComponents(_state.value.musicSettings.modelId)
+    fun setMusicGuidanceScale(scale: Float) = updateMusicSettings { it.copy(guidanceScale = scale) }
 
     fun playMusic(track: MusicTrack) {
         if (_state.value.nowPlayingTrack?.id == track.id) {
@@ -681,12 +777,13 @@ class QwenViewModel(
             showTaskError(TaskDomain.Music, error.message ?: "参数校验失败")
             return
         }
-        val missing = musicEngine.missingComponents()
+        val missing = musicEngine.missingComponents(settings.modelId)
         if (missing.isNotEmpty()) {
-            showTaskError(TaskDomain.Music, "本机 YuE2 缺少：${missing.joinToString("、")}")
+            showTaskError(TaskDomain.Music, "本机音乐模型缺少：${missing.joinToString("、")}")
             return
         }
 
+        val modelLabel = _state.value.customMusicModels.firstOrNull { it.id == settings.modelId }?.name ?: "YuE2-3B"
         val job = MusicJob(
             id = UUID.randomUUID().toString(),
             title = settings.title.ifBlank { "未命名曲目" },
@@ -694,10 +791,10 @@ class QwenViewModel(
             state = "running",
             stageDescription = "正在准备"
         )
-        if (!beginTask(TaskDomain.Music, job.id, VideoBackend.LocalYue2, "正在准备本机 YuE2")) return
+        if (!beginTask(TaskDomain.Music, job.id, VideoBackend.LocalYue2, "正在准备 $modelLabel")) return
 
         _state.update { it.copy(musicJobs = it.musicJobs + job) }
-        appendLog(TaskDomain.Music, "音乐任务 ${job.id.take(8)} · ${settings.targetDurationSec} 秒 · ${settings.cotMode.tag} · ${settings.odeSteps} 步", job.id)
+        appendLog(TaskDomain.Music, "$modelLabel · ${if (settings.useVulkan) "Vulkan GPU" else "CPU(${settings.threads})"} · ${settings.targetDurationSec} 秒 · ${settings.odeSteps} 步", job.id)
 
         viewModelScope.launch {
             runCatching {
@@ -826,8 +923,16 @@ class QwenViewModel(
     }
     fun setRepo(repo: String) = _state.update { it.copy(repo = repo) }
     fun setRevision(revision: String) = _state.update { it.copy(revision = revision) }
-    fun setCpuThreads(threads: Int) = _state.update { it.copy(cpuThreads = threads.coerceIn(2, 8)) }
-    fun setKeepModelsLoaded(value: Boolean) = _state.update { it.copy(keepModelsLoaded = value) }
+    fun setCpuThreads(threads: Int) {
+        val clamped = threads.coerceIn(2, 8)
+        preferences.edit().putInt("cpuThreads", clamped).apply()
+        _state.update { it.copy(cpuThreads = clamped) }
+    }
+
+    fun setKeepModelsLoaded(value: Boolean) {
+        preferences.edit().putBoolean("keepModelsLoaded", value).apply()
+        _state.update { it.copy(keepModelsLoaded = value) }
+    }
 
     fun setTransparent(value: Boolean) = _state.update { it.copy(settings = it.settings.copy(transparent = value)) }
 
@@ -852,17 +957,23 @@ class QwenViewModel(
             }
             ImageGenerationBackend.CustomSd -> {
                 _state.update { state ->
+                    val nextCustom = state.customSdSettings.copy(
+                        modelId = job.customModelId ?: state.customSdSettings.modelId,
+                        prompt = job.settings.prompt,
+                        negativePrompt = job.settings.negativePrompt,
+                        width = job.settings.width,
+                        height = job.settings.height,
+                        steps = job.settings.steps,
+                        cfg = job.customSdCfg ?: state.customSdSettings.cfg,
+                        sampler = job.customSdSampler ?: state.customSdSettings.sampler,
+                        useOpenCl = job.customSdUseOpenCl ?: state.customSdSettings.useOpenCl,
+                        vaeTiling = job.customSdVaeTiling ?: state.customSdSettings.vaeTiling,
+                        seed = job.settings.seed.toLong().coerceAtLeast(0L)
+                    )
+                    preferences.edit().putString("customSdSettings", nextCustom.copy(prompt = "").toJson().toString()).apply()
                     state.copy(
                         imageBackend = ImageGenerationBackend.CustomSd,
-                        customSdSettings = state.customSdSettings.copy(
-                            modelId = job.customModelId ?: state.customSdSettings.modelId,
-                            prompt = job.settings.prompt,
-                            negativePrompt = job.settings.negativePrompt,
-                            width = job.settings.width,
-                            height = job.settings.height,
-                            steps = job.settings.steps,
-                            seed = job.settings.seed.toLong().coerceAtLeast(0L)
-                        ),
+                        customSdSettings = nextCustom,
                         tab = WorkspaceTab.Generate
                     )
                 }
@@ -877,7 +988,10 @@ class QwenViewModel(
             val moss = mossRepository.status()
             val wan = wanRepository.status()
             val yue2 = yue2Repository.status()
-            val customImages = hubModels.refresh().filter { it.type == HubModelType.SdImage }
+            val hubAll = hubModels.refresh()
+            val customImages = hubAll.filter { it.type == HubModelType.SdImage }
+            val customVideos = hubAll.filter { it.type == HubModelType.VideoWan }
+            val customMusics = hubAll.filter { it.type == HubModelType.MusicAudio }
             _state.update { state ->
                 state.copy(
                     modelStatus = qwen,
@@ -885,6 +999,8 @@ class QwenViewModel(
                     wanModelStatus = wan,
                     yue2ModelStatus = yue2,
                     customImageModels = customImages,
+                    customVideoModels = customVideos,
+                    customMusicModels = customMusics,
                     settings = compatibleSettings(state.settings, qwen)
                 )
             }
@@ -1115,12 +1231,15 @@ class QwenViewModel(
         }
     }
 
-    fun setImageBackend(backend: ImageGenerationBackend) = _state.update { state ->
-        state.copy(
-            imageBackend = backend,
-            mossModelStatus = if (backend == ImageGenerationBackend.MossLocal) mossRepository.status() else state.mossModelStatus,
-            tasks = state.tasks.updateTask(TaskDomain.Image) { it.copy(error = null) }
-        )
+    fun setImageBackend(backend: ImageGenerationBackend) {
+        preferences.edit().putString("imageBackend", backend.name).apply()
+        _state.update { state ->
+            state.copy(
+                imageBackend = backend,
+                mossModelStatus = if (backend == ImageGenerationBackend.MossLocal) mossRepository.status() else state.mossModelStatus,
+                tasks = state.tasks.updateTask(TaskDomain.Image) { it.copy(error = null) }
+            )
+        }
     }
 
     fun updateMossSettings(transform: (MossSettings) -> MossSettings) = _state.update {
@@ -1130,14 +1249,21 @@ class QwenViewModel(
     }
 
     fun updateCustomSdSettings(transform: (CustomSdSettings) -> CustomSdSettings) = _state.update {
-        it.copy(customSdSettings = transform(it.customSdSettings))
+        val next = transform(it.customSdSettings)
+        preferences.edit().putString("customSdSettings", next.copy(prompt = "").toJson().toString()).apply()
+        it.copy(customSdSettings = next)
     }
 
     fun selectCustomImageModel(modelId: String) = _state.update { state ->
         val model = state.customImageModels.firstOrNull { it.id == modelId } ?: return@update state
+        val nextCustom = CustomSdSettings.defaultsFor(model, state.customSdSettings)
+        preferences.edit()
+            .putString("imageBackend", ImageGenerationBackend.CustomSd.name)
+            .putString("customSdSettings", nextCustom.copy(prompt = "").toJson().toString())
+            .apply()
         state.copy(
             imageBackend = ImageGenerationBackend.CustomSd,
-            customSdSettings = CustomSdSettings.defaultsFor(model, state.customSdSettings),
+            customSdSettings = nextCustom,
             tasks = state.tasks.updateTask(TaskDomain.Image) { it.copy(error = null) }
         )
     }
@@ -1211,7 +1337,11 @@ class QwenViewModel(
                     settings = displaySettings,
                     backend = ImageGenerationBackend.CustomSd,
                     customModelId = model.id,
-                    customModelName = model.name
+                    customModelName = model.name,
+                    customSdCfg = sd.cfg,
+                    customSdSampler = sd.sampler,
+                    customSdUseOpenCl = sd.useOpenCl,
+                    customSdVaeTiling = sd.vaeTiling
                 )
             }
         }
@@ -1470,7 +1600,7 @@ class QwenViewModel(
             invalidateEngine()
             val local = settings.local
             appendLog(TaskDomain.Image, "MOSS SFT · 本机 · ${local.width}×${local.height} · ${local.steps} 步", job.id)
-            val result = localMossEngine.executeGeneration(job.id, settings) { update -> handleMossUpdate(job.id, update) }
+            val result = localMossEngine.executeGeneration(job.id, settings, threadsOverride = _state.value.cpuThreads) { update -> handleMossUpdate(job.id, update) }
             val elapsed = System.currentTimeMillis() - startTime
             updateJob(job.id) {
                 it.copy(
@@ -1532,9 +1662,11 @@ class QwenViewModel(
                 width = job.settings.width,
                 height = job.settings.height,
                 steps = job.settings.steps,
-                cfg = sdSnapshot.cfg,
+                cfg = job.customSdCfg ?: sdSnapshot.cfg,
                 seed = job.settings.seed.toLong().coerceAtLeast(0L),
-                useOpenCl = sdSnapshot.useOpenCl
+                useOpenCl = job.customSdUseOpenCl ?: sdSnapshot.useOpenCl,
+                sampler = job.customSdSampler ?: sdSnapshot.sampler,
+                vaeTiling = job.customSdVaeTiling ?: sdSnapshot.vaeTiling
             )
             appendLog(TaskDomain.Image, "${job.customModelName ?: modelId} · ${settings.width}×${settings.height} · ${settings.steps} 步", job.id)
             val result = localSdImageEngine.executeGeneration(job.id, settings, _state.value.cpuThreads) { update ->

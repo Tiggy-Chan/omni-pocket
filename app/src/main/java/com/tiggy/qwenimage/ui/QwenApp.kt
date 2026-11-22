@@ -179,10 +179,20 @@ private fun Destination(
                         viewModel.setDomain(AppDomain.ImageStudio)
                         onPage(AppPage.Workspace)
                     }
+                    HubModelType.VideoWan -> {
+                        viewModel.selectVideoModel(model.id)
+                        viewModel.setDomain(AppDomain.VideoStudio)
+                        onPage(AppPage.Workspace)
+                    }
+                    HubModelType.MusicAudio -> {
+                        viewModel.selectMusicModel(model.id)
+                        viewModel.setDomain(AppDomain.MusicStudio)
+                        onPage(AppPage.Workspace)
+                    }
                 }
             }
         )
-        AppPage.Settings -> SettingsPage(state, viewModel, llmViewModel, hubViewModel, onMenu)
+        AppPage.Settings -> SettingsPage(state, viewModel, llmViewModel, decisionViewModel, hubViewModel, onMenu)
     }
 }
 

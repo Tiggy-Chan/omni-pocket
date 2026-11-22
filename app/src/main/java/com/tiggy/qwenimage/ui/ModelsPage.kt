@@ -25,7 +25,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -79,6 +81,9 @@ import com.tiggy.qwenimage.ModelHubViewModel
 import com.tiggy.qwenimage.QwenUiState
 import com.tiggy.qwenimage.QwenViewModel
 import com.tiggy.qwenimage.data.ActiveDownloadState
+import com.tiggy.qwenimage.data.BenchmarkModality
+import com.tiggy.qwenimage.data.DeviceFitLevel
+import com.tiggy.qwenimage.data.DeviceHardwareSnapshot
 import com.tiggy.qwenimage.data.GenerationBackend
 import com.tiggy.qwenimage.data.HfRepoOption
 import com.tiggy.qwenimage.data.HfRepoSummary
@@ -86,12 +91,15 @@ import com.tiggy.qwenimage.data.HubMirrorMode
 import com.tiggy.qwenimage.data.HubSearchCategory
 import com.tiggy.qwenimage.data.InstalledHubModel
 import com.tiggy.qwenimage.data.LlmModelStatus
+import com.tiggy.qwenimage.data.ModelBenchmarkCatalog
+import com.tiggy.qwenimage.data.ModelBenchmarkEntry
 import com.tiggy.qwenimage.data.formatBytesCompact
 import java.util.Locale
 
 private enum class ModelsPageTab(val label: String) {
     Installed("本地模型"),
-    Discover("发现模型")
+    Discover("发现模型"),
+    Reference("能力参考")
 }
 
 private enum class BuiltInDeleteTarget(val label: String) {
@@ -132,6 +140,7 @@ fun ModelsPage(
     }
 
     var tab by rememberSaveable { mutableStateOf(ModelsPageTab.Installed) }
+    var benchmarkModality by rememberSaveable { mutableStateOf(BenchmarkModality.Chat) }
     var deleteChat by remember { mutableStateOf<LlmModelStatus?>(null) }
     var deleteHubModel by remember { mutableStateOf<InstalledHubModel?>(null) }
     var deleteBuiltIn by remember { mutableStateOf<BuiltInDeleteTarget?>(null) }
@@ -534,12 +543,15 @@ fun ModelsPage(
                                 Modifier.padding(top = 12.dp, bottom = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                OmniTabs(
-                                    items = HubSearchCategory.entries,
-                                    selected = hubState.category,
-                                    label = { it.label },
-                                    onSelect = hubViewModel::selectCategory
-                                )
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    items(HubSearchCategory.entries) { cat ->
+                                        ComposerChip(
+                                            label = cat.label,
+                                            onClick = { hubViewModel.selectCategory(cat) },
+                                            selected = hubState.category == cat
+                                        )
+                                    }
+                                }
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     val submitSearch = {
                                         if (!hubState.searching && hubState.query.isNotBlank()) {
@@ -593,6 +605,44 @@ fun ModelsPage(
                             }
                         }
                     }
+
+                    ModelsPageTab.Reference -> {
+                        item(key = "ref-header") {
+                            Column(
+                                Modifier.padding(top = 12.dp, bottom = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    items(BenchmarkModality.entries) { modality ->
+                                        ComposerChip(
+                                            label = modality.label,
+                                            onClick = { benchmarkModality = modality },
+                                            selected = benchmarkModality == modality
+                                        )
+                                    }
+                                }
+                                ContentCard(title = "评分与适配说明") {
+                                    val hwNote = hubState.deviceHardware?.summaryLine()?.let { "本机配置：$it。" }.orEmpty()
+                                    Text(
+                                        "${hwNote}公开榜单（Artificial Analysis / VBench / SongEval）仅评测官方原版基座，不覆盖第三方量化仓库。下表按基座家族标注可查证来源（公开独立榜单 / 官方技术报告 / 端侧专项参考），并结合量化精度保留率与本机内存评估适配度。",
+                                        color = OmniColors.Muted,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+                        val entries = ModelBenchmarkCatalog.byModality(benchmarkModality)
+                        itemsIndexed(entries, key = { _, entry -> "bench-${entry.id}" }) { index, entry ->
+                            BenchmarkReferenceRow(
+                                rank = index + 1,
+                                entry = entry,
+                                device = hubState.deviceHardware,
+                                onInspect = if (entry.recommendedRepo != null && entry.searchCategory != null) {
+                                    { hubViewModel.openRepoInCategory(entry.recommendedRepo, entry.searchCategory) }
+                                } else null
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -627,8 +677,9 @@ fun ModelsPage(
             model.name,
             "释放 ${formatBytesCompact(model.totalBytes)} 空间。",
             onConfirm = {
-                llmViewModel.unloadIfLoaded(model.id)
-                hubViewModel.deleteInstalled(model.id)
+                hubViewModel.deleteInstalled(model.id) {
+                    llmViewModel.unloadIfLoadedSync(model.id)
+                }
                 deleteHubModel = null
             },
             onDismiss = { deleteHubModel = null }
@@ -717,6 +768,8 @@ private fun DownloadStatusCard(
 
 @Composable
 private fun HubRepoRow(repo: HfRepoSummary, onClick: () -> Unit) {
+    val benchmark = remember(repo.id) { ModelBenchmarkCatalog.matchRepoOrName(repo.id) }
+    val trusted = remember(repo.author) { ModelBenchmarkCatalog.isTrustedPackager(repo.author) }
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(vertical = 10.dp),
@@ -738,16 +791,91 @@ private fun HubRepoRow(repo: HfRepoSummary, onClick: () -> Unit) {
                     }
                 }
                 val meta = buildList {
-                    add(repo.author)
+                    add(if (trusted) "${repo.author}（常用打包方）" else repo.author)
                     if (repo.downloads > 0L) add("${formatCount(repo.downloads)} 下载")
                     if (repo.summary.isNotBlank()) add(repo.summary)
                 }.joinToString(" · ")
                 Text(meta, color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (benchmark != null) {
+                    Text(
+                        "参考基座 ${benchmark.familyName} · ${benchmark.primaryScoreLabel}（${benchmark.evidenceTier.label}）",
+                        color = OmniColors.Dim,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             Icon(Icons.Outlined.CloudDownload, "查看文件", tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
         }
         HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
     }
+}
+
+@Composable
+private fun BenchmarkReferenceRow(
+    rank: Int,
+    entry: ModelBenchmarkEntry,
+    device: DeviceHardwareSnapshot?,
+    onInspect: (() -> Unit)?
+) {
+    val ramFit = remember(entry.minRamGb, device) {
+        if (device == null || device.totalRamGb <= 0.0) null
+        else when {
+            device.totalRamGb >= entry.minRamGb * 1.25 -> DeviceFitLevel.Smooth
+            device.totalRamGb >= entry.minRamGb * 0.9 -> DeviceFitLevel.Usable
+            device.totalRamGb >= entry.minRamGb * 0.72 -> DeviceFitLevel.Tight
+            else -> DeviceFitLevel.LikelyOom
+        }
+    }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Text(
+                "$rank",
+                color = OmniColors.Dim,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.width(24.dp).padding(top = 2.dp)
+            )
+            Column(Modifier.weight(1f).padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    "${entry.familyName} · ${entry.paramScale}",
+                    color = OmniColors.Ink,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+                val scores = listOf(entry.primaryScoreLabel, entry.secondaryScoreLabel)
+                    .filter { it.isNotBlank() }.joinToString(" · ")
+                Text(scores, color = OmniColors.Accent, style = MaterialTheme.typography.labelMedium)
+                Text(entry.strengths, color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
+                val fitText = ramFit?.let { " · ${it.label}" }.orEmpty()
+                Text(
+                    "推荐 ${entry.recommendedQuant} · 建议 ≥ ${entry.minRamGb} GB 内存$fitText",
+                    color = deviceFitColor(ramFit),
+                    style = MaterialTheme.typography.labelSmall
+                )
+                Text(
+                    "来源：${entry.source}（${entry.evidenceTier.label}）",
+                    color = OmniColors.Dim,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+            if (onInspect != null) {
+                ModelButton("查看下载", onInspect)
+            }
+        }
+        HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
+    }
+}
+
+@Composable
+private fun deviceFitColor(level: DeviceFitLevel?) = when (level) {
+    DeviceFitLevel.Smooth -> OmniColors.Success
+    DeviceFitLevel.Usable, null -> OmniColors.Muted
+    DeviceFitLevel.Tight -> OmniColors.Warning
+    DeviceFitLevel.LikelyOom -> OmniColors.Danger
 }
 
 @Composable
@@ -758,7 +886,16 @@ private fun HubRepoFilesSheet(
     onDismiss: () -> Unit
 ) {
     val installedIds = remember(state.installedModels) { state.installedModels.map { it.id }.toSet() }
+    val benchmark = remember(repo) { ModelBenchmarkCatalog.matchRepoOrName(repo) }
     OmniSheet(repo, onDismiss) {
+        if (benchmark != null) {
+            Text(
+                "基座参考：${benchmark.familyName} · ${benchmark.primaryScoreLabel}（${benchmark.source}）",
+                color = OmniColors.Muted,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
         when {
             state.loadingRepo -> {
                 Row(
@@ -779,6 +916,10 @@ private fun HubRepoFilesSheet(
                     state.repoOptions.forEach { option ->
                         val installed = option.id in installedIds
                         val queued = state.downloads.isPendingOrActive("hub:${option.id}")
+                        val quantHint = remember(option.quantTag) { ModelBenchmarkCatalog.quantQualityHint(option.quantTag) }
+                        val fit = remember(option.totalBytes, state.deviceHardware) {
+                            ModelBenchmarkCatalog.evaluateDeviceFit(option.totalBytes, state.deviceHardware)
+                        }
                         val detail = buildList {
                             option.quantTag?.let(::add)
                             add(formatBytesCompact(option.totalBytes))
@@ -799,6 +940,14 @@ private fun HubRepoFilesSheet(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(detail, color = OmniColors.Muted, style = MaterialTheme.typography.labelSmall)
+                                    val fitLine = buildList {
+                                        add(fit.label)
+                                        quantHint?.let { add("量化保留约 ${it.retentionPercent}% · ${it.note}") }
+                                    }.joinToString(" · ")
+                                    Text(fitLine, color = deviceFitColor(fit), style = MaterialTheme.typography.labelSmall)
+                                    option.companionSummary?.let {
+                                        Text(it, color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall)
+                                    }
                                     option.splitWarning?.let {
                                         Text(it, color = OmniColors.Warning, style = MaterialTheme.typography.labelSmall)
                                     }

@@ -18,6 +18,8 @@ import com.tiggy.qwenimage.data.LlmModelStatus
 import com.tiggy.qwenimage.data.ModelDownloadManager
 import com.tiggy.qwenimage.data.formatBytesCompact
 import com.tiggy.qwenimage.data.splitReasoning
+import com.tiggy.qwenimage.engine.ChatSamplingParams
+import com.tiggy.qwenimage.engine.KvCachePrecision
 import com.tiggy.qwenimage.engine.LocalInferenceCoordinator
 import com.tiggy.qwenimage.engine.LocalLlamaChatEngine
 import com.tiggy.qwenimage.engine.LocalLlmEngine
@@ -73,6 +75,16 @@ data class LlmUiState(
     val maxNewTokens: Int = 1024,
     val contextTokens: Int = 4096,
     val threads: Int = 4,
+    val temperature: Float = 0.7f,
+    val topP: Float = 0.9f,
+    val repeatPenalty: Float = 1.1f,
+    val systemPrompt: String = LlmConversation.SYSTEM_PROMPT,
+    val mnnUseOpenCl: Boolean = false,
+    val ggufKvPrecision: KvCachePrecision = KvCachePrecision.Fp16,
+    val ggufUseVulkanGpu: Boolean = false,
+    val ggufGpuAvailable: Boolean = false,
+    val loadedEffectiveContext: Int = 0,
+    val loadedTrainContext: Int = 0,
     val phase: LlmPhase = LlmPhase.Idle,
     val workingModelId: String? = null,
     val download: LlmDownloadProgress? = null,
@@ -103,9 +115,19 @@ class LlmViewModel(
     private val llamaEngine = LocalLlamaChatEngine()
     private val _state = MutableStateFlow(
         LlmUiState(
-            maxNewTokens = prefs.getInt("maxNewTokens", DEFAULT_MAX_NEW_TOKENS).coerceIn(128, 4096),
-            contextTokens = prefs.getInt("contextTokens", DEFAULT_CONTEXT_TOKENS).coerceIn(1024, 16384),
-            threads = prefs.getInt("threads", DEFAULT_THREADS).coerceIn(2, 8)
+            maxNewTokens = prefs.getInt("maxNewTokens", DEFAULT_MAX_NEW_TOKENS).coerceIn(MIN_MAX_NEW_TOKENS, MAX_MAX_NEW_TOKENS),
+            contextTokens = prefs.getInt("contextTokens", DEFAULT_CONTEXT_TOKENS).coerceIn(MIN_CONTEXT_TOKENS, MAX_CONTEXT_TOKENS),
+            threads = prefs.getInt("threads", DEFAULT_THREADS).coerceIn(2, 8),
+            temperature = prefs.getFloat("temperature", DEFAULT_TEMPERATURE).coerceIn(0f, 2f),
+            topP = prefs.getFloat("topP", DEFAULT_TOP_P).coerceIn(0.1f, 1f),
+            repeatPenalty = prefs.getFloat("repeatPenalty", DEFAULT_REPEAT_PENALTY).coerceIn(1f, 1.5f),
+            systemPrompt = prefs.getString("systemPrompt", LlmConversation.SYSTEM_PROMPT) ?: LlmConversation.SYSTEM_PROMPT,
+            mnnUseOpenCl = prefs.getBoolean("mnnUseOpenCl", false),
+            ggufKvPrecision = runCatching {
+                KvCachePrecision.valueOf(prefs.getString("ggufKvPrecision", KvCachePrecision.Fp16.name).orEmpty())
+            }.getOrDefault(KvCachePrecision.Fp16),
+            ggufUseVulkanGpu = prefs.getBoolean("ggufUseVulkanGpu", false),
+            ggufGpuAvailable = LocalLlamaChatEngine.hasGpuBackend()
         )
     )
     val state: StateFlow<LlmUiState> = _state.asStateFlow()
@@ -178,13 +200,13 @@ class LlmViewModel(
     }
 
     fun setMaxNewTokens(value: Int) {
-        val clamped = value.coerceIn(128, 4096)
+        val clamped = value.coerceIn(MIN_MAX_NEW_TOKENS, MAX_MAX_NEW_TOKENS)
         prefs.edit().putInt("maxNewTokens", clamped).apply()
         _state.update { it.copy(maxNewTokens = clamped) }
     }
 
     fun setContextTokens(value: Int) {
-        val clamped = value.coerceIn(1024, 16384)
+        val clamped = value.coerceIn(MIN_CONTEXT_TOKENS, MAX_CONTEXT_TOKENS)
         prefs.edit().putInt("contextTokens", clamped).apply()
         _state.update { it.copy(contextTokens = clamped) }
     }
@@ -193,6 +215,48 @@ class LlmViewModel(
         val clamped = value.coerceIn(2, 8)
         prefs.edit().putInt("threads", clamped).apply()
         _state.update { it.copy(threads = clamped) }
+    }
+
+    fun setTemperature(value: Float) {
+        val clamped = value.coerceIn(0f, 2f)
+        prefs.edit().putFloat("temperature", clamped).apply()
+        _state.update { it.copy(temperature = clamped) }
+    }
+
+    fun setTopP(value: Float) {
+        val clamped = value.coerceIn(0.1f, 1f)
+        prefs.edit().putFloat("topP", clamped).apply()
+        _state.update { it.copy(topP = clamped) }
+    }
+
+    fun setRepeatPenalty(value: Float) {
+        val clamped = value.coerceIn(1f, 1.5f)
+        prefs.edit().putFloat("repeatPenalty", clamped).apply()
+        _state.update { it.copy(repeatPenalty = clamped) }
+    }
+
+    fun setSystemPrompt(value: String) {
+        val trimmed = value.take(2_000)
+        prefs.edit().putString("systemPrompt", trimmed).apply()
+        _state.update { it.copy(systemPrompt = trimmed) }
+    }
+
+    fun resetSystemPrompt() = setSystemPrompt(LlmConversation.SYSTEM_PROMPT)
+
+    fun setMnnUseOpenCl(value: Boolean) {
+        prefs.edit().putBoolean("mnnUseOpenCl", value).apply()
+        _state.update { it.copy(mnnUseOpenCl = value) }
+    }
+
+    fun setGgufKvPrecision(precision: KvCachePrecision) {
+        prefs.edit().putString("ggufKvPrecision", precision.name).apply()
+        _state.update { it.copy(ggufKvPrecision = precision) }
+    }
+
+    fun setGgufUseVulkanGpu(value: Boolean) {
+        val effective = value && _state.value.ggufGpuAvailable
+        prefs.edit().putBoolean("ggufUseVulkanGpu", effective).apply()
+        _state.update { it.copy(ggufUseVulkanGpu = effective) }
     }
 
     fun selectConversation(id: String) {
@@ -371,7 +435,13 @@ class LlmViewModel(
                 val modelId = conversation.modelId
                 val threads = snapshot.threads
                 val contextTokens = snapshot.contextTokens
-                val maxNewTokens = snapshot.maxNewTokens.coerceAtMost(contextTokens / 2)
+                val sampling = ChatSamplingParams(
+                    temperature = snapshot.temperature,
+                    topP = snapshot.topP,
+                    topK = 40,
+                    repeatPenalty = snapshot.repeatPenalty
+                )
+                val messages = conversation.modelMessages(snapshot.systemPrompt)
 
                 val hubModel = withContext(Dispatchers.IO) { hubRepository.find(modelId) }
                 if (hubModel != null) {
@@ -382,12 +452,29 @@ class LlmViewModel(
                             mnnEngine.unload()
                             activeBackend = ChatEngineBackend.LlamaGguf
                             if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
-                            val error = llamaEngine.load(entry, "${hubModel.id}:${hubModel.installedAt}", threads, contextTokens)
+                            val gpuLayers = if (snapshot.ggufUseVulkanGpu && snapshot.ggufGpuAvailable) 99 else 0
+                            val error = llamaEngine.load(
+                                modelFile = entry,
+                                modelKey = "${hubModel.id}:${hubModel.installedAt}",
+                                threads = threads,
+                                contextTokens = contextTokens,
+                                kvPrecision = snapshot.ggufKvPrecision,
+                                gpuLayers = gpuLayers
+                            )
                             if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
                             check(error == null) { error.orEmpty() }
-                            _state.update { it.copy(loadedModelId = modelId, phase = LlmPhase.Generating) }
+                            val effectiveCtx = llamaEngine.effectiveContextTokens.takeIf { it > 0 } ?: contextTokens
+                            val maxNewTokens = snapshot.maxNewTokens.coerceAtMost((effectiveCtx - 256).coerceAtLeast(128))
+                            _state.update {
+                                it.copy(
+                                    loadedModelId = modelId,
+                                    loadedEffectiveContext = effectiveCtx,
+                                    loadedTrainContext = llamaEngine.modelTrainContextTokens,
+                                    phase = LlmPhase.Generating
+                                )
+                            }
                             var raw = ""
-                            llamaEngine.generate(conversationId, conversation.modelMessages(), maxNewTokens, conversation.thinking) { chunk ->
+                            llamaEngine.generate(conversationId, messages, maxNewTokens, conversation.thinking, sampling) { chunk ->
                                 raw += chunk
                                 if (activeConversationId == conversationId && activeMessageId == messageId) {
                                     // GGUF emits explicit <think> tags when thinking is active; never implicitly treat plain replies as thinking.
@@ -400,12 +487,27 @@ class LlmViewModel(
                             llamaEngine.unload()
                             activeBackend = ChatEngineBackend.Mnn
                             if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
-                            val error = mnnEngine.load(entry, "${hubModel.id}:${hubModel.installedAt}:$threads:$contextTokens", threads, contextTokens)
+                            val mnnCtx = contextTokens.coerceAtMost(65536)
+                            val maxNewTokens = snapshot.maxNewTokens.coerceAtMost((mnnCtx - 256).coerceAtLeast(128))
+                            val error = mnnEngine.load(
+                                config = entry,
+                                modelKey = "${hubModel.id}:${hubModel.installedAt}",
+                                threads = threads,
+                                contextTokens = mnnCtx,
+                                useOpenCl = snapshot.mnnUseOpenCl
+                            )
                             if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
                             check(error == null) { error.orEmpty() }
-                            _state.update { it.copy(loadedModelId = modelId, phase = LlmPhase.Generating) }
+                            _state.update {
+                                it.copy(
+                                    loadedModelId = modelId,
+                                    loadedEffectiveContext = mnnCtx,
+                                    loadedTrainContext = 0,
+                                    phase = LlmPhase.Generating
+                                )
+                            }
                             var raw = ""
-                            mnnEngine.generate(conversationId, conversation.modelMessages(), maxNewTokens, conversation.thinking) { chunk ->
+                            mnnEngine.generate(conversationId, messages, maxNewTokens, conversation.thinking, sampling) { chunk ->
                                 raw += chunk
                                 if (activeConversationId == conversationId && activeMessageId == messageId) {
                                     updateMessage(conversationId, messageId, raw, LlmMessageStatus.Streaming, conversation.thinking)
@@ -414,6 +516,8 @@ class LlmViewModel(
                             }
                         }
                         HubModelType.SdImage -> error("所选模型为图像模型，无法用于对话")
+                        HubModelType.VideoWan -> error("所选模型为视频模型，无法用于对话")
+                        HubModelType.MusicAudio -> error("所选模型为音乐模型，无法用于对话")
                     }
                 } else {
                     llamaEngine.unload()
@@ -428,17 +532,27 @@ class LlmViewModel(
                     }
                     check(status.ready) { "模型未通过校验：${status.message}" }
                     if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
+                    val mnnCtx = contextTokens.coerceAtMost(65536)
+                    val maxNewTokens = snapshot.maxNewTokens.coerceAtMost((mnnCtx - 256).coerceAtLeast(128))
                     val error = mnnEngine.load(
-                        File(status.directory, "config.json"),
-                        "${status.spec.revision}:$threads:$contextTokens",
+                        config = File(status.directory, "config.json"),
+                        modelKey = status.spec.revision,
                         threads = threads,
-                        contextTokens = contextTokens
+                        contextTokens = mnnCtx,
+                        useOpenCl = snapshot.mnnUseOpenCl
                     )
                     if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
                     check(error == null) { error.orEmpty() }
-                    _state.update { it.copy(loadedModelId = modelId, phase = LlmPhase.Generating) }
+                    _state.update {
+                        it.copy(
+                            loadedModelId = modelId,
+                            loadedEffectiveContext = mnnCtx,
+                            loadedTrainContext = 0,
+                            phase = LlmPhase.Generating
+                        )
+                    }
                     var raw = ""
-                    mnnEngine.generate(conversationId, conversation.modelMessages(), maxNewTokens, conversation.thinking) { chunk ->
+                    mnnEngine.generate(conversationId, messages, maxNewTokens, conversation.thinking, sampling) { chunk ->
                         raw += chunk
                         if (activeConversationId == conversationId && activeMessageId == messageId) {
                             updateMessage(conversationId, messageId, raw, LlmMessageStatus.Streaming, conversation.thinking)
@@ -613,13 +727,17 @@ class LlmViewModel(
         }
     }
 
+    suspend fun unloadIfLoadedSync(modelId: String) {
+        if (_state.value.loadedModelId == modelId) {
+            mnnEngine.unload()
+            llamaEngine.unload()
+            _state.update { it.copy(loadedModelId = null, loadedEffectiveContext = 0, loadedTrainContext = 0) }
+        }
+    }
+
     fun unloadIfLoaded(modelId: String) {
         if (_state.value.loadedModelId == modelId) {
-            viewModelScope.launch {
-                mnnEngine.unload()
-                llamaEngine.unload()
-                _state.update { it.copy(loadedModelId = null) }
-            }
+            viewModelScope.launch { unloadIfLoadedSync(modelId) }
         }
     }
 
@@ -713,12 +831,13 @@ class LlmViewModel(
     override fun onCleared() {
         mnnEngine.cancel()
         llamaEngine.cancel()
-        if (_state.value.ready) {
-            kotlinx.coroutines.runBlocking {
-                persist(LlmChatSnapshot(_state.value.conversations, _state.value.selectedId, _state.value.drafts))
-            }
-        }
+        val snapshotToSave = if (_state.value.ready && persistenceEnabled) {
+            LlmChatSnapshot(_state.value.conversations, _state.value.selectedId, _state.value.drafts)
+        } else null
         Thread({
+            if (snapshotToSave != null) {
+                runCatching { store.save(snapshotToSave) }
+            }
             mnnEngine.close()
             llamaEngine.close()
             coordinator.unregisterEvictor(evictionKey)
@@ -726,12 +845,19 @@ class LlmViewModel(
         super.onCleared()
     }
 
-    private companion object {
-        const val DEFAULT_MODEL = "qwen35-0.8b"
-        const val DEFAULT_CONTEXT_TOKENS = 4096
-        const val DEFAULT_MAX_NEW_TOKENS = 1024
-        const val DEFAULT_THREADS = 4
-        const val MAX_INPUT_CHARACTERS = 8_000
+    companion object {
+        const val MIN_CONTEXT_TOKENS = 512
+        const val MAX_CONTEXT_TOKENS = 131_072
+        const val MIN_MAX_NEW_TOKENS = 128
+        const val MAX_MAX_NEW_TOKENS = 32_768
+        private const val DEFAULT_MODEL = "qwen35-0.8b"
+        private const val DEFAULT_CONTEXT_TOKENS = 4096
+        private const val DEFAULT_MAX_NEW_TOKENS = 1024
+        private const val DEFAULT_THREADS = 4
+        private const val DEFAULT_TEMPERATURE = 0.7f
+        private const val DEFAULT_TOP_P = 0.9f
+        private const val DEFAULT_REPEAT_PENALTY = 1.1f
+        private const val MAX_INPUT_CHARACTERS = 32_000
 
         fun newConversation(modelId: String = DEFAULT_MODEL) = LlmConversation(
             id = UUID.randomUUID().toString(), title = "新对话", modelId = modelId

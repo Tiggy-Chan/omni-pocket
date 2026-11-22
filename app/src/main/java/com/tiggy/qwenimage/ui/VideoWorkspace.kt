@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -33,12 +34,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
@@ -47,6 +50,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -76,6 +80,7 @@ import com.tiggy.qwenimage.data.TaskUiState
 import com.tiggy.qwenimage.data.VideoItem
 import com.tiggy.qwenimage.data.VideoJob
 import com.tiggy.qwenimage.data.VideoSettings
+import com.tiggy.qwenimage.data.formatBytesCompact
 import java.io.File
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -106,19 +111,24 @@ fun VideoWorkspace(
     val context = LocalContext.current
     val settings = state.videoSettings
     val task = state.videoTask
-    // Stats model files, so check once per visit and after each job or download rather than on every recomposition.
-    val runtime = remember(task.running, state.wanModelStatus) { viewModel.videoRuntimeStatus() }
+    val activeCustomModel = state.customVideoModels.firstOrNull { it.id == settings.modelId }
+    val modelLabel = activeCustomModel?.name ?: "Wan2.2 Turbo"
+    // Stats model files, so check once per visit and after each job or model change rather than on every recomposition.
+    val runtime = remember(task.running, state.wanModelStatus, settings.modelId, state.customVideoModels) {
+        viewModel.videoRuntimeStatus()
+    }
     val ready = runtime.localReady
     val firstFrame = settings.inputImageUri
     val parameterError = when {
-        settings.numFrames !in 5..25 -> "本机最多 25 帧，请调整帧数。"
-        settings.steps !in 1..6 -> "本机最多 6 步，请调整步数。"
+        settings.numFrames !in 5..41 || (settings.numFrames - 1) % 4 != 0 -> "本机帧数需为 5–41 且满足 4n+1（如 9、17、25、33）。"
+        settings.steps !in 1..12 -> "本机最多 12 步，请调整步数。"
         else -> null
     }
     val jobErrors = state.videoJobs.mapNotNull { it.error }
     val taskError = task.error?.takeIf { !task.running && it !in jobErrors }
 
     var showParams by remember { mutableStateOf(false) }
+    var showModelSheet by remember { mutableStateOf(false) }
     var playingId by remember { mutableStateOf<String?>(null) }
     var pendingDelete by remember { mutableStateOf<VideoItem?>(null) }
     val listState = rememberLazyListState()
@@ -140,7 +150,7 @@ fun VideoWorkspace(
 
     WorkspaceScaffold(
         title = "视频",
-        subtitle = if (ready) "Wan2.2 · 本机" else "Wan2.2 · 模型未就绪",
+        subtitle = if (ready) "$modelLabel · 本机" else "$modelLabel · 模型未就绪",
         onMenu = onMenu,
         composer = { haze ->
             val status: (@Composable () -> Unit)? = if (firstFrame != null || parameterError != null || taskError != null) ({
@@ -181,7 +191,8 @@ fun VideoWorkspace(
                         selected = firstFrame != null,
                         contentDescription = if (firstFrame == null) "选择首帧" else "更换首帧"
                     )
-                    ComposerChip("参数", onClick = { showParams = true }, icon = Icons.Outlined.Tune)
+                    ComposerChip(modelLabel.take(14), onClick = { showModelSheet = true })
+                    ComposerChip("", onClick = { showParams = true }, icon = Icons.Outlined.Tune, contentDescription = "参数")
                 }
             )
         }
@@ -190,7 +201,7 @@ fun VideoWorkspace(
             Box(Modifier.fillMaxSize().padding(inner), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("描述一段画面", color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium)
-                    if (!ready) VideoModelNote(runtime.missingComponents, onModels)
+                    if (!ready) VideoModelNote(modelLabel, runtime.missingComponents, onModels)
                 }
             }
         } else {
@@ -206,7 +217,7 @@ fun VideoWorkspace(
             ) {
                 if (!ready) {
                     item(key = "model-note") {
-                        ReadingColumn { VideoModelNote(runtime.missingComponents, onModels) }
+                        ReadingColumn { VideoModelNote(modelLabel, runtime.missingComponents, onModels) }
                     }
                 }
                 items(blocks, key = { it.key }) { block ->
@@ -224,6 +235,7 @@ fun VideoWorkspace(
                                         viewModel.setActiveVideo(video)
                                         playingId = video.id
                                     },
+                                    onReuse = { viewModel.reuseVideoItem(video) },
                                     onShare = { shareVideo(context, video)?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() } },
                                     onDelete = { pendingDelete = video }
                                 )
@@ -248,6 +260,20 @@ fun VideoWorkspace(
     if (showParams) {
         VideoParamsSheet(settings, viewModel) { showParams = false }
     }
+    if (showModelSheet) {
+        VideoModelSheet(
+            state = state,
+            onSelect = { modelId ->
+                viewModel.selectVideoModel(modelId)
+                showModelSheet = false
+            },
+            onManage = {
+                showModelSheet = false
+                onModels()
+            },
+            onDismiss = { showModelSheet = false }
+        )
+    }
 
     pendingDelete?.let { video ->
         AlertDialog(
@@ -270,19 +296,60 @@ fun VideoWorkspace(
 }
 
 @Composable
-private fun VideoModelNote(missing: List<String>, onModels: () -> Unit) {
+private fun VideoModelNote(modelLabel: String, missing: List<String>, onModels: () -> Unit) {
     val pkg = LocalContext.current.packageName
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("本机 Wan2.2 模型未就绪", color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
+            Text("$modelLabel 未就绪", color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
             TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 48.dp)) { Text("前往下载") }
         }
         Text(
-            "缺少：${missing.joinToString("、")}\n可在「模型」页直接下载，或放入 Android/data/$pkg/files/models/wan22_turbo",
+            "缺少：${missing.joinToString("、")}\n可在「模型」页直接下载内置或社区 Wan2.2 / Wan2.1 模型，或放入 Android/data/$pkg/files/models/wan22_turbo",
             color = OmniColors.Dim,
             style = MaterialTheme.typography.labelSmall,
             textAlign = TextAlign.Center
         )
+    }
+}
+
+@Composable
+private fun VideoModelSheet(
+    state: QwenUiState,
+    onSelect: (String) -> Unit,
+    onManage: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    OmniSheet("视频模型", onDismiss) {
+        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            SettingRow(
+                title = "Wan2.2 Turbo · 内置",
+                detail = if (state.wanModelStatus?.ready == true) "已就绪 · 5B 4步加速" else "未下载",
+                onClick = { onSelect("") }
+            ) {
+                if (state.videoSettings.modelId.isBlank()) {
+                    Icon(Icons.Outlined.Check, "当前", tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
+                }
+            }
+            if (state.customVideoModels.isNotEmpty()) {
+                SectionLabel("已从社区下载")
+                state.customVideoModels.forEach { model ->
+                    SettingRow(
+                        title = model.name,
+                        detail = "${model.repo} · ${formatBytesCompact(model.totalBytes)}",
+                        onClick = { onSelect(model.id) }
+                    ) {
+                        if (state.videoSettings.modelId == model.id) {
+                            Icon(Icons.Outlined.Check, "当前", tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+            }
+            SettingRow(
+                title = "从模型页搜索更多视频模型",
+                detail = "支持 Wan2.2 / Wan2.1 GGUF（自动复用 UMT5 与 TAE）",
+                onClick = onManage
+            )
+        }
     }
 }
 
@@ -313,6 +380,7 @@ private fun VideoResultBlock(
     firstFrame: Uri?,
     loaded: Boolean,
     onLoad: () -> Unit,
+    onReuse: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -349,6 +417,9 @@ private fun VideoResultBlock(
                             if (playing) "暂停" else "播放", tint = OmniColors.Muted, modifier = Modifier.size(22.dp))
                     }
                 }
+                IconButton(onClick = onReuse, modifier = Modifier.size(48.dp)) {
+                    Icon(Icons.Outlined.Replay, "复用提示词", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                }
                 IconButton(onClick = onShare, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Outlined.Share, "分享视频", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
                 }
@@ -383,6 +454,9 @@ private fun togglePlayback(player: VideoView?, playing: Boolean, onPlaying: (Boo
         player.pause()
         onPlaying(false)
     } else {
+        if (player.duration > 0 && player.currentPosition >= player.duration - 150) {
+            player.seekTo(0)
+        }
         player.start()
         onPlaying(true)
     }
@@ -469,31 +543,54 @@ private fun VideoJobBlock(
     }
 }
 
+private data class VideoResOption(val width: Int, val height: Int, val label: String)
+
+private val VideoResOptions = listOf(
+    VideoResOption(480, 832, "480×832 竖屏"),
+    VideoResOption(832, 480, "832×480 横屏"),
+    VideoResOption(480, 480, "480×480 方形"),
+    VideoResOption(384, 640, "384×640 预览")
+)
+
 @Composable
 private fun VideoParamsSheet(settings: VideoSettings, viewModel: QwenViewModel, onDismiss: () -> Unit) {
     var seedText by remember(settings.seed) { mutableStateOf(settings.seed.toString()) }
+    var cfgText by remember(settings.cfgScale) { mutableStateOf(String.format(Locale.US, "%.1f", settings.cfgScale)) }
     OmniSheet("参数", onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("帧数", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                Text("分辨率", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(VideoResOptions) { opt ->
+                        ComposerChip(
+                            label = opt.label,
+                            onClick = { viewModel.setVideoResolution(opt.width, opt.height) },
+                            selected = settings.width == opt.width && settings.height == opt.height
+                        )
+                    }
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("帧数（4n+1）", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
                 OmniTabs(
-                    items = listOf(9, 17, 25),
+                    items = listOf(9, 17, 25, 33),
                     selected = settings.numFrames,
                     label = { "$it 帧" },
                     onSelect = viewModel::setVideoNumFrames
                 )
             }
             VideoIntSlider("帧率", "${settings.fps} FPS", settings.fps, 8..30, viewModel::setVideoFps)
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("步数", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
-                OmniTabs(
-                    items = listOf(3, 4, 5, 6),
-                    selected = settings.steps,
-                    label = { "$it 步" },
-                    onSelect = viewModel::setVideoSteps
+            VideoIntSlider("步数", "${settings.steps} 步", settings.steps, 1..12, viewModel::setVideoSteps)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OmniTextField(
+                    value = cfgText,
+                    onValueChange = { value ->
+                        cfgText = value
+                        value.toFloatOrNull()?.takeIf { it.isFinite() }?.let(viewModel::setVideoCfgScale)
+                    },
+                    label = "CFG（Turbo=1.0）",
+                    modifier = Modifier.weight(1f)
                 )
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
                 OmniTextField(
                     value = seedText,
                     onValueChange = { value ->
@@ -503,7 +600,6 @@ private fun VideoParamsSheet(settings: VideoSettings, viewModel: QwenViewModel, 
                     label = "随机种子",
                     modifier = Modifier.weight(1f)
                 )
-                Spacer(Modifier.width(8.dp))
                 IconButton(
                     onClick = { viewModel.setVideoSeed(Random.nextLong(100_000, 100_000_000)) },
                     modifier = Modifier.size(48.dp)
@@ -511,6 +607,24 @@ private fun VideoParamsSheet(settings: VideoSettings, viewModel: QwenViewModel, 
                     Icon(Icons.Outlined.Refresh, "随机种子", tint = OmniColors.Muted)
                 }
             }
+            OmniTextField(
+                value = settings.negativePrompt,
+                onValueChange = viewModel::setVideoNegativePrompt,
+                label = "负向提示词",
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth()
+            )
+            SettingRow(
+                title = "DiT OpenCL GPU 加速",
+                detail = "VAE 始终固定在 CPU 避免花屏",
+                onClick = { viewModel.setVideoUseOpenCl(!settings.useOpenCl) },
+                trailing = { Switch(checked = settings.useOpenCl, onCheckedChange = null) }
+            )
+            SettingRow(
+                title = "VAE 分块解码（省内存）",
+                onClick = { viewModel.setVideoVaeTiling(!settings.vaeTiling) },
+                trailing = { Switch(checked = settings.vaeTiling, onCheckedChange = null) }
+            )
         }
     }
 }
