@@ -16,6 +16,7 @@ import kotlin.coroutines.coroutineContext
 enum class HubModelType(val wire: String, val label: String) {
     GgufChat("gguf_chat", "GGUF 对话"),
     MnnChat("mnn_chat", "MNN 对话"),
+    DecisionGguf("decision_gguf", "决策模型"),
     SdImage("sd_image", "图像模型"),
     VideoWan("video_wan", "视频模型"),
     MusicAudio("music_audio", "音乐模型");

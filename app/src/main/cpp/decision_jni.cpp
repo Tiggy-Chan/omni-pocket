@@ -65,9 +65,19 @@ JNIEXPORT jlong JNICALL Java_com_tiggy_qwenimage_engine_LocalDecisionEngine_nati
 
 JNIEXPORT jstring JNICALL Java_com_tiggy_qwenimage_engine_LocalDecisionEngine_nativeLoad(
     JNIEnv* env, jclass, jlong handle, jstring config, jstring cache, jint threads) {
-    if (handle == 0) return env->NewStringUTF("决策会话已释放");
+    if (handle == 0) return env->NewStringUTF("Decision session released");
     std::string error;
     const bool loaded = Session(handle)->Load(StringValue(env, config), StringValue(env, cache), threads, error);
+    if (env->ExceptionCheck()) return nullptr;
+    return loaded ? nullptr : env->NewStringUTF(error.c_str());
+}
+
+JNIEXPORT jstring JNICALL Java_com_tiggy_qwenimage_engine_LocalDecisionEngine_nativeLoadGguf(
+    JNIEnv* env, jclass, jlong handle, jstring ggufPath, jstring cache, jint threads, jboolean causalAttention) {
+    if (handle == 0) return env->NewStringUTF("Decision session released");
+    std::string error;
+    const bool loaded = Session(handle)->LoadGguf(
+        StringValue(env, ggufPath), StringValue(env, cache), threads, causalAttention == JNI_TRUE, error);
     if (env->ExceptionCheck()) return nullptr;
     return loaded ? nullptr : env->NewStringUTF(error.c_str());
 }

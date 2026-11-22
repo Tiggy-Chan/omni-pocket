@@ -30,11 +30,31 @@ class LocalDecisionEngine(private val cacheDirectory: File) : AutoCloseable {
             if (handle != 0L && loadedKey == modelKey) return@withContext null
             replaceHandle(0L)
             val created = nativeCreate()
-            check(created != 0L) { "无法创建决策会话" }
+            check(created != 0L) { "Failed to create decision session" }
             // Publish the handle first so cancel() can interrupt the load; only the write lock may free it.
             replaceHandle(created)
             val error = lifecycle.read {
                 nativeLoad(created, config.absolutePath, cacheDirectory.absolutePath, threads)
+            }
+            if (error != null) replaceHandle(0L) else loadedKey = modelKey
+            error
+        }
+    }
+
+    suspend fun loadGguf(
+        ggufFile: File,
+        modelKey: String,
+        threads: Int,
+        causalAttention: Boolean
+    ): String? = execution.withLock {
+        withContext(Dispatchers.Default) {
+            if (handle != 0L && loadedKey == modelKey) return@withContext null
+            replaceHandle(0L)
+            val created = nativeCreate()
+            check(created != 0L) { "Failed to create decision session" }
+            replaceHandle(created)
+            val error = lifecycle.read {
+                nativeLoadGguf(created, ggufFile.absolutePath, cacheDirectory.absolutePath, threads, causalAttention)
             }
             if (error != null) replaceHandle(0L) else loadedKey = modelKey
             error
@@ -99,6 +119,9 @@ class LocalDecisionEngine(private val cacheDirectory: File) : AutoCloseable {
 
         @JvmStatic private external fun nativeCreate(): Long
         @JvmStatic private external fun nativeLoad(handle: Long, config: String, cache: String, threads: Int): String?
+        @JvmStatic private external fun nativeLoadGguf(
+            handle: Long, ggufPath: String, cache: String, threads: Int, causalAttention: Boolean
+        ): String?
         @JvmStatic private external fun nativeSlotLabels(handle: Long): Array<String>
         @JvmStatic private external fun nativeDecide(
             handle: Long, state: String, suffixes: Array<String>, counts: IntArray,

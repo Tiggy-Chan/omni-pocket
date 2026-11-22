@@ -19,6 +19,8 @@ public:
 
     bool Load(const std::string& configPath, const std::string& cachePath,
               int threadCount, std::string& error);
+    bool LoadGguf(const std::string& ggufPath, const std::string& cachePath,
+                  int threadCount, bool causalAttention, std::string& error);
     MNN::Transformer::DecisionResult Decide(
         const std::string& state, const std::vector<MNN::Transformer::DecisionQuestion>& questions,
         const std::function<bool(int, int)>& progress);

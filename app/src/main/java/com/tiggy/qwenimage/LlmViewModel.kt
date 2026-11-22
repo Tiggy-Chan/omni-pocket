@@ -577,9 +577,10 @@ class LlmViewModel(
                                 } else false
                             }
                         }
-                        HubModelType.SdImage -> error("所选模型为图像模型，无法用于对话")
-                        HubModelType.VideoWan -> error("所选模型为视频模型，无法用于对话")
-                        HubModelType.MusicAudio -> error("所选模型为音乐模型，无法用于对话")
+                        HubModelType.DecisionGguf -> error("Selected model is a decision model and cannot be used for chat")
+                        HubModelType.SdImage -> error("Selected model is an image model and cannot be used for chat")
+                        HubModelType.VideoWan -> error("Selected model is a video model and cannot be used for chat")
+                        HubModelType.MusicAudio -> error("Selected model is a music model and cannot be used for chat")
                     }
                 } else {
                     llamaEngine.unload()

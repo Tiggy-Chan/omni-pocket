@@ -36,6 +36,7 @@ public:
     ~DecisionLlm();
 
     bool load(std::string& error);
+    bool loadGguf(const std::string& ggufPath, bool causalAttention, std::string& error);
     void cancel();
     void reset();
     std::vector<std::string> slotLabels();

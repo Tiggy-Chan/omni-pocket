@@ -27,6 +27,31 @@ bool DecisionSession::Load(const std::string& configPath, const std::string& cac
     return false;
 }
 
+bool DecisionSession::LoadGguf(const std::string& ggufPath, const std::string& cachePath,
+                               int threadCount, bool causalAttention, std::string& error) {
+    std::lock_guard<std::mutex> lock(executionMutex_);
+    std::unique_ptr<MNN::Transformer::DecisionLlm> created(
+        MNN::Transformer::DecisionLlm::create("", cachePath, threadCount));
+    if (!created) {
+        error = "Failed to allocate decision session";
+        return false;
+    }
+    std::unique_ptr<MNN::Transformer::DecisionLlm> previous;
+    {
+        std::lock_guard<std::mutex> pointer(pointerMutex_);
+        previous = std::move(session_);
+        session_ = std::move(created);
+    }
+    previous.reset();
+    if (session_->loadGguf(ggufPath, causalAttention, error)) return true;
+    std::unique_ptr<MNN::Transformer::DecisionLlm> failed;
+    {
+        std::lock_guard<std::mutex> pointer(pointerMutex_);
+        failed = std::move(session_);
+    }
+    return false;
+}
+
 MNN::Transformer::DecisionResult DecisionSession::Decide(
     const std::string& state, const std::vector<MNN::Transformer::DecisionQuestion>& questions,
     const std::function<bool(int, int)>& progress) {

@@ -8,12 +8,28 @@ import java.util.Locale
 enum class HubSearchCategory(val label: String, val hint: String) {
     GgufChat("GGUF 对话", "搜索 GGUF 对话模型，如 Qwen3、Qwen3.5、Gemma 3"),
     MnnChat("MNN 对话", "搜索 MNN 转换包，如 taobao-mnn"),
+    DecisionGguf("决策", "搜索决策 GGUF 模型，如 OneJev1.6、elephant-1"),
     SdImage("图像", "搜索 SD / SDXL / Z-Image / FLUX.2 Klein 权重"),
     VideoWan("视频", "搜索 Wan2.2 / Wan2.1 GGUF 视频模型"),
     MusicAudio("音乐", "搜索 ACE-Step / YuE2 / HeartMuLa / Stable Audio GGUF")
 }
 
 enum class HfFileFormat { Gguf, Safetensors, Ckpt, MnnBundle }
+
+enum class HubSplitWarning {
+    SplitGguf,
+    WanMoE14B
+}
+
+enum class HubCompanionNote {
+    ZImageShared,
+    Flux2Shared,
+    WanShared,
+    Yue2Sidecars,
+    SelfContainedAudioGguf,
+    DecisionBlockBidir,
+    DecisionCausal
+}
 
 data class HfRepoSummary(
     val id: String,
@@ -24,7 +40,8 @@ data class HfRepoSummary(
     val pipelineTag: String,
     val tags: List<String>,
     val gated: Boolean,
-    val summary: String = ""
+    val summary: String = "",
+    val summaryKey: String? = null
 )
 
 data class HfDownloadFile(
@@ -49,7 +66,10 @@ data class HfRepoOption(
     val quantTag: String?,
     val splitWarning: String? = null,
     val companionSummary: String? = null,
-    val metadata: Map<String, String> = emptyMap()
+    val metadata: Map<String, String> = emptyMap(),
+    val splitWarningKey: HubSplitWarning? = null,
+    val companionNoteKey: HubCompanionNote? = null,
+    val companionNoteArg: String? = null
 ) {
     /** Approximate minimum device RAM to load and run cleanly on Android. */
     val recommendedRamGb: Int
@@ -141,6 +161,11 @@ object HuggingFaceHubClient {
                         val effective = if (trimmed.contains("mnn", ignoreCase = true)) trimmed else "$trimmed MNN"
                         add("search=${HubUrlRewriter.encodeSegment(effective)}")
                     }
+                }
+                HubSearchCategory.DecisionGguf -> {
+                    add("filter=gguf")
+                    val effective = if (trimmed.isEmpty()) "OneJev" else trimmed
+                    add("search=${HubUrlRewriter.encodeSegment(effective)}")
                 }
                 HubSearchCategory.SdImage -> {
                     val lower = trimmed.lowercase(Locale.ROOT)
@@ -239,6 +264,7 @@ object HuggingFaceHubClient {
         return when (category) {
             HubSearchCategory.GgufChat -> extractGgufChatOptions(repo, revision, files)
             HubSearchCategory.MnnChat -> extractMnnChatOptions(repo, revision, files)
+            HubSearchCategory.DecisionGguf -> extractDecisionGgufOptions(repo, revision, files)
             HubSearchCategory.SdImage -> extractSdImageOptions(repo, revision, files)
             HubSearchCategory.VideoWan -> extractWanVideoOptions(repo, revision, files)
             HubSearchCategory.MusicAudio -> extractMusicAudioOptions(repo, revision, files)
@@ -269,7 +295,48 @@ object HuggingFaceHubClient {
                 files = listOf(file),
                 totalBytes = file.size,
                 quantTag = quant,
-                splitWarning = if (isSplit) "分片 GGUF 文件暂不支持单文件直接加载，请选择单文件版本" else null
+                splitWarning = if (isSplit) "分片 GGUF 文件暂不支持单文件直接加载，请选择单文件版本" else null,
+                splitWarningKey = if (isSplit) HubSplitWarning.SplitGguf else null
+            )
+        }.sortedWith(compareBy<HfRepoOption> { it.splitWarning != null }.thenBy { quantPriority(it.quantTag) }.thenBy { it.totalBytes })
+    }
+
+    private fun extractDecisionGgufOptions(
+        repo: String,
+        revision: String,
+        files: List<HfDownloadFile>
+    ): List<HfRepoOption> {
+        val ggufs = files.filter { file ->
+            val lower = file.path.lowercase(Locale.ROOT)
+            lower.endsWith(".gguf") && !lower.contains("mmproj") && !lower.contains("imatrix")
+        }
+        val repoLower = repo.lowercase(Locale.ROOT)
+        return ggufs.map { file ->
+            val fileName = file.path.substringAfterLast('/')
+            val combined = "$repoLower ${fileName.lowercase(Locale.ROOT)}"
+            val isSplit = SPLIT_GGUF_REGEX.containsMatchIn(fileName)
+            val isBlockBidir = combined.contains("elephant-1") || combined.contains("elephant_1") ||
+                combined.contains("mammoth-1") || combined.contains("mammoth_1")
+            val quant = extractQuantTag(fileName)
+            HfRepoOption(
+                id = sanitizeModelId("decision", repo, file.path),
+                label = fileName,
+                repo = repo,
+                revision = revision,
+                type = HubModelType.DecisionGguf,
+                format = HfFileFormat.Gguf,
+                entryFile = file.path,
+                files = listOf(file),
+                totalBytes = file.size,
+                quantTag = quant,
+                splitWarning = if (isSplit) "分片 GGUF 文件暂不支持单文件直接加载，请选择单文件版本" else null,
+                companionSummary = if (isBlockBidir) "qev-labels-v2 · 块双向全注意力" else "qev-labels-v2 · 因果注意力（OneJev / System-One）",
+                metadata = mapOf(
+                    "protocol" to "qev-labels-v2",
+                    "attentionMode" to if (isBlockBidir) "block_bidirectional" else "causal"
+                ),
+                splitWarningKey = if (isSplit) HubSplitWarning.SplitGguf else null,
+                companionNoteKey = if (isBlockBidir) HubCompanionNote.DecisionBlockBidir else HubCompanionNote.DecisionCausal
             )
         }.sortedWith(compareBy<HfRepoOption> { it.splitWarning != null }.thenBy { quantPriority(it.quantTag) }.thenBy { it.totalBytes })
     }
@@ -387,7 +454,13 @@ object HuggingFaceHubClient {
                 quantTag = extractQuantTag(fileName) ?: if (fileName.contains("fp16", ignoreCase = true)) "FP16" else null,
                 splitWarning = if (isSplit) "分片 GGUF 文件暂不支持单文件加载" else null,
                 companionSummary = companionNote,
-                metadata = meta
+                metadata = meta,
+                splitWarningKey = if (isSplit) HubSplitWarning.SplitGguf else null,
+                companionNoteKey = when {
+                    modularZImage -> HubCompanionNote.ZImageShared
+                    modularFlux2Klein -> HubCompanionNote.Flux2Shared
+                    else -> null
+                }
             )
         }.sortedWith(compareBy<HfRepoOption> { it.splitWarning != null }.thenBy { quantPriority(it.quantTag) }.thenBy { it.totalBytes })
     }
@@ -443,7 +516,14 @@ object HuggingFaceHubClient {
                     "defaultSteps" to if (isTurbo) "4" else "10",
                     "defaultCfg" to if (isTurbo) "1.0" else "5.0",
                     "defaultShift" to if (isWan22Ti2v5B) "5.0" else "3.0"
-                )
+                ),
+                splitWarningKey = when {
+                    isSplit -> HubSplitWarning.SplitGguf
+                    isMoE14B -> HubSplitWarning.WanMoE14B
+                    else -> null
+                },
+                companionNoteKey = HubCompanionNote.WanShared,
+                companionNoteArg = tae.sharedCompanionKey
             )
         }.sortedWith(compareBy<HfRepoOption> { it.splitWarning != null }.thenBy { quantPriority(it.quantTag) }.thenBy { it.totalBytes })
     }
@@ -490,7 +570,9 @@ object HuggingFaceHubClient {
                         "family" to "yue2",
                         "modelGguf" to mainFile.path,
                         "vaeGguf" to yueVae.path
-                    )
+                    ),
+                    companionNoteKey = HubCompanionNote.Yue2Sidecars,
+                    companionNoteArg = yueVae.path
                 )
             }
         }
@@ -560,7 +642,8 @@ object HuggingFaceHubClient {
                     totalBytes = file.size,
                     quantTag = extractQuantTag(fileName),
                     companionSummary = "单文件自包含 GGUF（已内嵌配置与词表）",
-                    metadata = meta
+                    metadata = meta,
+                    companionNoteKey = HubCompanionNote.SelfContainedAudioGguf
                 )
             }
         }
@@ -570,39 +653,46 @@ object HuggingFaceHubClient {
 
     fun curatedRecommendations(category: HubSearchCategory): List<HfRepoSummary> = when (category) {
         HubSearchCategory.GgufChat -> listOf(
-            HfRepoSummary("unsloth/Qwen3-0.6B-GGUF", "unsloth", "Qwen3-0.6B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "超轻量体验，支持深度思考，约 400 MB"),
-            HfRepoSummary("unsloth/Qwen3-1.7B-GGUF", "unsloth", "Qwen3-1.7B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "支持深度思考模式的新一代小模型，含 Q4_K_M"),
-            HfRepoSummary("unsloth/Qwen3-4B-GGUF", "unsloth", "Qwen3-4B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "4B 级别综合推理与中文能力领先，建议 8 GB+ 内存"),
-            HfRepoSummary("Qwen/Qwen2.5-3B-Instruct-GGUF", "Qwen", "Qwen2.5-3B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen2"), false, "均衡稳定，中英问答与总结速度快"),
-            HfRepoSummary("unsloth/gemma-3-4b-it-GGUF", "unsloth", "gemma-3-4b-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma3"), false, "Google Gemma 3 4B 多语言端侧模型"),
-            HfRepoSummary("unsloth/gemma-3-1b-it-GGUF", "unsloth", "gemma-3-1b-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma3"), false, "Google Gemma 3 1B 轻量快速模型"),
-            HfRepoSummary("bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF", "bartowski", "DeepSeek-R1-Distill-Qwen-1.5B-GGUF", 0, 0, "text-generation", listOf("gguf", "deepseek"), false, "DeepSeek R1 1.5B 数学与逻辑推理蒸馏模型"),
-            HfRepoSummary("bartowski/Llama-3.2-3B-Instruct-GGUF", "bartowski", "Llama-3.2-3B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "llama"), false, "Meta 轻量端侧英文/通用对话模型")
+            HfRepoSummary("unsloth/Qwen3-0.6B-GGUF", "unsloth", "Qwen3-0.6B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "超轻量体验，支持深度思考，约 400 MB", "curated_qwen3_06b"),
+            HfRepoSummary("unsloth/Qwen3-1.7B-GGUF", "unsloth", "Qwen3-1.7B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "支持深度思考模式的新一代小模型，含 Q4_K_M", "curated_qwen3_17b"),
+            HfRepoSummary("unsloth/Qwen3-4B-GGUF", "unsloth", "Qwen3-4B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "4B 级别综合推理与中文能力领先，建议 8 GB+ 内存", "curated_qwen3_4b"),
+            HfRepoSummary("Qwen/Qwen2.5-3B-Instruct-GGUF", "Qwen", "Qwen2.5-3B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen2"), false, "均衡稳定，中英问答与总结速度快", "curated_qwen25_3b"),
+            HfRepoSummary("unsloth/gemma-3-4b-it-GGUF", "unsloth", "gemma-3-4b-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma3"), false, "Google Gemma 3 4B 多语言端侧模型", "curated_gemma3_4b"),
+            HfRepoSummary("unsloth/gemma-3-1b-it-GGUF", "unsloth", "gemma-3-1b-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma3"), false, "Google Gemma 3 1B 轻量快速模型", "curated_gemma3_1b"),
+            HfRepoSummary("bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF", "bartowski", "DeepSeek-R1-Distill-Qwen-1.5B-GGUF", 0, 0, "text-generation", listOf("gguf", "deepseek"), false, "DeepSeek R1 1.5B 数学与逻辑推理蒸馏模型", "curated_dsr1_15b"),
+            HfRepoSummary("bartowski/Llama-3.2-3B-Instruct-GGUF", "bartowski", "Llama-3.2-3B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "llama"), false, "Meta 轻量端侧英文/通用对话模型", "curated_llama32_3b")
         )
         HubSearchCategory.MnnChat -> listOf(
-            HfRepoSummary("taobao-mnn/Qwen3-1.7B-MNN", "taobao-mnn", "Qwen3-1.7B-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 Qwen3 1.7B（支持 OpenCL）"),
-            HfRepoSummary("taobao-mnn/Qwen3-4B-MNN", "taobao-mnn", "Qwen3-4B-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 Qwen3 4B"),
-            HfRepoSummary("taobao-mnn/DeepSeek-R1-1.5B-Qwen-MNN", "taobao-mnn", "DeepSeek-R1-1.5B-Qwen-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 DeepSeek-R1 1.5B"),
-            HfRepoSummary("taobao-mnn/Qwen2.5-3B-Instruct-MNN", "taobao-mnn", "Qwen2.5-3B-Instruct-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 Qwen2.5 3B")
+            HfRepoSummary("taobao-mnn/Qwen3-1.7B-MNN", "taobao-mnn", "Qwen3-1.7B-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 Qwen3 1.7B（支持 OpenCL）", "curated_mnn_qwen3_17b"),
+            HfRepoSummary("taobao-mnn/Qwen3-4B-MNN", "taobao-mnn", "Qwen3-4B-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 Qwen3 4B", "curated_mnn_qwen3_4b"),
+            HfRepoSummary("taobao-mnn/DeepSeek-R1-1.5B-Qwen-MNN", "taobao-mnn", "DeepSeek-R1-1.5B-Qwen-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 DeepSeek-R1 1.5B", "curated_mnn_dsr1_15b"),
+            HfRepoSummary("taobao-mnn/Qwen2.5-3B-Instruct-MNN", "taobao-mnn", "Qwen2.5-3B-Instruct-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 Qwen2.5 3B", "curated_mnn_qwen25_3b")
+        )
+        HubSearchCategory.DecisionGguf -> listOf(
+            HfRepoSummary("mradermacher/OneJev1.6-0.8B-GGUF", "mradermacher", "OneJev1.6-0.8B-GGUF", 0, 0, "text-classification", listOf("gguf", "onejev", "decision-model"), false, "OneJev 1.6 0.8B 超轻量决策模型（Apache-2.0，Q4 ~500 MB）", "curated_onejev_08b"),
+            HfRepoSummary("mradermacher/OneJev1.6-4B-GGUF", "mradermacher", "OneJev1.6-4B-GGUF", 0, 0, "text-classification", listOf("gguf", "onejev", "decision-model"), false, "OneJev 1.6 4B（Decision Index 62.0，Apache-2.0，Q4 ~2.5 GB）", "curated_onejev_4b"),
+            HfRepoSummary("mradermacher/OneJev1.6-9B-GGUF", "mradermacher", "OneJev1.6-9B-GGUF", 0, 0, "text-classification", listOf("gguf", "onejev", "decision-model"), false, "OneJev 1.6 9B 旗舰端侧决策模型（Apache-2.0）", "curated_onejev_9b"),
+            HfRepoSummary("mradermacher/elephant-1-GGUF", "mradermacher", "elephant-1-GGUF", 0, 0, "text-classification", listOf("gguf", "elephant-1", "decision-model"), false, "Base Labs Elephant-1 9B 全系列量化（AA Decision Index 66.4）", "curated_elephant_1"),
+            HfRepoSummary("waseigo/elephant-1-decision-GGUF", "waseigo", "elephant-1-decision-GGUF", 0, 0, "text-classification", listOf("gguf", "elephant-1", "decision-model"), false, "Elephant-1 9B 社区 GGUF 镜像版本", "curated_elephant_mirror")
         )
         HubSearchCategory.SdImage -> listOf(
-            HfRepoSummary("unsloth/Z-Image-Turbo-GGUF", "unsloth", "Z-Image-Turbo-GGUF", 0, 0, "text-to-image", listOf("z-image", "gguf"), false, "通义 Z-Image 6B Turbo，8 步高质量出图与中英文文字渲染"),
-            HfRepoSummary("unsloth/FLUX.2-klein-4B-GGUF", "unsloth", "FLUX.2-klein-4B-GGUF", 0, 0, "text-to-image", listOf("flux2", "gguf"), false, "Black Forest Labs 4B 4 步极速出图（Q4 仅 2.5 GB）"),
-            HfRepoSummary("stabilityai/sdxl-turbo", "stabilityai", "sdxl-turbo", 0, 0, "text-to-image", listOf("sdxl", "turbo"), false, "1–4 步快速出图，单文件 safetensors"),
-            HfRepoSummary("stabilityai/sd-turbo", "stabilityai", "sd-turbo", 0, 0, "text-to-image", listOf("sd2", "turbo"), false, "轻量快速文生图，内存占用低"),
-            HfRepoSummary("Lykon/DreamShaper", "Lykon", "DreamShaper", 0, 0, "text-to-image", listOf("sd15"), false, "经典 SD 1.5 风格化通用生图模型"),
-            HfRepoSummary("stable-diffusion-v1-5/stable-diffusion-v1-5", "stable-diffusion-v1-5", "stable-diffusion-v1-5", 0, 0, "text-to-image", listOf("sd15"), false, "SD 1.5 基础单文件权重")
+            HfRepoSummary("unsloth/Z-Image-Turbo-GGUF", "unsloth", "Z-Image-Turbo-GGUF", 0, 0, "text-to-image", listOf("z-image", "gguf"), false, "通义 Z-Image 6B Turbo，8 步高质量出图与中英文文字渲染", "curated_zimage"),
+            HfRepoSummary("unsloth/FLUX.2-klein-4B-GGUF", "unsloth", "FLUX.2-klein-4B-GGUF", 0, 0, "text-to-image", listOf("flux2", "gguf"), false, "Black Forest Labs 4B 4 步极速出图（Q4 仅 2.5 GB）", "curated_flux2"),
+            HfRepoSummary("stabilityai/sdxl-turbo", "stabilityai", "sdxl-turbo", 0, 0, "text-to-image", listOf("sdxl", "turbo"), false, "1–4 步快速出图，单文件 safetensors", "curated_sdxl_turbo"),
+            HfRepoSummary("stabilityai/sd-turbo", "stabilityai", "sd-turbo", 0, 0, "text-to-image", listOf("sd2", "turbo"), false, "轻量快速文生图，内存占用低", "curated_sd_turbo"),
+            HfRepoSummary("Lykon/DreamShaper", "Lykon", "DreamShaper", 0, 0, "text-to-image", listOf("sd15"), false, "经典 SD 1.5 风格化通用生图模型", "curated_dreamshaper"),
+            HfRepoSummary("stable-diffusion-v1-5/stable-diffusion-v1-5", "stable-diffusion-v1-5", "stable-diffusion-v1-5", 0, 0, "text-to-image", listOf("sd15"), false, "SD 1.5 基础单文件权重", "curated_sd15")
         )
         HubSearchCategory.VideoWan -> listOf(
-            HfRepoSummary("hum-ma/Wan2.2-TI2V-5B-Turbo-GGUF", "hum-ma", "Wan2.2-TI2V-5B-Turbo-GGUF", 0, 0, "text-to-video", listOf("wan2.2", "gguf"), false, "4 步加速版 Wan2.2 5B，支持文生/图生视频"),
-            HfRepoSummary("QuantStack/Wan2.2-TI2V-5B-GGUF", "QuantStack", "Wan2.2-TI2V-5B-GGUF", 0, 0, "text-to-video", listOf("wan2.2", "gguf"), false, "官方 Wan2.2 5B 全系列量化（Q3–Q8 可选）"),
-            HfRepoSummary("unsloth/Wan2.2-TI2V-5B-GGUF", "unsloth", "Wan2.2-TI2V-5B-GGUF", 0, 0, "text-to-video", listOf("wan2.2", "gguf"), false, "Unsloth 动态量化 Wan2.2-TI2V-5B"),
-            HfRepoSummary("samuelchristlie/Wan2.1-T2V-1.3B-GGUF", "samuelchristlie", "Wan2.1-T2V-1.3B-GGUF", 0, 0, "text-to-video", listOf("wan2.1", "gguf"), false, "轻量 1.3B 视频模型，低内存手机运行更快"),
-            HfRepoSummary("off-grid-ai/Wan2.1-T2V-1.3B-GGUF", "off-grid-ai", "Wan2.1-T2V-1.3B-GGUF", 0, 0, "text-to-video", listOf("wan2.1", "gguf"), false, "Wan2.1 1.3B 端侧多量化 GGUF 合集")
+            HfRepoSummary("hum-ma/Wan2.2-TI2V-5B-Turbo-GGUF", "hum-ma", "Wan2.2-TI2V-5B-Turbo-GGUF", 0, 0, "text-to-video", listOf("wan2.2", "gguf"), false, "4 步加速版 Wan2.2 5B，支持文生/图生视频", "curated_wan22_turbo"),
+            HfRepoSummary("QuantStack/Wan2.2-TI2V-5B-GGUF", "QuantStack", "Wan2.2-TI2V-5B-GGUF", 0, 0, "text-to-video", listOf("wan2.2", "gguf"), false, "官方 Wan2.2 5B 全系列量化（Q3–Q8 可选）", "curated_wan22_qs"),
+            HfRepoSummary("unsloth/Wan2.2-TI2V-5B-GGUF", "unsloth", "Wan2.2-TI2V-5B-GGUF", 0, 0, "text-to-video", listOf("wan2.2", "gguf"), false, "Unsloth 动态量化 Wan2.2-TI2V-5B", "curated_wan22_unsloth"),
+            HfRepoSummary("samuelchristlie/Wan2.1-T2V-1.3B-GGUF", "samuelchristlie", "Wan2.1-T2V-1.3B-GGUF", 0, 0, "text-to-video", listOf("wan2.1", "gguf"), false, "轻量 1.3B 视频模型，低内存手机运行更快", "curated_wan21_13b"),
+            HfRepoSummary("off-grid-ai/Wan2.1-T2V-1.3B-GGUF", "off-grid-ai", "Wan2.1-T2V-1.3B-GGUF", 0, 0, "text-to-video", listOf("wan2.1", "gguf"), false, "Wan2.1 1.3B 端侧多量化 GGUF 合集", "curated_wan21_offgrid")
         )
         HubSearchCategory.MusicAudio -> listOf(
-            HfRepoSummary("audio-cpp/audio.cpp-gguf", "audio-cpp", "audio.cpp-gguf", 0, 0, "text-to-audio", listOf("ace-step", "heartmula", "stable-audio", "gguf"), false, "含 ACE-Step 1.5 Turbo、HeartMuLa 3B、Stable Audio 3 Small/Medium 单文件 GGUF"),
-            HfRepoSummary("audio-cpp/Yue2-3B-GGUF", "audio-cpp", "Yue2-3B-GGUF", 0, 0, "text-to-audio", listOf("yue2", "gguf"), false, "YuE2-3B 多精度版本（含 2.3 GB 轻量版与 Q8_0 高质量版）")
+            HfRepoSummary("audio-cpp/audio.cpp-gguf", "audio-cpp", "audio.cpp-gguf", 0, 0, "text-to-audio", listOf("ace-step", "heartmula", "stable-audio", "gguf"), false, "含 ACE-Step 1.5 Turbo、HeartMuLa 3B、Stable Audio 3 Small/Medium 单文件 GGUF", "curated_audiocpp"),
+            HfRepoSummary("audio-cpp/Yue2-3B-GGUF", "audio-cpp", "Yue2-3B-GGUF", 0, 0, "text-to-audio", listOf("yue2", "gguf"), false, "YuE2-3B 多精度版本（含 2.3 GB 轻量版与 Q8_0 高质量版）", "curated_yue2")
         )
     }
 

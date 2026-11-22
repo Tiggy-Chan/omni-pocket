@@ -109,6 +109,7 @@ public:
     std::string cachePath;
     std::filesystem::path modelPath;
     int threadCount;
+    bool causalAttention = false;
     std::atomic<bool> cancelled{false};
     bool loaded = false;
     std::vector<std::string> slotLabels;
@@ -169,7 +170,7 @@ public:
         cancelled.store(false);
         if (context != nullptr) {
             llama_memory_clear(llama_get_memory(context), true);
-            llama_set_causal_attn(context, false);
+            llama_set_causal_attn(context, causalAttention);
         }
     }
 
@@ -183,7 +184,7 @@ public:
         auto params = llama_context_default_params();
         params.n_ctx = size;
         params.n_batch = size;
-        params.n_ubatch = size;
+        params.n_ubatch = causalAttention ? std::min<uint32_t>(size, 512u) : size;
         params.n_outputs_max = 1;
         params.n_threads = threadCount;
         params.n_threads_batch = threadCount;
@@ -198,27 +199,27 @@ public:
         params.abort_callback_data = &cancelled;
         context = llama_init_from_model(model, params);
         if (context == nullptr) {
-            error = "无法为 " + std::to_string(size) + " token 创建推理上下文，可用内存不足";
+            error = "Failed to allocate inference context for " + std::to_string(size) + " tokens (insufficient memory)";
             return false;
         }
         contextTokens = size;
-        llama_set_causal_attn(context, false);
+        llama_set_causal_attn(context, causalAttention);
         return true;
     }
 
     bool decode(const std::vector<int>& tokens, std::string& error) {
         if (tokens.empty()) {
-            error = "决策输入为空";
+            error = "Decision input is empty";
             return false;
         }
-        llama_set_causal_attn(context, false);
+        llama_set_causal_attn(context, causalAttention);
         const auto batch = llama_batch_get_one(const_cast<llama_token*>(tokens.data()),
                                                static_cast<int32_t>(tokens.size()));
         const int status = llama_decode(context, batch);
         llama_synchronize(context);
         if (cancelled.load()) return false;
         if (status != 0) {
-            error = "模型前向计算失败: " + std::to_string(status);
+            error = "Model forward pass failed: " + std::to_string(status);
             return false;
         }
         return true;
@@ -421,12 +422,59 @@ bool DecisionLlm::load(std::string& error) {
             mImpl->clear();
             return false;
         }
+        mImpl->causalAttention = false;
         mImpl->loaded = true;
         return true;
     } catch (const nlohmann::json::exception&) {
         mImpl->clear();
         error = "模型图或决策运行配置不兼容";
         return false;
+    } catch (const std::exception& exception) {
+        mImpl->clear();
+        error = exception.what();
+        return false;
+    }
+}
+
+bool DecisionLlm::loadGguf(const std::string& ggufPath, bool causalAttention, std::string& error) {
+    std::lock_guard<std::mutex> lock(mImpl->executionMutex);
+    error.clear();
+    if (mImpl->loaded) return true;
+    try {
+        if (mImpl->threadCount < 1 || mImpl->threadCount > 16 || mImpl->cachePath.empty() || ggufPath.empty()) {
+            error = "Invalid decision model parameters";
+            return false;
+        }
+        mImpl->modelPath = std::filesystem::path(ggufPath);
+        if (!std::filesystem::is_regular_file(mImpl->modelPath) ||
+            std::filesystem::file_size(mImpl->modelPath) < 1024 * 1024) {
+            error = "Decision GGUF file missing or corrupted";
+            return false;
+        }
+        std::filesystem::create_directories(mImpl->cachePath);
+        static std::once_flag backendOnce;
+        std::call_once(backendOnce, [] { ggml_backend_load_all(); });
+        auto modelParams = llama_model_default_params();
+        modelParams.n_gpu_layers = 0;
+        modelParams.load_mode = LLAMA_LOAD_MODE_MMAP;
+        modelParams.progress_callback = [](float, void* data) -> bool {
+            return !static_cast<std::atomic<bool>*>(data)->load();
+        };
+        modelParams.progress_callback_user_data = &mImpl->cancelled;
+        mImpl->model = llama_model_load_from_file(mImpl->modelPath.c_str(), modelParams);
+        if (mImpl->model == nullptr) {
+            error = mImpl->cancelled.load() ? "Loading cancelled" : "Failed to load Decision GGUF (check file and free memory)";
+            return false;
+        }
+        mImpl->vocab = llama_model_get_vocab(mImpl->model);
+        if (mImpl->vocab == nullptr || llama_vocab_n_tokens(mImpl->vocab) <= 0 || !mImpl->verifySlots()) {
+            error = "Model vocabulary does not contain compatible A-Z decision slot tokens";
+            mImpl->clear();
+            return false;
+        }
+        mImpl->causalAttention = causalAttention;
+        mImpl->loaded = true;
+        return true;
     } catch (const std::exception& exception) {
         mImpl->clear();
         error = exception.what();

@@ -8,6 +8,8 @@ import com.tiggy.qwenimage.data.DecisionKind
 import com.tiggy.qwenimage.data.DecisionOption
 import com.tiggy.qwenimage.data.DecisionQuestion
 import com.tiggy.qwenimage.data.DecisionResult
+import com.tiggy.qwenimage.data.HubModelType
+import com.tiggy.qwenimage.data.InstalledHubModelsRepository
 import com.tiggy.qwenimage.data.LlmModelKind
 import com.tiggy.qwenimage.data.LlmModelRepository
 import com.tiggy.qwenimage.data.LlmModelSpec
@@ -32,6 +34,15 @@ import java.io.File
 
 enum class DecisionPhase { Idle, Verifying, Loading, Computing }
 
+data class DecisionModelChoice(
+    val id: String,
+    val name: String,
+    val totalBytes: Long,
+    val ready: Boolean,
+    val builtIn: Boolean,
+    val attentionMode: String = "block_bidirectional"
+)
+
 data class DecisionDraft(
     val id: String,
     val kind: DecisionKind,
@@ -48,6 +59,9 @@ data class DecisionUiState(
     val questions: List<DecisionDraft> = listOf(DecisionDraft("q1", DecisionKind.Noul)),
     val phase: DecisionPhase = DecisionPhase.Idle,
     val model: LlmModelStatus? = null,
+    val decisionModels: List<DecisionModelChoice> = emptyList(),
+    val selectedModelId: String = "elephant-1",
+    val loadedModelId: String? = null,
     val threads: Int = 4,
     val result: DecisionResult? = null,
     val progress: Int = 0,
@@ -56,7 +70,9 @@ data class DecisionUiState(
     val error: String? = null
 ) {
     val busy get() = phase != DecisionPhase.Idle
-    val modelReady get() = model?.ready == true
+    val selectedModelChoice: DecisionModelChoice?
+        get() = decisionModels.firstOrNull { it.id == selectedModelId } ?: decisionModels.firstOrNull()
+    val modelReady get() = selectedModelChoice?.ready == true || (selectedModelId == "elephant-1" && model?.ready == true)
 }
 
 class DecisionViewModel(
@@ -64,10 +80,14 @@ class DecisionViewModel(
     private val coordinator: LocalInferenceCoordinator
 ) : AndroidViewModel(application) {
     private val repository = LlmModelRepository(application)
+    private val hubRepository = InstalledHubModelsRepository.get(application)
     private val prefs = application.getSharedPreferences("decision-settings", Context.MODE_PRIVATE)
     private val engine = LocalDecisionEngine(File(application.cacheDir, "decision-runtime"))
     private val _state = MutableStateFlow(
-        DecisionUiState(threads = prefs.getInt("threads", DEFAULT_THREADS).coerceIn(2, 8))
+        DecisionUiState(
+            selectedModelId = prefs.getString("selectedModelId", MODEL_ID).orEmpty().ifBlank { MODEL_ID },
+            threads = prefs.getInt("threads", DEFAULT_THREADS).coerceIn(2, 8)
+        )
     )
     val state: StateFlow<DecisionUiState> = _state.asStateFlow()
     private var operation: Job? = null
@@ -78,21 +98,49 @@ class DecisionViewModel(
     init {
         coordinator.registerEvictor(evictionKey) {
             engine.unload()
-            _state.update { it.copy(loaded = false) }
+            _state.update { it.copy(loaded = false, loadedModelId = null) }
         }
         viewModelScope.launch {
-            val model = withContext(Dispatchers.IO) { refreshStatus() }
-            _state.update { it.copy(ready = true, model = model) }
+            val (model, choices) = withContext(Dispatchers.IO) { buildModelLists() }
+            _state.update { cur ->
+                val activeId = resolveSelectedModelId(cur.selectedModelId, choices)
+                cur.copy(ready = true, model = model, decisionModels = choices, selectedModelId = activeId)
+            }
+        }
+        viewModelScope.launch {
+            hubRepository.models.collect {
+                val (model, choices) = withContext(Dispatchers.IO) { buildModelLists() }
+                _state.update { cur ->
+                    val activeId = resolveSelectedModelId(cur.selectedModelId, choices)
+                    cur.copy(model = model, decisionModels = choices, selectedModelId = activeId)
+                }
+            }
         }
         viewModelScope.launch {
             var lastRev = ModelDownloadManager.state.value.revision
             ModelDownloadManager.state.collect { dl ->
                 if (dl.revision != lastRev) {
                     lastRev = dl.revision
-                    val model = withContext(Dispatchers.IO) { refreshStatus() }
-                    _state.update { it.copy(model = model) }
+                    val (model, choices) = withContext(Dispatchers.IO) { buildModelLists() }
+                    _state.update { cur ->
+                        val activeId = resolveSelectedModelId(cur.selectedModelId, choices)
+                        cur.copy(model = model, decisionModels = choices, selectedModelId = activeId)
+                    }
                 }
             }
+        }
+    }
+
+    fun selectModel(modelId: String) {
+        if (_state.value.busy) return
+        prefs.edit().putString("selectedModelId", modelId).apply()
+        _state.update { it.copy(selectedModelId = modelId, error = null, result = null) }
+    }
+
+    suspend fun unloadIfLoadedSync(modelId: String) {
+        if (_state.value.loadedModelId == modelId) {
+            engine.unload()
+            _state.update { it.copy(loaded = false, loadedModelId = null) }
         }
     }
 
@@ -119,8 +167,8 @@ class DecisionViewModel(
                     DecisionOption("no", "the statement is false"))
             }
             DecisionKind.Score -> question.options.take(10).ifEmpty {
-                listOf(DecisionOption(description = "低"),
-                    DecisionOption(description = "中"), DecisionOption(description = "高"))
+                listOf(DecisionOption(description = "Low"),
+                    DecisionOption(description = "Medium"), DecisionOption(description = "High"))
             }
         }
         question.copy(kind = kind, options = options)
@@ -196,8 +244,11 @@ class DecisionViewModel(
 
     fun refreshModel() {
         viewModelScope.launch {
-            val model = withContext(Dispatchers.IO) { refreshStatus() }
-            _state.update { it.copy(model = model) }
+            val (model, choices) = withContext(Dispatchers.IO) { buildModelLists() }
+            _state.update { cur ->
+                val activeId = resolveSelectedModelId(cur.selectedModelId, choices)
+                cur.copy(model = model, decisionModels = choices, selectedModelId = activeId)
+            }
         }
     }
 
@@ -219,9 +270,9 @@ class DecisionViewModel(
     }
 
     fun deleteModel() = modelTask {
-        if (_state.value.loaded) {
+        if (_state.value.loadedModelId == MODEL_ID || _state.value.loaded) {
             engine.unload()
-            _state.update { it.copy(loaded = false) }
+            _state.update { it.copy(loaded = false, loadedModelId = null) }
         }
         withContext(Dispatchers.IO) { repository.delete(MODEL_ID) }
     }
@@ -232,15 +283,29 @@ class DecisionViewModel(
         operation = viewModelScope.launch {
             try {
                 val completed = coordinator.withInference("decision-models:$MODEL_ID") { action() }
-                checkNotNull(completed) { "另一个任务正在运行，请稍后重试" }
-                _state.update { it.copy(model = refreshStatus(), phase = DecisionPhase.Idle, error = null) }
+                checkNotNull(completed) { "Another inference task is currently running" }
+                val (model, choices) = withContext(Dispatchers.IO) { buildModelLists() }
+                _state.update { cur ->
+                    cur.copy(
+                        model = model,
+                        decisionModels = choices,
+                        selectedModelId = resolveSelectedModelId(cur.selectedModelId, choices),
+                        phase = DecisionPhase.Idle,
+                        error = null
+                    )
+                }
             } catch (error: CancellationException) {
                 _state.update { it.copy(phase = DecisionPhase.Idle) }
                 throw error
             } catch (error: Throwable) {
-                _state.update {
-                    it.copy(model = refreshStatus(), phase = DecisionPhase.Idle,
-                        error = error.message ?: error.toString())
+                val (model, choices) = withContext(Dispatchers.IO) { buildModelLists() }
+                _state.update { cur ->
+                    cur.copy(
+                        model = model,
+                        decisionModels = choices,
+                        phase = DecisionPhase.Idle,
+                        error = error.message ?: error.toString()
+                    )
                 }
             } finally {
                 operation = null
@@ -252,7 +317,7 @@ class DecisionViewModel(
         val snapshot = _state.value
         if (!snapshot.ready || snapshot.busy) return
         if (!snapshot.modelReady) {
-            _state.update { it.copy(error = "请先在模型页下载并校验 Elephant-1") }
+            _state.update { it.copy(error = "Please download a Decision model in Models first") }
             return
         }
         val questions = try {
@@ -273,33 +338,57 @@ class DecisionViewModel(
             _state.update { it.copy(error = error.message ?: error.toString()) }
             return
         }
+        val activeModelId = snapshot.selectedModelChoice?.id ?: MODEL_ID
         cancelRequested = false
         _state.update { it.copy(phase = DecisionPhase.Loading, result = null, progress = 0,
             total = questions.size, error = null) }
         operation = viewModelScope.launch {
             try {
                 val outcome = coordinator.withInference("decision:request") {
-                    val status = withContext(Dispatchers.IO) {
-                        var current = repository.status(MODEL_ID)
-                        if (!current.ready && current.present == current.spec.artifacts.size) {
-                            _state.update { it.copy(phase = DecisionPhase.Verifying) }
-                            repository.verify(MODEL_ID)
-                            current = repository.status(MODEL_ID)
-                        }
-                        current
-                    }
-                    check(status.ready) { "模型未通过校验：${status.message}" }
-                    _state.update { it.copy(model = status, phase = DecisionPhase.Loading) }
-                    if (cancelRequested) return@withInference null to CANCELLED
-                    val weights = status.spec.artifacts.first { it.path == LlmModelSpec.DECISION_WEIGHTS }.sha256
                     val threads = _state.value.threads
-                    val error = engine.load(File(status.directory, "config.json"),
-                        "${status.spec.revision}:$weights:$threads", threads = threads)
+                    val hubModel = if (activeModelId != MODEL_ID) {
+                        withContext(Dispatchers.IO) {
+                            hubRepository.refresh()
+                            hubRepository.find(activeModelId)
+                        }
+                    } else null
+                    val loadError = if (hubModel != null && hubModel.type == HubModelType.DecisionGguf) {
+                        val ggufFile = hubRepository.entryFile(hubModel)
+                        check(ggufFile.isFile) { "Model file missing: ${ggufFile.name}" }
+                        val causal = hubModel.metadata["attentionMode"] != "block_bidirectional"
+                        _state.update { it.copy(phase = DecisionPhase.Loading) }
+                        if (cancelRequested) return@withInference null to CANCELLED
+                        engine.loadGguf(
+                            ggufFile = ggufFile,
+                            modelKey = "hub:${hubModel.id}:${ggufFile.length()}:$threads:$causal",
+                            threads = threads,
+                            causalAttention = causal
+                        )
+                    } else {
+                        val status = withContext(Dispatchers.IO) {
+                            var current = repository.status(MODEL_ID)
+                            if (!current.ready && current.present == current.spec.artifacts.size) {
+                                _state.update { it.copy(phase = DecisionPhase.Verifying) }
+                                repository.verify(MODEL_ID)
+                                current = repository.status(MODEL_ID)
+                            }
+                            current
+                        }
+                        check(status.ready) { "Model verification required" }
+                        _state.update { it.copy(model = status, phase = DecisionPhase.Loading) }
+                        if (cancelRequested) return@withInference null to CANCELLED
+                        val weights = status.spec.artifacts.first { it.path == LlmModelSpec.DECISION_WEIGHTS }.sha256
+                        engine.load(
+                            File(status.directory, "config.json"),
+                            "${status.spec.revision}:$weights:$threads",
+                            threads = threads
+                        )
+                    }
                     if (cancelRequested) return@withInference null to CANCELLED
-                    check(error == null) { error.orEmpty() }
-                    _state.update { it.copy(loaded = true) }
+                    check(loadError == null) { loadError.orEmpty() }
+                    _state.update { it.copy(loaded = true, loadedModelId = activeModelId) }
                     val slots = engine.slotLabels()
-                    check(slots.size in 26..256) { "模型选项 token 不完整" }
+                    check(slots.size in 26..256) { "Incomplete decision slot tokens" }
                     val plan = planDecisionRequest(renderedState, questions, slots.size)
                     _state.update { it.copy(phase = DecisionPhase.Computing, total = plan.branches.size) }
                     if (cancelRequested) return@withInference null to CANCELLED
@@ -308,7 +397,7 @@ class DecisionViewModel(
                         !cancelRequested
                     }
                 }
-                val (plan, result) = checkNotNull(outcome) { "另一个任务正在运行，请稍后重试" }
+                val (plan, result) = checkNotNull(outcome) { "Another inference task is currently running" }
                 when {
                     result.cancelled -> _state.update { it.copy(phase = DecisionPhase.Idle, progress = 0) }
                     result.error.isNotBlank() -> _state.update {
@@ -341,10 +430,46 @@ class DecisionViewModel(
         }
     }
 
+    private fun buildModelLists(): Pair<LlmModelStatus, List<DecisionModelChoice>> {
+        val builtIn = refreshStatus()
+        val hubInstalled = hubRepository.refresh().filter { it.type == HubModelType.DecisionGguf }
+        val choices = buildList {
+            add(
+                DecisionModelChoice(
+                    id = builtIn.spec.id,
+                    name = builtIn.spec.name,
+                    totalBytes = builtIn.spec.totalBytes,
+                    ready = builtIn.ready,
+                    builtIn = true,
+                    attentionMode = "block_bidirectional"
+                )
+            )
+            hubInstalled.forEach { model ->
+                add(
+                    DecisionModelChoice(
+                        id = model.id,
+                        name = model.name,
+                        totalBytes = model.totalBytes,
+                        ready = hubRepository.isPresent(model),
+                        builtIn = false,
+                        attentionMode = model.metadata["attentionMode"] ?: "causal"
+                    )
+                )
+            }
+        }
+        return builtIn to choices
+    }
+
+    private fun resolveSelectedModelId(current: String, choices: List<DecisionModelChoice>): String {
+        val exact = choices.firstOrNull { it.id == current }
+        if (exact != null && exact.ready) return exact.id
+        return choices.firstOrNull { it.ready }?.id ?: exact?.id ?: MODEL_ID
+    }
+
     private fun refreshStatus(): LlmModelStatus {
         val spec = repository.catalog.single { it.kind == LlmModelKind.Decision }
         return runCatching { repository.status(spec.id) }.getOrElse {
-            LlmModelStatus(spec, repository.directory(spec.id), 0, false, "无法读取模型目录")
+            LlmModelStatus(spec, repository.directory(spec.id), 0, false, "Unable to read model directory")
         }
     }
 

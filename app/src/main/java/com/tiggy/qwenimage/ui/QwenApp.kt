@@ -175,6 +175,11 @@ private fun Destination(
                         viewModel.setDomain(AppDomain.Conversation)
                         onPage(AppPage.Workspace)
                     }
+                    HubModelType.DecisionGguf -> {
+                        decisionViewModel.selectModel(model.id)
+                        viewModel.setDomain(AppDomain.Decision)
+                        onPage(AppPage.Workspace)
+                    }
                     HubModelType.SdImage -> {
                         viewModel.selectCustomImageModel(model.id)
                         viewModel.setDomain(AppDomain.ImageStudio)

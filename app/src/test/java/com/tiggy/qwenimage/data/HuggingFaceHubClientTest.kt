@@ -170,4 +170,29 @@ class HuggingFaceHubClientTest {
         val ace = opts.first { it.metadata["family"] == "ace_step" }
         assertEquals("acestep-v15-turbo", ace.metadata["ditVariant"])
     }
+
+    @Test
+    fun extractsDecisionGgufOptionsWithAttentionModeMetadata() {
+        val onejevJson = """
+            [
+              {"type":"file","path":"OneJev1.6-4B.Q4_K_M.gguf","size":2520000000},
+              {"type":"file","path":"mmproj-model-f16.gguf","size":500000000}
+            ]
+        """.trimIndent()
+        val onejevOpts = HuggingFaceHubClient.parseRepoTree("mradermacher/OneJev1.6-4B-GGUF", "main", onejevJson, HubSearchCategory.DecisionGguf)
+        assertEquals(1, onejevOpts.size)
+        assertEquals(HubModelType.DecisionGguf, onejevOpts.single().type)
+        assertEquals("causal", onejevOpts.single().metadata["attentionMode"])
+        assertEquals(HubCompanionNote.DecisionCausal, onejevOpts.single().companionNoteKey)
+
+        val elephantJson = """
+            [
+              {"type":"file","path":"elephant-1.Q4_K_M.gguf","size":5629109376}
+            ]
+        """.trimIndent()
+        val elephantOpts = HuggingFaceHubClient.parseRepoTree("mradermacher/elephant-1-GGUF", "main", elephantJson, HubSearchCategory.DecisionGguf)
+        assertEquals(1, elephantOpts.size)
+        assertEquals("block_bidirectional", elephantOpts.single().metadata["attentionMode"])
+        assertEquals(HubCompanionNote.DecisionBlockBidir, elephantOpts.single().companionNoteKey)
+    }
 }
