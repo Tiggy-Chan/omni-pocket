@@ -81,7 +81,8 @@ class SdCliProgressParser {
         if (line.contains("generate_video completed") || line.contains("generate_image completed")) {
             return SdCliEvent(SdCliStage.Saving, finishedSeconds = seconds(line), completed = true)
         }
-        if (line.contains("loading diffusion model") || line.contains("loading t5xxl") || line.contains("loading tae") ||
+        if (line.contains("loading diffusion model") || line.contains("loading model from") ||
+            line.contains("loading t5xxl") || line.contains("loading tae") ||
             line.contains("loading llm") || line.contains("loading vae")
         ) {
             return SdCliEvent(SdCliStage.Loading)

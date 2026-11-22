@@ -156,7 +156,7 @@ class LlmViewModel(
         viewModelScope.launch {
             hubRepository.models.collect {
                 val (models, choices) = withContext(Dispatchers.IO) { buildModelLists() }
-                _state.update { it.copy(models = models, chatModels = choices) }
+                applyModelLists(models, choices)
             }
         }
         viewModelScope.launch {
@@ -165,7 +165,7 @@ class LlmViewModel(
                 if (dl.revision != lastRev) {
                     lastRev = dl.revision
                     val (models, choices) = withContext(Dispatchers.IO) { buildModelLists() }
-                    _state.update { it.copy(models = models, chatModels = choices) }
+                    applyModelLists(models, choices)
                 }
             }
         }
@@ -249,9 +249,13 @@ class LlmViewModel(
     }
 
     fun selectModel(id: String) {
-        if (_state.value.busy || _state.value.chatModels.none { it.id == id }) return
-        updateConversation(_state.value.selectedId ?: return) { it.copy(modelId = id) }
+        if (_state.value.busy) return
+        val known = _state.value.chatModels.any { it.id == id } || hubRepository.find(id) != null
+        if (!known) return
+        val convId = _state.value.selectedId ?: return
+        updateConversation(convId) { it.copy(modelId = id) }
         _state.update { it.copy(error = null) }
+        if (_state.value.chatModels.none { it.id == id }) refreshModels()
     }
 
     fun setThinking(value: Boolean) {
@@ -271,7 +275,21 @@ class LlmViewModel(
     fun refreshModels() {
         viewModelScope.launch(Dispatchers.IO) {
             val (models, choices) = buildModelLists()
-            _state.update { it.copy(models = models, chatModels = choices) }
+            applyModelLists(models, choices)
+        }
+    }
+
+    private fun applyModelLists(models: List<LlmModelStatus>, choices: List<ChatModelChoice>) {
+        val firstReady = choices.firstOrNull { it.ready }?.id
+        _state.update { current ->
+            val conv = current.conversation
+            val currentReady = choices.firstOrNull { it.id == conv?.modelId }?.ready == true
+            val nextConvs = if (!current.busy && conv != null && conv.messages.isEmpty() && !currentReady && firstReady != null) {
+                current.conversations.map { if (it.id == conv.id) it.copy(modelId = firstReady) else it }
+            } else {
+                current.conversations
+            }
+            current.copy(models = models, chatModels = choices, conversations = nextConvs)
         }
     }
 
@@ -372,7 +390,8 @@ class LlmViewModel(
                             llamaEngine.generate(conversationId, conversation.modelMessages(), maxNewTokens, conversation.thinking) { chunk ->
                                 raw += chunk
                                 if (activeConversationId == conversationId && activeMessageId == messageId) {
-                                    updateMessage(conversationId, messageId, raw, LlmMessageStatus.Streaming, conversation.thinking)
+                                    // GGUF emits explicit <think> tags when thinking is active; never implicitly treat plain replies as thinking.
+                                    updateMessage(conversationId, messageId, raw, LlmMessageStatus.Streaming, implicitThinking = false)
                                     true
                                 } else false
                             }
@@ -461,7 +480,8 @@ class LlmViewModel(
             else -> LlmMessageStatus.Failed
         }
         val thinking = _state.value.conversations.firstOrNull { it.id == conversationId }?.thinking == true
-        updateMessage(conversationId, messageId, result.text, status, thinking)
+        val implicitThinking = activeBackend == ChatEngineBackend.Mnn && thinking
+        updateMessage(conversationId, messageId, result.text, status, implicitThinking)
         _state.update {
             it.copy(
                 phase = LlmPhase.Idle,
@@ -662,9 +682,9 @@ class LlmViewModel(
         messageId: String,
         raw: String,
         status: LlmMessageStatus,
-        thinking: Boolean = false
+        implicitThinking: Boolean = false
     ) {
-        val (content, reasoning) = splitReasoning(raw, thinking)
+        val (content, reasoning) = splitReasoning(raw, implicitThinking)
         updateConversation(conversationId) { conversation ->
             conversation.copy(messages = conversation.messages.map { message ->
                 if (message.id == messageId) message.copy(content = content, reasoning = reasoning, status = status)

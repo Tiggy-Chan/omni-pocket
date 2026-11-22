@@ -185,7 +185,7 @@ struct LlamaChatSession::Impl {
         kvTokens.clear();
     }
 
-    std::string RenderPrompt(const LlamaChatMessages& messages, bool enableThinking) const {
+    std::pair<std::string, bool> RenderPrompt(const LlamaChatMessages& messages, bool enableThinking) const {
         const char* rawTemplate = llama_model_chat_template(model, nullptr);
         std::string tmplHint = rawTemplate ? std::string(rawTemplate) : std::string();
 
@@ -215,19 +215,31 @@ struct LlamaChatSession::Impl {
             rendered = FallbackFormatMessages(messages, tmplHint);
         }
 
-        // For thinking-capable templates (e.g. Qwen3 / DeepSeek-R1), inject empty think block when thinking is off.
+        auto endsWith = [&](const std::string& suffix) {
+            return rendered.size() >= suffix.size() &&
+                   rendered.compare(rendered.size() - suffix.size(), suffix.size(), suffix) == 0;
+        };
+
         const bool templateHasThink = tmplHint.find("<think>") != std::string::npos ||
                                       tmplHint.find("enable_thinking") != std::string::npos;
-        if (templateHasThink && !enableThinking) {
-            const std::string marker = "<think>";
-            if (rendered.size() >= marker.size() &&
-                rendered.compare(rendered.size() - marker.size(), marker.size(), marker) == 0) {
-                rendered += "\n</think>\n\n";
-            } else if (rendered.find("<think>") == std::string::npos) {
-                rendered += "<think>\n\n</think>\n\n";
+        const bool endsWithThinkTag = endsWith("<think>") || endsWith("<think>\n");
+        bool promptOpenedThink = false;
+
+        if (templateHasThink || endsWithThinkTag) {
+            if (!enableThinking) {
+                if (endsWith("<think>")) {
+                    rendered += "\n</think>\n\n";
+                } else if (endsWith("<think>\n")) {
+                    rendered += "</think>\n\n";
+                } else if (rendered.rfind("<think>") == std::string::npos ||
+                           rendered.rfind("</think>") != std::string::npos) {
+                    rendered += "<think>\n\n</think>\n\n";
+                }
+            } else if (endsWithThinkTag) {
+                promptOpenedThink = true;
             }
         }
-        return rendered;
+        return {std::move(rendered), promptOpenedThink};
     }
 
     std::vector<llama_token> Tokenize(const std::string& text) const {
@@ -256,15 +268,15 @@ struct LlamaChatSession::Impl {
         return tokens;
     }
 
-    std::string TokenToPiece(llama_token token) const {
+    std::string TokenToPiece(llama_token token, bool special = false) const {
         char stackBuf[128];
-        int32_t n = llama_token_to_piece(vocab, token, stackBuf, sizeof(stackBuf), 0, /*special=*/false);
+        int32_t n = llama_token_to_piece(vocab, token, stackBuf, sizeof(stackBuf), 0, special);
         if (n >= 0) {
             return std::string(stackBuf, static_cast<size_t>(n));
         }
         const size_t required = static_cast<size_t>(-n);
         std::string heapBuf(required, '\0');
-        n = llama_token_to_piece(vocab, token, heapBuf.data(), static_cast<int32_t>(heapBuf.size()), 0, false);
+        n = llama_token_to_piece(vocab, token, heapBuf.data(), static_cast<int32_t>(heapBuf.size()), 0, special);
         if (n < 0) return {};
         heapBuf.resize(static_cast<size_t>(n));
         return heapBuf;
@@ -348,8 +360,11 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
         return false;
     }
 
+    const int trainCtx = llama_model_n_ctx_train(impl_->model);
+    const int effectiveCtx = trainCtx > 0 ? std::min(contextTokens, std::max(512, trainCtx)) : contextTokens;
+
     auto ctxParams = llama_context_default_params();
-    ctxParams.n_ctx = static_cast<uint32_t>(contextTokens);
+    ctxParams.n_ctx = static_cast<uint32_t>(effectiveCtx);
     ctxParams.n_batch = static_cast<uint32_t>(kBatchSize);
     ctxParams.n_ubatch = static_cast<uint32_t>(kBatchSize);
     ctxParams.n_threads = threadCount;
@@ -363,12 +378,12 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
 
     impl_->context = llama_init_from_model(impl_->model, ctxParams);
     if (impl_->context == nullptr) {
-        error = "无法创建 " + std::to_string(contextTokens) + " token 推理上下文，可用内存不足";
+        error = "无法创建 " + std::to_string(effectiveCtx) + " token 推理上下文，可用内存不足";
         impl_->Clear();
         return false;
     }
     llama_set_causal_attn(impl_->context, true);
-    impl_->contextTokens = contextTokens;
+    impl_->contextTokens = effectiveCtx;
     impl_->threadCount = threadCount;
     return true;
 }
@@ -395,14 +410,16 @@ LlamaChatResult LlamaChatSession::Generate(
     }
 
     LlamaChatMessages history = request.messages;
-    std::string prompt = impl_->RenderPrompt(history, request.thinking);
+    auto [prompt, promptOpenedThink] = impl_->RenderPrompt(history, request.thinking);
     std::vector<llama_token> promptTokens = impl_->Tokenize(prompt);
     while (static_cast<int>(promptTokens.size()) + request.maxNewTokens > impl_->contextTokens && history.size() > 2) {
         size_t count = 1;
         if (history.size() > 3 && history[1].first == "user" && history[2].first == "assistant") count = 2;
         history.erase(history.begin() + 1, history.begin() + 1 + count);
         result.droppedMessages += static_cast<int>(count);
-        prompt = impl_->RenderPrompt(history, request.thinking);
+        auto rerendered = impl_->RenderPrompt(history, request.thinking);
+        prompt = std::move(rerendered.first);
+        promptOpenedThink = rerendered.second;
         promptTokens = impl_->Tokenize(prompt);
     }
     if (promptTokens.empty()) {
@@ -471,11 +488,19 @@ LlamaChatResult LlamaChatSession::Generate(
     llama_sampler_chain_add(sampler, llama_sampler_init_dist(seed));
 
     Utf8Emitter emitter(onToken);
+    if (promptOpenedThink) {
+        constexpr char kOpenThink[] = "<think>\n";
+        emitter.Feed(kOpenThink, sizeof(kOpenThink) - 1);
+    }
     bool stoppedByCallback = false;
     bool hitEog = false;
     int generated = 0;
     int32_t currentPos = static_cast<int32_t>(promptTokens.size());
     const int64_t decodeStart = NowUs();
+
+    constexpr const char* kStopMarkers[] = {
+        "<|im_end|>", "<|eot_id|>", "<end_of_turn>", "<|endoftext|>", "<|end|>", "</s>"
+    };
 
     while (!impl_->cancelled.load() && generated < request.maxNewTokens && currentPos < impl_->contextTokens) {
         const llama_token nextToken = llama_sampler_sample(sampler, impl_->context, -1);
@@ -483,7 +508,21 @@ LlamaChatResult LlamaChatSession::Generate(
             hitEog = true;
             break;
         }
-        const std::string piece = impl_->TokenToPiece(nextToken);
+        const std::string specialPiece = impl_->TokenToPiece(nextToken, /*special=*/true);
+        bool hitStopText = false;
+        for (const char* marker : kStopMarkers) {
+            if (specialPiece == marker) {
+                hitStopText = true;
+                break;
+            }
+        }
+        if (hitStopText) {
+            hitEog = true;
+            break;
+        }
+        const std::string piece = (specialPiece == "<think>" || specialPiece == "</think>")
+            ? specialPiece
+            : impl_->TokenToPiece(nextToken, /*special=*/false);
         if (!piece.empty()) {
             if (!emitter.Feed(piece.data(), piece.size())) {
                 stoppedByCallback = true;
