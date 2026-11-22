@@ -64,8 +64,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
 import com.tiggy.qwenimage.QwenUiState
 import com.tiggy.qwenimage.QwenViewModel
+import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.GenerationJob
 import com.tiggy.qwenimage.data.GenerationMode
 import com.tiggy.qwenimage.data.ImageGenerationBackend
@@ -83,20 +85,25 @@ import java.io.File
 
 private enum class ImageSheet { Backend, Layout, Params }
 
-private data class SizePreset(val width: Int, val height: Int, val label: String)
+private data class SizePreset(
+    val width: Int,
+    val height: Int,
+    val fixedLabel: String? = null,
+    @StringRes val labelRes: Int = 0
+)
 
 private val MossSizePresets = listOf(
-    SizePreset(512, 512, "512²"),
-    SizePreset(1024, 1024, "1024²"),
-    SizePreset(1024, 768, "横屏"),
-    SizePreset(768, 1024, "竖屏")
+    SizePreset(512, 512, fixedLabel = "512²"),
+    SizePreset(1024, 1024, fixedLabel = "1024²"),
+    SizePreset(1024, 768, labelRes = R.string.image_landscape),
+    SizePreset(768, 1024, labelRes = R.string.image_portrait)
 )
 
 private val CustomSdSizePresets = listOf(
-    SizePreset(512, 512, "512²"),
-    SizePreset(768, 768, "768²"),
-    SizePreset(768, 512, "横屏"),
-    SizePreset(512, 768, "竖屏")
+    SizePreset(512, 512, fixedLabel = "512²"),
+    SizePreset(768, 768, fixedLabel = "768²"),
+    SizePreset(768, 512, labelRes = R.string.image_landscape),
+    SizePreset(512, 768, labelRes = R.string.image_portrait)
 )
 
 private val QwenSizes = listOf(320, 384, 512)
@@ -148,9 +155,9 @@ fun ImageWorkspace(
         if (state.mossModelStatus == null) viewModel.refreshMossModelStatus()
     }
     val placeholder = when {
-        layoutMode -> "描述整体画面…"
-        isQwen && settings.mode == GenerationMode.ImageEdit -> "描述要怎样修改…"
-        else -> "描述画面…"
+        layoutMode -> tr(R.string.image_prompt_overall_hint)
+        isQwen && settings.mode == GenerationMode.ImageEdit -> tr(R.string.image_edit_hint)
+        else -> tr(R.string.image_prompt_hint)
     }
     val composerError = state.imageTask.error
         ?.takeIf { !state.imageTask.running && it != state.jobs.lastOrNull()?.error }
@@ -163,19 +170,19 @@ fun ImageWorkspace(
             }
             if (needsReference) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("编辑需要参考图", color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall,
+                    Text(tr(R.string.image_edit_needs_ref), color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.weight(1f))
                     TextButton(
                         onClick = { viewModel.setMode(GenerationMode.TextToImage) },
                         modifier = Modifier.heightIn(min = 40.dp)
-                    ) { Text("改为文生图") }
+                    ) { Text(tr(R.string.image_switch_t2i)) }
                 }
             }
             if (modelHint) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("模型尚未就绪", color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall,
+                    Text(tr(R.string.image_not_ready_short), color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.weight(1f))
-                    TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 40.dp)) { Text("打开模型") }
+                    TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 40.dp)) { Text(tr(R.string.common_open_models)) }
                 }
             }
             if (isQwen && settings.inputUri != null) {
@@ -199,7 +206,7 @@ fun ImageWorkspace(
     }
 
     WorkspaceScaffold(
-        title = "图像",
+        title = tr(R.string.nav_image),
         subtitle = backendLabel,
         onMenu = onMenu,
         composer = { haze ->
@@ -230,7 +237,7 @@ fun ImageWorkspace(
                         ) {
                             Icon(
                                 Icons.Outlined.AddPhotoAlternate,
-                                if (settings.inputUri == null) "添加参考图" else "添加第二张参考图",
+                                if (settings.inputUri == null) tr(R.string.image_add_ref) else tr(R.string.image_add_ref2),
                                 tint = if (canAttach) OmniColors.Muted else OmniColors.Dim,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -238,9 +245,9 @@ fun ImageWorkspace(
                     }
                     ComposerChip(backendLabel.take(18), onClick = { sheet = ImageSheet.Backend })
                     if (backend.isMoss) {
-                        ComposerChip("布局", onClick = { sheet = ImageSheet.Layout }, selected = layoutMode)
+                        ComposerChip(tr(R.string.image_layout), onClick = { sheet = ImageSheet.Layout }, selected = layoutMode)
                     }
-                    ComposerChip("", onClick = { sheet = ImageSheet.Params }, icon = Icons.Outlined.Tune, contentDescription = "参数")
+                    ComposerChip("", onClick = { sheet = ImageSheet.Params }, icon = Icons.Outlined.Tune, contentDescription = tr(R.string.common_parameters))
                 }
             )
         }
@@ -253,7 +260,7 @@ fun ImageWorkspace(
     }
 
     when (sheet) {
-        ImageSheet.Backend -> OmniSheet("生成方式", onDismiss = { sheet = null }) {
+        ImageSheet.Backend -> OmniSheet(tr(R.string.image_engine_sheet_title), onDismiss = { sheet = null }) {
             ImageBackendOptions(
                 state = state,
                 onSelectBuiltIn = { target ->
@@ -270,20 +277,24 @@ fun ImageWorkspace(
                 }
             )
         }
-        ImageSheet.Layout -> OmniSheet("布局", onDismiss = { sheet = null }) {
-            SheetScroll {
-                OmniTabs(
-                    items = MossInputMode.entries,
-                    selected = moss.inputMode,
-                    label = { if (it == MossInputMode.Prompt) "提示词" else "布局" },
-                    onSelect = { mode -> viewModel.updateMossSettings { it.copy(inputMode = mode) } }
-                )
-                if (moss.inputMode == MossInputMode.Layout) {
-                    MossLayoutEditor(moss, viewModel::updateMossSettings)
+        ImageSheet.Layout -> {
+            val promptTabLabel = tr(R.string.image_prompt_tab)
+            val layoutTabLabel = tr(R.string.image_layout)
+            OmniSheet(layoutTabLabel, onDismiss = { sheet = null }) {
+                SheetScroll {
+                    OmniTabs(
+                        items = MossInputMode.entries,
+                        selected = moss.inputMode,
+                        label = { if (it == MossInputMode.Prompt) promptTabLabel else layoutTabLabel },
+                        onSelect = { mode -> viewModel.updateMossSettings { it.copy(inputMode = mode) } }
+                    )
+                    if (moss.inputMode == MossInputMode.Layout) {
+                        MossLayoutEditor(moss, viewModel::updateMossSettings)
+                    }
                 }
             }
         }
-        ImageSheet.Params -> OmniSheet("参数", onDismiss = { sheet = null }) {
+        ImageSheet.Params -> OmniSheet(tr(R.string.common_parameters), onDismiss = { sheet = null }) {
             SheetScroll {
                 when (backend) {
                     ImageGenerationBackend.QwenLocal -> QwenParams(state, viewModel)
@@ -312,11 +323,11 @@ private fun ImageEmptyState(padding: PaddingValues, backendReady: Boolean, onMod
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("描述你想生成的画面", color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium,
+            Text(tr(R.string.image_empty_title), color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center)
             if (!backendReady) {
-                Text("当前模型尚未就绪", color = OmniColors.Dim, style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 48.dp)) { Text("打开模型") }
+                Text(tr(R.string.image_model_not_ready), color = OmniColors.Dim, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 48.dp)) { Text(tr(R.string.common_open_models)) }
             }
         }
     }
@@ -391,21 +402,21 @@ private fun ImageJobEntry(
                     if (active) {
                         TaskLine(state.imageTask, onCancel = { viewModel.cancelJob(job.id) })
                     } else {
-                        Text("生成中", color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
+                        Text(tr(R.string.image_status_generating), color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 "queued" -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("排队中", color = OmniColors.Dim, style = MaterialTheme.typography.bodySmall,
+                    Text(tr(R.string.image_status_queued), color = OmniColors.Dim, style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.weight(1f))
                     TextButton(onClick = { viewModel.cancelJob(job.id) }, modifier = Modifier.heightIn(min = 48.dp)) {
-                        Text("取消", color = OmniColors.Muted)
+                        Text(tr(R.string.common_cancel), color = OmniColors.Muted)
                     }
                 }
                 else -> {
                     val label = when (job.state) {
-                        "cancelled" -> "已取消"
-                        "interrupted" -> "已中断"
-                        else -> "失败"
+                        "cancelled" -> tr(R.string.image_status_cancelled)
+                        "interrupted" -> tr(R.string.chat_interrupted)
+                        else -> tr(R.string.image_status_failed)
                     }
                     Text(label, color = if (job.state == "cancelled") OmniColors.Muted else OmniColors.Danger,
                         style = MaterialTheme.typography.bodySmall)
@@ -413,7 +424,7 @@ private fun ImageJobEntry(
                         Text(it, color = OmniColors.Danger, style = MaterialTheme.typography.bodySmall)
                     }
                     ImageActions {
-                        ImageAction(Icons.Outlined.Replay, "复用参数") { viewModel.reuseJob(job) }
+                        ImageAction(Icons.Outlined.Replay, tr(R.string.image_reuse_params)) { viewModel.reuseJob(job) }
                     }
                 }
             }
@@ -430,11 +441,13 @@ private fun ImageResult(
     onPreview: (String) -> Unit
 ) {
     val context = LocalContext.current
+    val shareTitle = tr(R.string.image_share_title)
+    val zoomLabel = tr(R.string.image_zoom)
     val path = job.outputPath
     val exists = remember(path) { path != null && File(path).isFile }
     if (path == null || !exists) {
-        Text("图像文件已不存在", color = OmniColors.Dim, style = MaterialTheme.typography.bodySmall)
-        ImageActions { ImageAction(Icons.Outlined.Replay, "复用参数") { viewModel.reuseJob(job) } }
+        Text(tr(R.string.image_file_missing), color = OmniColors.Dim, style = MaterialTheme.typography.bodySmall)
+        ImageActions { ImageAction(Icons.Outlined.Replay, tr(R.string.image_reuse_params)) { viewModel.reuseJob(job) } }
         return
     }
     val width = job.outputWidth.takeIf { it > 0 } ?: job.settings.width
@@ -442,21 +455,21 @@ private fun ImageResult(
     val aspect = (width.toFloat() / height.coerceAtLeast(1).toFloat()).coerceIn(0.25f, 4f)
     OmniAsyncImage(
         path = path,
-        contentDescription = "生成的图像，点击放大",
+        contentDescription = zoomLabel,
         modifier = Modifier
             .widthIn(max = 360.dp)
             .fillMaxWidth()
             .aspectRatio(aspect)
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClickLabel = "放大") { onPreview(path) },
+            .clickable(onClickLabel = zoomLabel) { onPreview(path) },
         maxDimension = 768
     )
     ImageActions {
-        if (editAvailable) ImageAction(Icons.Outlined.Brush, "继续编辑") { viewModel.editImage(path) }
-        ImageAction(Icons.Outlined.Videocam, "生成视频") { viewModel.useImageAsVideoFirstFrame(path) }
-        ImageAction(Icons.Outlined.Replay, "复用参数") { viewModel.reuseJob(job) }
-        ImageAction(Icons.Outlined.Share, "分享") {
-            runCatching { shareMediaFile(context, File(path), "image/png", "分享图像") }
+        if (editAvailable) ImageAction(Icons.Outlined.Brush, tr(R.string.common_continue_edit)) { viewModel.editImage(path) }
+        ImageAction(Icons.Outlined.Videocam, tr(R.string.common_make_video)) { viewModel.useImageAsVideoFirstFrame(path) }
+        ImageAction(Icons.Outlined.Replay, tr(R.string.image_reuse_params)) { viewModel.reuseJob(job) }
+        ImageAction(Icons.Outlined.Share, tr(R.string.common_share)) {
+            runCatching { shareMediaFile(context, File(path), "image/png", shareTitle) }
         }
     }
 }
@@ -473,22 +486,26 @@ private fun ImageAction(icon: androidx.compose.ui.graphics.vector.ImageVector, l
     }
 }
 
+@Composable
 private fun jobCaption(job: GenerationJob): String {
     val width = job.outputWidth.takeIf { it > 0 } ?: job.settings.width
     val height = job.outputHeight.takeIf { it > 0 } ?: job.settings.height
+    val stepsText = tr(R.string.common_steps_value, job.settings.steps)
+    val elapsedText = if (job.state == "done" && job.elapsedMs > 0) tr(R.string.common_seconds_value, (job.elapsedMs / 1000).toInt()) else null
     return buildList {
         add(if (job.backend == ImageGenerationBackend.CustomSd) job.customModelName ?: job.backend.displayName() else job.backend.displayName())
         add("${width}×${height}")
-        add("${job.settings.steps} 步")
-        if (job.state == "done" && job.elapsedMs > 0) add("${job.elapsedMs / 1000} 秒")
+        add(stepsText)
+        elapsedText?.let(::add)
     }.joinToString(" · ")
 }
 
 @Composable
 private fun ComposerReference(uri: Uri, index: Int, onRemove: () -> Unit) {
+    val removeLabel = tr(R.string.image_remove_ref, index)
     Box(
         Modifier.size(44.dp).clip(RoundedCornerShape(10.dp))
-            .clickable(role = Role.Button, onClickLabel = "移除参考图 $index", onClick = onRemove)
+            .clickable(role = Role.Button, onClickLabel = removeLabel, onClick = onRemove)
     ) {
         ReferenceThumb(uri, 44.dp)
         Box(
@@ -504,9 +521,10 @@ private fun ComposerReference(uri: Uri, index: Int, onRemove: () -> Unit) {
 @Composable
 private fun ReferenceThumb(uri: Uri, size: Dp) {
     val bitmap = rememberReferenceBitmap(uri, 256)
+    val refCd = tr(R.string.image_ref_label)
     Box(Modifier.size(size).clip(RoundedCornerShape(8.dp)).background(OmniColors.Field)) {
         if (bitmap != null) {
-            Image(bitmap.asImageBitmap(), "参考图", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Image(bitmap.asImageBitmap(), refCd, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
     }
 }
@@ -538,11 +556,14 @@ private fun ImageBackendOptions(
     onSelectCustom: (String) -> Unit,
     onManageModels: () -> Unit
 ) {
+    val readyText = tr(R.string.common_ready)
+    val notReadyText = tr(R.string.image_not_ready_short)
+    val currentText = tr(R.string.common_current)
     Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
         listOf(ImageGenerationBackend.QwenLocal, ImageGenerationBackend.MossLocal).forEach { target ->
             val detail = when (target) {
-                ImageGenerationBackend.QwenLocal -> if (state.modelStatus?.ready == true) "已就绪" else "模型未就绪"
-                ImageGenerationBackend.MossLocal -> if (state.mossModelStatus?.ready == true) "已就绪" else "模型未就绪"
+                ImageGenerationBackend.QwenLocal -> if (state.modelStatus?.ready == true) readyText else notReadyText
+                ImageGenerationBackend.MossLocal -> if (state.mossModelStatus?.ready == true) readyText else notReadyText
                 ImageGenerationBackend.CustomSd -> ""
             }
             SettingRow(
@@ -551,12 +572,12 @@ private fun ImageBackendOptions(
                 onClick = { onSelectBuiltIn(target) }
             ) {
                 if (state.imageBackend == target) {
-                    Icon(Icons.Outlined.Check, "当前", tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.Check, currentText, tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
                 }
             }
         }
         if (state.customImageModels.isNotEmpty()) {
-            SectionLabel("已从社区下载")
+            SectionLabel(tr(R.string.common_community_downloaded))
             state.customImageModels.forEach { model ->
                 val selected = state.imageBackend == ImageGenerationBackend.CustomSd && state.customSdSettings.modelId == model.id
                 SettingRow(
@@ -565,14 +586,14 @@ private fun ImageBackendOptions(
                     onClick = { onSelectCustom(model.id) }
                 ) {
                     if (selected) {
-                        Icon(Icons.Outlined.Check, "当前", tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.Check, currentText, tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
                     }
                 }
             }
         }
         SettingRow(
-            title = "从模型页搜索更多图像模型",
-            detail = "支持 SD / SDXL / Z-Image / FLUX.2 Klein 权重",
+            title = tr(R.string.image_search_more),
+            detail = tr(R.string.image_search_more_sub),
             onClick = onManageModels
         )
     }
@@ -596,7 +617,7 @@ private fun QwenParams(state: QwenUiState, viewModel: QwenViewModel) {
     val realAvailable = manifest?.hasVae(false) == true
     val fixedSteps = settings.officialTurbo || settings.turbo
 
-    SectionLabel("尺寸")
+    SectionLabel(tr(R.string.image_size))
     OmniTabs(
         items = QwenSizes,
         selected = if (settings.width == settings.height) settings.width else -1,
@@ -604,44 +625,45 @@ private fun QwenParams(state: QwenUiState, viewModel: QwenViewModel) {
         onSelect = { viewModel.setSize(it, it) }
     )
     NumberField(
-        label = "步数",
+        label = tr(R.string.common_steps),
         value = if (settings.officialTurbo) "8" else if (settings.turbo) "6" else settings.steps.toString(),
         enabled = !fixedSteps
     ) { text -> text.toIntOrNull()?.let(viewModel::setSteps) }
-    NumberField("Seed", settings.seed.toString()) { text -> text.toIntOrNull()?.let(viewModel::setSeed) }
+    NumberField(tr(R.string.common_seed), settings.seed.toString()) { text -> text.toIntOrNull()?.let(viewModel::setSeed) }
     OmniTextField(
         value = settings.negativePrompt,
         onValueChange = viewModel::setNegativePrompt,
-        label = "负向提示词",
+        label = tr(R.string.image_negative_prompt),
         minLines = 2,
         modifier = Modifier.fillMaxWidth()
     )
-    SwitchRow("官方 Turbo · 8 步", settings.officialTurbo, enabled = "official-turbo" in features,
+    SwitchRow(tr(R.string.image_official_turbo), settings.officialTurbo, enabled = "official-turbo" in features,
         onChange = viewModel::setOfficialTurbo)
     SwitchRow("Tiny VAE", settings.useTinyVae, enabled = if (settings.useTinyVae) realAvailable else tinyAvailable,
         onChange = viewModel::setTinyVae)
-    SwitchRow("透明背景", settings.transparent, onChange = viewModel::setTransparent)
+    SwitchRow(tr(R.string.image_transparent), settings.transparent, onChange = viewModel::setTransparent)
 }
 
 @Composable
 private fun MossParams(state: QwenUiState, viewModel: QwenViewModel) {
+    val localized = LocalLocalizedContext.current
     val moss = state.mossSettings
     val local = moss.local
     val update: ((MossSettings) -> MossSettings) -> Unit = viewModel::updateMossSettings
 
-    SectionLabel("尺寸 · ${local.width}×${local.height}")
+    SectionLabel(tr(R.string.image_size_val, local.width, local.height))
     OmniTabs(
         items = MossSizePresets,
         selected = MossSizePresets.firstOrNull { it.width == local.width && it.height == local.height }
-            ?: SizePreset(local.width, local.height, ""),
-        label = { it.label },
+            ?: SizePreset(local.width, local.height, fixedLabel = ""),
+        label = { it.fixedLabel ?: localized.getString(it.labelRes) },
         onSelect = { preset -> update { s -> s.copy(local = s.local.copy(width = preset.width, height = preset.height)) } }
     )
 
-    NumberField("Seed", moss.seed.toString()) { text ->
+    NumberField(tr(R.string.common_seed), moss.seed.toString()) { text ->
         text.toLongOrNull()?.let { seed -> update { it.copy(seed = seed) } }
     }
-    NumberField("步数", local.steps.toString()) { text ->
+    NumberField(tr(R.string.common_steps), local.steps.toString()) { text ->
         text.toIntOrNull()?.let { steps -> update { it.copy(local = it.local.copy(steps = steps)) } }
     }
     NumberField("CFG", local.cfg.toString()) { text ->
@@ -653,32 +675,33 @@ private fun MossParams(state: QwenUiState, viewModel: QwenViewModel) {
     OmniTextField(
         value = moss.negativePrompt,
         onValueChange = { value -> update { it.copy(negativePrompt = value) } },
-        label = "负向提示词",
+        label = tr(R.string.image_negative_prompt),
         minLines = 2,
         modifier = Modifier.fillMaxWidth()
     )
-    SwitchRow("OpenCL GPU 加速", local.useOpenCl) { enabled ->
+    SwitchRow(tr(R.string.image_opencl_gpu), local.useOpenCl) { enabled ->
         update { it.copy(local = it.local.copy(useOpenCl = enabled)) }
     }
-    SwitchRow("VAE 分块解码（省内存）", local.vaeTiling) { enabled ->
+    SwitchRow(tr(R.string.image_vae_tiling), local.vaeTiling) { enabled ->
         update { it.copy(local = it.local.copy(vaeTiling = enabled)) }
     }
 }
 
 @Composable
 private fun CustomSdParams(state: QwenUiState, viewModel: QwenViewModel) {
+    val localized = LocalLocalizedContext.current
     val sd = state.customSdSettings
     val update: ((CustomSdSettings) -> CustomSdSettings) -> Unit = viewModel::updateCustomSdSettings
 
-    SectionLabel("尺寸 · ${sd.width}×${sd.height}")
+    SectionLabel(tr(R.string.image_size_val, sd.width, sd.height))
     OmniTabs(
         items = CustomSdSizePresets,
         selected = CustomSdSizePresets.firstOrNull { it.width == sd.width && it.height == sd.height }
-            ?: SizePreset(sd.width, sd.height, ""),
-        label = { it.label },
+            ?: SizePreset(sd.width, sd.height, fixedLabel = ""),
+        label = { it.fixedLabel ?: localized.getString(it.labelRes) },
         onSelect = { preset -> update { it.copy(width = preset.width, height = preset.height) } }
     )
-    SectionLabel("采样器")
+    SectionLabel(tr(R.string.image_sampler))
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(SUPPORTED_SD_SAMPLERS) { sampler ->
             ComposerChip(
@@ -688,10 +711,10 @@ private fun CustomSdParams(state: QwenUiState, viewModel: QwenViewModel) {
             )
         }
     }
-    NumberField("Seed", sd.seed.toString()) { text ->
+    NumberField(tr(R.string.common_seed), sd.seed.toString()) { text ->
         text.toLongOrNull()?.takeIf { it >= 0L }?.let { seed -> update { it.copy(seed = seed) } }
     }
-    NumberField("步数", sd.steps.toString()) { text ->
+    NumberField(tr(R.string.common_steps), sd.steps.toString()) { text ->
         text.toIntOrNull()?.let { steps -> update { it.copy(steps = steps.coerceIn(1, 60)) } }
     }
     NumberField("CFG", sd.cfg.toString()) { text ->
@@ -700,12 +723,12 @@ private fun CustomSdParams(state: QwenUiState, viewModel: QwenViewModel) {
     OmniTextField(
         value = sd.negativePrompt,
         onValueChange = { value -> update { it.copy(negativePrompt = value) } },
-        label = "负向提示词",
+        label = tr(R.string.image_negative_prompt),
         minLines = 2,
         modifier = Modifier.fillMaxWidth()
     )
-    SwitchRow("OpenCL GPU 加速", sd.useOpenCl) { enabled -> update { it.copy(useOpenCl = enabled) } }
-    SwitchRow("VAE 分块解码（省内存）", sd.vaeTiling) { enabled -> update { it.copy(vaeTiling = enabled) } }
+    SwitchRow(tr(R.string.image_opencl_gpu), sd.useOpenCl) { enabled -> update { it.copy(useOpenCl = enabled) } }
+    SwitchRow(tr(R.string.image_vae_tiling), sd.vaeTiling) { enabled -> update { it.copy(vaeTiling = enabled) } }
 }
 
 @Composable

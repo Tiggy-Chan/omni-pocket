@@ -74,8 +74,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.annotation.StringRes
 import com.tiggy.qwenimage.QwenUiState
 import com.tiggy.qwenimage.QwenViewModel
+import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.TaskUiState
 import com.tiggy.qwenimage.data.VideoItem
 import com.tiggy.qwenimage.data.VideoJob
@@ -109,6 +111,7 @@ fun VideoWorkspace(
     onModels: () -> Unit
 ) {
     val context = LocalContext.current
+    val shareVideoTitle = tr(R.string.video_share_title)
     val settings = state.videoSettings
     val task = state.videoTask
     val activeCustomModel = state.customVideoModels.firstOrNull { it.id == settings.modelId }
@@ -120,8 +123,8 @@ fun VideoWorkspace(
     val ready = runtime.localReady
     val firstFrame = settings.inputImageUri
     val parameterError = when {
-        settings.numFrames !in 5..41 || (settings.numFrames - 1) % 4 != 0 -> "本机帧数需为 5–41 且满足 4n+1（如 9、17、25、33）。"
-        settings.steps !in 1..12 -> "本机最多 12 步，请调整步数。"
+        settings.numFrames !in 5..41 || (settings.numFrames - 1) % 4 != 0 -> tr(R.string.video_err_frames)
+        settings.steps !in 1..12 -> tr(R.string.video_err_steps)
         else -> null
     }
     val jobErrors = state.videoJobs.mapNotNull { it.error }
@@ -149,20 +152,20 @@ fun VideoWorkspace(
     }
 
     WorkspaceScaffold(
-        title = "视频",
-        subtitle = if (ready) "$modelLabel · 本机" else "$modelLabel · 模型未就绪",
+        title = tr(R.string.nav_video),
+        subtitle = if (ready) tr(R.string.common_on_device_tag, modelLabel) else tr(R.string.common_model_not_ready_tag, modelLabel),
         onMenu = onMenu,
         composer = { haze ->
             val status: (@Composable () -> Unit)? = if (firstFrame != null || parameterError != null || taskError != null) ({
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (firstFrame != null) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            FirstFrameThumb(firstFrame, 40.dp, "已选首帧")
+                            FirstFrameThumb(firstFrame, 40.dp, tr(R.string.video_first_frame_selected))
                             Spacer(Modifier.width(10.dp))
-                            Text("首帧", color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall,
+                            Text(tr(R.string.video_first_frame), color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.weight(1f))
                             IconButton(onClick = { viewModel.setVideoInputImage(null) }, modifier = Modifier.size(40.dp)) {
-                                Icon(Icons.Outlined.Close, "移除首帧", tint = OmniColors.Muted, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Outlined.Close, tr(R.string.video_remove_first_frame), tint = OmniColors.Muted, modifier = Modifier.size(18.dp))
                             }
                         }
                     }
@@ -178,7 +181,7 @@ fun VideoWorkspace(
                 hazeState = haze,
                 value = settings.prompt,
                 onValueChange = viewModel::setVideoPrompt,
-                placeholder = "描述主体、动作和镜头",
+                placeholder = tr(R.string.video_prompt_hint),
                 onSend = viewModel::startVideoGeneration,
                 sendEnabled = ready && settings.prompt.isNotBlank() && parameterError == null,
                 running = task.running,
@@ -189,10 +192,10 @@ fun VideoWorkspace(
                         "", onClick = { imagePicker.launch(arrayOf("image/*")) },
                         icon = Icons.Outlined.AddPhotoAlternate,
                         selected = firstFrame != null,
-                        contentDescription = if (firstFrame == null) "选择首帧" else "更换首帧"
+                        contentDescription = if (firstFrame == null) tr(R.string.video_select_first_frame) else tr(R.string.video_change_first_frame)
                     )
                     ComposerChip(modelLabel.take(14), onClick = { showModelSheet = true })
-                    ComposerChip("", onClick = { showParams = true }, icon = Icons.Outlined.Tune, contentDescription = "参数")
+                    ComposerChip("", onClick = { showParams = true }, icon = Icons.Outlined.Tune, contentDescription = tr(R.string.common_parameters))
                 }
             )
         }
@@ -200,7 +203,7 @@ fun VideoWorkspace(
         if (blocks.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(inner), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("描述一段画面", color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium)
+                    Text(tr(R.string.video_empty_title), color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium)
                     if (!ready) VideoModelNote(modelLabel, runtime.missingComponents, onModels)
                 }
             }
@@ -236,7 +239,7 @@ fun VideoWorkspace(
                                         playingId = video.id
                                     },
                                     onReuse = { viewModel.reuseVideoItem(video) },
-                                    onShare = { shareVideo(context, video)?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() } },
+                                    onShare = { shareVideo(context, video, shareVideoTitle)?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() } },
                                     onDelete = { pendingDelete = video }
                                 )
                             }
@@ -278,16 +281,16 @@ fun VideoWorkspace(
     pendingDelete?.let { video ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("删除视频？") },
-            text = { Text("将删除视频及关联文件，此操作无法撤销。") },
+            title = { Text(tr(R.string.video_delete_title)) },
+            text = { Text(tr(R.string.video_delete_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     pendingDelete = null
                     if (playingId == video.id) playingId = null
                     viewModel.deleteVideo(video)
-                }) { Text("删除", color = OmniColors.Danger) }
+                }) { Text(tr(R.string.common_delete), color = OmniColors.Danger) }
             },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text(tr(R.string.common_cancel)) } },
             containerColor = OmniColors.Raised,
             titleContentColor = OmniColors.Ink,
             textContentColor = OmniColors.Muted
@@ -297,14 +300,13 @@ fun VideoWorkspace(
 
 @Composable
 private fun VideoModelNote(modelLabel: String, missing: List<String>, onModels: () -> Unit) {
-    val pkg = LocalContext.current.packageName
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("$modelLabel 未就绪", color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
-            TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 48.dp)) { Text("前往下载") }
+            Text(tr(R.string.common_model_not_ready_tag, modelLabel), color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
+            TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 48.dp)) { Text(tr(R.string.common_go_download)) }
         }
         Text(
-            "缺少：${missing.joinToString("、")}\n可在「模型」页直接下载内置或社区 Wan2.2 / Wan2.1 模型，或放入 Android/data/$pkg/files/models/wan22_turbo",
+            tr(R.string.video_missing_hint, missing.joinToString(", ")),
             color = OmniColors.Dim,
             style = MaterialTheme.typography.labelSmall,
             textAlign = TextAlign.Center
@@ -319,19 +321,20 @@ private fun VideoModelSheet(
     onManage: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    OmniSheet("视频模型", onDismiss) {
+    val currentLabel = tr(R.string.common_current)
+    OmniSheet(tr(R.string.video_models_title), onDismiss) {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             SettingRow(
-                title = "Wan2.2 Turbo · 内置",
-                detail = if (state.wanModelStatus?.ready == true) "已就绪 · 5B 4步加速" else "未下载",
+                title = tr(R.string.common_builtin_tag, "Wan2.2 Turbo"),
+                detail = if (state.wanModelStatus?.ready == true) tr(R.string.video_builtin_ready) else tr(R.string.common_not_downloaded),
                 onClick = { onSelect("") }
             ) {
                 if (state.videoSettings.modelId.isBlank()) {
-                    Icon(Icons.Outlined.Check, "当前", tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.Check, currentLabel, tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
                 }
             }
             if (state.customVideoModels.isNotEmpty()) {
-                SectionLabel("已从社区下载")
+                SectionLabel(tr(R.string.common_community_downloaded))
                 state.customVideoModels.forEach { model ->
                     SettingRow(
                         title = model.name,
@@ -339,14 +342,14 @@ private fun VideoModelSheet(
                         onClick = { onSelect(model.id) }
                     ) {
                         if (state.videoSettings.modelId == model.id) {
-                            Icon(Icons.Outlined.Check, "当前", tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Outlined.Check, currentLabel, tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
             }
             SettingRow(
-                title = "从模型页搜索更多视频模型",
-                detail = "支持 Wan2.2 / Wan2.1 GGUF（自动复用 UMT5 与 TAE）",
+                title = tr(R.string.video_search_more),
+                detail = tr(R.string.video_search_more_sub),
                 onClick = onManage
             )
         }
@@ -356,7 +359,7 @@ private fun VideoModelSheet(
 @Composable
 private fun VideoRequest(prompt: String, firstFrame: Uri?) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (firstFrame != null) FirstFrameThumb(firstFrame, 72.dp, "首帧")
+        if (firstFrame != null) FirstFrameThumb(firstFrame, 72.dp, tr(R.string.video_first_frame))
         RequestBubble(prompt)
     }
 }
@@ -385,6 +388,9 @@ private fun VideoResultBlock(
     onDelete: () -> Unit
 ) {
     val metadata = videoMetadata(video)
+    val playLabel = tr(R.string.common_play)
+    val pauseLabel = tr(R.string.common_pause)
+    val cannotPlayText = tr(R.string.video_cannot_play)
     var playing by remember(video.id, loaded) { mutableStateOf(false) }
     val playerRef = remember(video.id) { arrayOfNulls<VideoView>(1) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -392,17 +398,17 @@ private fun VideoResultBlock(
         Column {
             val frame = Modifier.mediaFrame(videoAspect(video)).clip(RoundedCornerShape(14.dp)).background(Color.Black)
             if (loaded) {
-                VideoPlayer(video.videoPath, frame, playerRef, playing) { playing = it }
+                VideoPlayer(video.videoPath, frame, playerRef, playing, playLabel, pauseLabel, cannotPlayText) { playing = it }
             } else {
                 Box(
-                    frame.clickable(role = Role.Button, onClickLabel = "播放视频", onClick = onLoad),
+                    frame.clickable(role = Role.Button, onClickLabel = playLabel, onClick = onLoad),
                     contentAlignment = Alignment.Center
                 ) {
                     val thumbnail = video.thumbnailPath
                     if (thumbnail.isNullOrBlank()) {
-                        Icon(Icons.Outlined.Movie, "视频缩略图不可用", tint = OmniColors.Dim, modifier = Modifier.size(32.dp))
+                        Icon(Icons.Outlined.Movie, tr(R.string.nav_video), tint = OmniColors.Dim, modifier = Modifier.size(32.dp))
                     } else {
-                        OmniAsyncImage(thumbnail, "${videoDisplayName(video)} 的缩略图", Modifier.fillMaxSize(),
+                        OmniAsyncImage(thumbnail, videoDisplayName(video), Modifier.fillMaxSize(),
                             maxDimension = 768, contentScale = ContentScale.Crop)
                     }
                     PlayBadge()
@@ -414,17 +420,17 @@ private fun VideoResultBlock(
                 if (loaded) {
                     IconButton(onClick = { togglePlayback(playerRef[0], playing) { playing = it } }, modifier = Modifier.size(48.dp)) {
                         Icon(if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                            if (playing) "暂停" else "播放", tint = OmniColors.Muted, modifier = Modifier.size(22.dp))
+                            if (playing) pauseLabel else playLabel, tint = OmniColors.Muted, modifier = Modifier.size(22.dp))
                     }
                 }
                 IconButton(onClick = onReuse, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Outlined.Replay, "复用提示词", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.Replay, tr(R.string.video_reuse_prompt), tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
                 }
                 IconButton(onClick = onShare, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Outlined.Share, "分享视频", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.Share, tr(R.string.video_share_title), tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
                 }
                 IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Outlined.DeleteOutline, "删除视频", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.DeleteOutline, tr(R.string.common_delete), tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
                 }
             }
         }
@@ -468,6 +474,9 @@ private fun VideoPlayer(
     modifier: Modifier,
     playerRef: Array<VideoView?>,
     playing: Boolean,
+    playLabel: String,
+    pauseLabel: String,
+    cannotPlayText: String,
     onPlaying: (Boolean) -> Unit
 ) {
     var loadedPath by remember { mutableStateOf<String?>(null) }
@@ -486,7 +495,7 @@ private fun VideoPlayer(
                     view.setOnCompletionListener { onPlaying(false) }
                     view.setOnErrorListener { _, _, _ ->
                         onPlaying(false)
-                        playbackError = "无法播放此视频"
+                        playbackError = cannotPlayText
                         true
                     }
                 }
@@ -512,7 +521,7 @@ private fun VideoPlayer(
         Box(
             Modifier.fillMaxSize().clickable(
                 role = Role.Button,
-                onClickLabel = if (playing) "暂停" else "播放"
+                onClickLabel = if (playing) pauseLabel else playLabel
             ) { togglePlayback(playerRef[0], playing, onPlaying) },
             contentAlignment = Alignment.Center
         ) {
@@ -543,27 +552,28 @@ private fun VideoJobBlock(
     }
 }
 
-private data class VideoResOption(val width: Int, val height: Int, val label: String)
+private data class VideoResOption(val width: Int, val height: Int, @StringRes val labelRes: Int)
 
 private val VideoResOptions = listOf(
-    VideoResOption(480, 832, "480×832 竖屏"),
-    VideoResOption(832, 480, "832×480 横屏"),
-    VideoResOption(480, 480, "480×480 方形"),
-    VideoResOption(384, 640, "384×640 预览")
+    VideoResOption(480, 832, R.string.res_portrait),
+    VideoResOption(832, 480, R.string.res_landscape),
+    VideoResOption(480, 480, R.string.res_square),
+    VideoResOption(384, 640, R.string.res_preview)
 )
 
 @Composable
 private fun VideoParamsSheet(settings: VideoSettings, viewModel: QwenViewModel, onDismiss: () -> Unit) {
+    val localized = LocalLocalizedContext.current
     var seedText by remember(settings.seed) { mutableStateOf(settings.seed.toString()) }
     var cfgText by remember(settings.cfgScale) { mutableStateOf(String.format(Locale.US, "%.1f", settings.cfgScale)) }
-    OmniSheet("参数", onDismiss) {
+    OmniSheet(tr(R.string.common_parameters), onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("分辨率", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                Text(tr(R.string.video_resolution), color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(VideoResOptions) { opt ->
                         ComposerChip(
-                            label = opt.label,
+                            label = localized.getString(opt.labelRes),
                             onClick = { viewModel.setVideoResolution(opt.width, opt.height) },
                             selected = settings.width == opt.width && settings.height == opt.height
                         )
@@ -571,16 +581,16 @@ private fun VideoParamsSheet(settings: VideoSettings, viewModel: QwenViewModel, 
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("帧数（4n+1）", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                Text(tr(R.string.video_frames_label), color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
                 OmniTabs(
                     items = listOf(9, 17, 25, 33),
                     selected = settings.numFrames,
-                    label = { "$it 帧" },
+                    label = { localized.getString(R.string.common_frames_value, it) },
                     onSelect = viewModel::setVideoNumFrames
                 )
             }
-            VideoIntSlider("帧率", "${settings.fps} FPS", settings.fps, 8..30, viewModel::setVideoFps)
-            VideoIntSlider("步数", "${settings.steps} 步", settings.steps, 1..12, viewModel::setVideoSteps)
+            VideoIntSlider(tr(R.string.video_fps), "${settings.fps} FPS", settings.fps, 8..30, viewModel::setVideoFps)
+            VideoIntSlider(tr(R.string.common_steps), tr(R.string.common_steps_value, settings.steps), settings.steps, 1..12, viewModel::setVideoSteps)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OmniTextField(
                     value = cfgText,
@@ -588,7 +598,7 @@ private fun VideoParamsSheet(settings: VideoSettings, viewModel: QwenViewModel, 
                         cfgText = value
                         value.toFloatOrNull()?.takeIf { it.isFinite() }?.let(viewModel::setVideoCfgScale)
                     },
-                    label = "CFG（Turbo=1.0）",
+                    label = "CFG (Turbo=1.0)",
                     modifier = Modifier.weight(1f)
                 )
                 OmniTextField(
@@ -597,31 +607,31 @@ private fun VideoParamsSheet(settings: VideoSettings, viewModel: QwenViewModel, 
                         seedText = value
                         value.toLongOrNull()?.let(viewModel::setVideoSeed)
                     },
-                    label = "随机种子",
+                    label = tr(R.string.common_seed),
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(
                     onClick = { viewModel.setVideoSeed(Random.nextLong(100_000, 100_000_000)) },
                     modifier = Modifier.size(48.dp)
                 ) {
-                    Icon(Icons.Outlined.Refresh, "随机种子", tint = OmniColors.Muted)
+                    Icon(Icons.Outlined.Refresh, tr(R.string.common_seed), tint = OmniColors.Muted)
                 }
             }
             OmniTextField(
                 value = settings.negativePrompt,
                 onValueChange = viewModel::setVideoNegativePrompt,
-                label = "负向提示词",
+                label = tr(R.string.image_negative_prompt),
                 minLines = 2,
                 modifier = Modifier.fillMaxWidth()
             )
             SettingRow(
-                title = "DiT OpenCL GPU 加速",
-                detail = "VAE 始终固定在 CPU 避免花屏",
+                title = tr(R.string.settings_video_opencl),
+                detail = tr(R.string.settings_video_opencl_detail),
                 onClick = { viewModel.setVideoUseOpenCl(!settings.useOpenCl) },
                 trailing = { Switch(checked = settings.useOpenCl, onCheckedChange = null) }
             )
             SettingRow(
-                title = "VAE 分块解码（省内存）",
+                title = tr(R.string.image_vae_tiling),
                 onClick = { viewModel.setVideoVaeTiling(!settings.vaeTiling) },
                 trailing = { Switch(checked = settings.vaeTiling, onCheckedChange = null) }
             )
@@ -685,18 +695,18 @@ private fun formatFileSize(bytes: Long): String {
     }
 }
 
-private fun shareVideo(context: Context, video: VideoItem): String? {
+private fun shareVideo(context: Context, video: VideoItem, shareTitle: String): String? {
     val file = File(video.videoPath)
-    if (!file.isFile) return "视频文件不存在，无法分享"
+    if (!file.isFile) return null
     val mimeType = when (file.extension.lowercase()) {
         "webm" -> "video/webm"
         "mp4" -> "video/mp4"
-        else -> return "暂不支持分享此格式"
+        else -> return null
     }
     return runCatching {
-        shareMediaFile(context, file, mimeType, "分享视频")
+        shareMediaFile(context, file, mimeType, shareTitle)
     }.fold(
         onSuccess = { null },
-        onFailure = { error -> "分享失败：${error.message ?: "无法打开分享面板"}" }
+        onFailure = { error -> error.message }
     )
 }

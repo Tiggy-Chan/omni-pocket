@@ -58,15 +58,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.annotation.StringRes
 import com.tiggy.qwenimage.QwenUiState
 import com.tiggy.qwenimage.QwenViewModel
+import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.AppDomain
 import com.tiggy.qwenimage.data.GenerationJob
 import com.tiggy.qwenimage.data.MusicTrack
 import com.tiggy.qwenimage.data.VideoItem
 import java.io.File
 
-private enum class LibraryTab(val label: String) { Images("图像"), Music("音乐"), Videos("视频") }
+private enum class LibraryTab(@StringRes val labelRes: Int) {
+    Images(R.string.nav_image),
+    Music(R.string.nav_music),
+    Videos(R.string.nav_video)
+}
 
 private data class MenuAction(val label: String, val danger: Boolean = false, val onClick: () -> Unit)
 
@@ -94,37 +100,51 @@ fun LibraryScreen(
         state.videoGallery.filter { it.fileExists() }.sortedByDescending { it.createdAt }
     }
 
-    WorkspaceScaffold(title = "工作目录", onMenu = onMenu) { padding ->
+    val noImagesText = tr(R.string.library_no_images)
+    val noMusicText = tr(R.string.library_no_music)
+    val noVideosText = tr(R.string.library_no_videos)
+    val imageFallbackLabel = tr(R.string.nav_image)
+    val videoFallbackLabel = tr(R.string.nav_video)
+    val continueEditLabel = tr(R.string.common_continue_edit)
+    val makeVideoLabel = tr(R.string.common_make_video)
+    val openLabel = tr(R.string.common_open)
+    val shareLabel = tr(R.string.common_share)
+    val deleteLabel = tr(R.string.common_delete)
+    val shareImageTitle = tr(R.string.image_share_title)
+    val shareMusicTitle = tr(R.string.music_share_title)
+    val shareVideoTitle = tr(R.string.video_share_title)
+
+    WorkspaceScaffold(title = tr(R.string.nav_library), onMenu = onMenu) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val gridColumns = if (maxWidth >= 600.dp) 3 else 2
             key(tab) {
                 when (tab) {
                     LibraryTab.Images -> LibraryGrid(gridColumns, padding, tab, { tab = it }, rowSpacing = 14.dp) {
                         if (images.isEmpty()) {
-                            emptyItem(Icons.Outlined.Image, "还没有图像")
+                            emptyItem(Icons.Outlined.Image, noImagesText)
                         } else {
                             items(images, key = { it.id }) { job ->
                                 val path = job.outputPath.orEmpty()
                                 val prompt = job.settings.prompt
                                     .ifBlank { job.mossSettings?.prompt.orEmpty() }
-                                    .ifBlank { "图像" }
+                                    .ifBlank { imageFallbackLabel }
                                 MediaCell(
                                     caption = prompt,
                                     detail = null,
                                     onOpen = { onPreview(path) },
                                     actions = listOf(
-                                        MenuAction("继续编辑") {
+                                        MenuAction(continueEditLabel) {
                                             viewModel.editImage(path)
                                             onOpenWorkspace(AppDomain.ImageStudio)
                                         },
-                                        MenuAction("生成视频") {
+                                        MenuAction(makeVideoLabel) {
                                             viewModel.useImageAsVideoFirstFrame(path)
                                             onOpenWorkspace(AppDomain.VideoStudio)
                                         },
-                                        MenuAction("分享") {
-                                            runCatching { shareMediaFile(context, File(path), "image/png", "分享图像") }
+                                        MenuAction(shareLabel) {
+                                            runCatching { shareMediaFile(context, File(path), "image/png", shareImageTitle) }
                                         },
-                                        MenuAction("删除", danger = true) { deleteImage = job }
+                                        MenuAction(deleteLabel, danger = true) { deleteImage = job }
                                     )
                                 ) {
                                     OmniAsyncImage(path, prompt, Modifier.fillMaxSize(), maxDimension = 512,
@@ -136,7 +156,7 @@ fun LibraryScreen(
 
                     LibraryTab.Music -> LibraryGrid(1, padding, tab, { tab = it }, rowSpacing = 0.dp) {
                         if (state.musicPlaylist.isEmpty()) {
-                            emptyItem(Icons.Outlined.LibraryMusic, "还没有音乐")
+                            emptyItem(Icons.Outlined.LibraryMusic, noMusicText)
                         } else {
                             items(state.musicPlaylist, key = { it.id }) { track ->
                                 TrackRow(
@@ -145,7 +165,7 @@ fun LibraryScreen(
                                     onPlay = { viewModel.playMusic(track) },
                                     onShare = {
                                         runCatching {
-                                            shareMediaFile(context, File(track.audioPath), audioMimeType(track.audioPath), "分享音乐")
+                                            shareMediaFile(context, File(track.audioPath), audioMimeType(track.audioPath), shareMusicTitle)
                                         }
                                     },
                                     onDelete = if (track.id.startsWith("preset_")) null else ({ deleteTrack = track })
@@ -156,7 +176,7 @@ fun LibraryScreen(
 
                     LibraryTab.Videos -> LibraryGrid(gridColumns, padding, tab, { tab = it }, rowSpacing = 14.dp) {
                         if (videos.isEmpty()) {
-                            emptyItem(Icons.Outlined.VideoLibrary, "还没有视频")
+                            emptyItem(Icons.Outlined.VideoLibrary, noVideosText)
                         } else {
                             items(videos, key = { it.id }) { video ->
                                 val open = {
@@ -164,17 +184,17 @@ fun LibraryScreen(
                                     onOpenWorkspace(AppDomain.VideoStudio)
                                 }
                                 MediaCell(
-                                    caption = video.prompt.ifBlank { "视频" },
+                                    caption = video.prompt.ifBlank { videoFallbackLabel },
                                     detail = "${formatMediaDuration(video.durationSec)} · ${video.resolution}",
                                     onOpen = open,
                                     actions = listOf(
-                                        MenuAction("打开") { open() },
-                                        MenuAction("分享") {
+                                        MenuAction(openLabel) { open() },
+                                        MenuAction(shareLabel) {
                                             runCatching {
-                                                shareMediaFile(context, File(video.videoPath), video.mimeType(), "分享视频")
+                                                shareMediaFile(context, File(video.videoPath), video.mimeType(), shareVideoTitle)
                                             }
                                         },
-                                        MenuAction("删除", danger = true) { deleteVideo = video }
+                                        MenuAction(deleteLabel, danger = true) { deleteVideo = video }
                                     )
                                 ) {
                                     val thumbnail = video.thumbnailPath
@@ -195,17 +215,17 @@ fun LibraryScreen(
     }
 
     deleteImage?.let { job ->
-        ConfirmDeleteDialog("删除这张图像？", "文件会从手机中移除。",
+        ConfirmDeleteDialog(tr(R.string.library_delete_image_title), tr(R.string.library_delete_file_body),
             onConfirm = { viewModel.deleteImageJob(job.id); deleteImage = null },
             onDismiss = { deleteImage = null })
     }
     deleteTrack?.let { track ->
-        ConfirmDeleteDialog("删除「${track.title}」？", "音频文件会从手机中移除。",
+        ConfirmDeleteDialog(tr(R.string.music_delete_title), tr(R.string.music_delete_body, track.title),
             onConfirm = { viewModel.deleteMusicTrack(track); deleteTrack = null },
             onDismiss = { deleteTrack = null })
     }
     deleteVideo?.let { video ->
-        ConfirmDeleteDialog("删除这个视频？", "视频文件会从手机中移除。",
+        ConfirmDeleteDialog(tr(R.string.library_delete_video_title), tr(R.string.library_delete_file_body),
             onConfirm = { viewModel.deleteVideo(video); deleteVideo = null },
             onDismiss = { deleteVideo = null })
     }
@@ -220,6 +240,7 @@ private fun LibraryGrid(
     rowSpacing: Dp,
     content: LazyGridScope.() -> Unit
 ) {
+    val localized = LocalLocalizedContext.current
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns),
@@ -235,7 +256,7 @@ private fun LibraryGrid(
         ) {
             item(key = "tabs", span = { GridItemSpan(maxLineSpan) }) {
                 Box(Modifier.padding(bottom = 6.dp)) {
-                    OmniTabs(items = LibraryTab.entries, selected = tab, label = { it.label }, onSelect = onTab)
+                    OmniTabs(items = LibraryTab.entries, selected = tab, label = { localized.getString(it.labelRes) }, onSelect = onTab)
                 }
             }
             content()
@@ -259,15 +280,17 @@ private fun MediaCell(
     thumbnail: @Composable BoxScope.() -> Unit
 ) {
     var menu by remember { mutableStateOf(false) }
+    val openLabel = tr(R.string.common_open)
+    val moreLabel = tr(R.string.common_more_actions)
     Column(Modifier.fillMaxWidth()) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(1f)
                 .clip(RoundedCornerShape(10.dp))
                 .background(OmniColors.Field)
                 .combinedClickable(
-                    onClickLabel = "打开",
+                    onClickLabel = openLabel,
                     onClick = onOpen,
-                    onLongClickLabel = "更多操作",
+                    onLongClickLabel = moreLabel,
                     onLongClick = { menu = true }
                 )
         ) {
@@ -278,7 +301,7 @@ private fun MediaCell(
                         Modifier.size(28.dp).clip(CircleShape).background(OmniColors.Background.copy(alpha = 0.72f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Outlined.MoreHoriz, "更多操作", tint = OmniColors.Ink, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.MoreHoriz, moreLabel, tint = OmniColors.Ink, modifier = Modifier.size(18.dp))
                     }
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = OmniColors.Raised) {
@@ -308,11 +331,15 @@ private fun TrackRow(
     onShare: () -> Unit,
     onDelete: (() -> Unit)?
 ) {
+    val pauseLabel = tr(R.string.common_pause)
+    val playLabel = tr(R.string.common_play)
+    val shareLabel = tr(R.string.common_share)
+    val deleteLabel = tr(R.string.common_delete)
     Column(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onPlay, modifier = Modifier.size(48.dp)) {
                 Icon(if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                    if (playing) "暂停 ${track.title}" else "播放 ${track.title}", tint = OmniColors.Accent)
+                    if (playing) "$pauseLabel ${track.title}" else "$playLabel ${track.title}", tint = OmniColors.Accent)
             }
             Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
                 Text(track.title, color = OmniColors.Ink, style = MaterialTheme.typography.bodyLarge,
@@ -321,11 +348,11 @@ private fun TrackRow(
                     style = MaterialTheme.typography.labelSmall)
             }
             IconButton(onClick = onShare, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Outlined.Share, "分享 ${track.title}", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                Icon(Icons.Outlined.Share, "$shareLabel ${track.title}", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
             }
             if (onDelete != null) {
                 IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Outlined.DeleteOutline, "删除 ${track.title}", tint = OmniColors.Muted,
+                    Icon(Icons.Outlined.DeleteOutline, "$deleteLabel ${track.title}", tint = OmniColors.Muted,
                         modifier = Modifier.size(20.dp))
                 }
             }
@@ -340,8 +367,8 @@ private fun ConfirmDeleteDialog(title: String, text: String, onConfirm: () -> Un
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(text) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("删除", color = OmniColors.Danger) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(tr(R.string.common_delete), color = OmniColors.Danger) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr(R.string.common_cancel)) } },
         containerColor = OmniColors.Raised
     )
 }

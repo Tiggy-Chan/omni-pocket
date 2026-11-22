@@ -1,5 +1,6 @@
 package com.tiggy.qwenimage
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,13 +15,20 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tiggy.qwenimage.data.AppLanguageManager
 import com.tiggy.qwenimage.engine.LocalInferenceCoordinator
 import com.tiggy.qwenimage.ui.LocalOmniPalette
 import com.tiggy.qwenimage.ui.OmniColors
 import com.tiggy.qwenimage.ui.OmniTheme
+import com.tiggy.qwenimage.ui.ProvideOmniLocalization
 import com.tiggy.qwenimage.ui.QwenApp
 
 class MainActivity : ComponentActivity() {
+    override fun attachBaseContext(newBase: Context) {
+        val selected = AppLanguageManager.current(newBase)
+        super.attachBaseContext(AppLanguageManager.localizedContext(newBase, selected))
+    }
+
     private val inferenceCoordinator: LocalInferenceCoordinator
         get() = LocalInferenceCoordinator.shared
     private val viewModel: QwenViewModel by viewModels {
@@ -38,19 +46,23 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppLanguageManager.current(this)
         enableEdgeToEdge()
         setContent {
             val appState by viewModel.state.collectAsStateWithLifecycle()
-            OmniTheme(appState.themeMode) {
-                val dark = LocalOmniPalette.current.dark
-                SideEffect {
-                    WindowInsetsControllerCompat(window, window.decorView).apply {
-                        isAppearanceLightStatusBars = !dark
-                        isAppearanceLightNavigationBars = !dark
+            val appLanguage by AppLanguageManager.language.collectAsStateWithLifecycle()
+            ProvideOmniLocalization(appLanguage) {
+                OmniTheme(appState.themeMode) {
+                    val dark = LocalOmniPalette.current.dark
+                    SideEffect {
+                        WindowInsetsControllerCompat(window, window.decorView).apply {
+                            isAppearanceLightStatusBars = !dark
+                            isAppearanceLightNavigationBars = !dark
+                        }
                     }
-                }
-                Surface(modifier = Modifier.fillMaxSize(), color = OmniColors.Background) {
-                    QwenApp(viewModel, llmViewModel, decisionViewModel, hubViewModel)
+                    Surface(modifier = Modifier.fillMaxSize(), color = OmniColors.Background) {
+                        QwenApp(viewModel, llmViewModel, decisionViewModel, hubViewModel)
+                    }
                 }
             }
         }

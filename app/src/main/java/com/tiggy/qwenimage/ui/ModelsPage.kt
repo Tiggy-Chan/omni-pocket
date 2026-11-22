@@ -73,6 +73,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.annotation.StringRes
 import com.tiggy.qwenimage.DecisionPhase
 import com.tiggy.qwenimage.DecisionViewModel
 import com.tiggy.qwenimage.LlmViewModel
@@ -80,6 +81,7 @@ import com.tiggy.qwenimage.ModelHubUiState
 import com.tiggy.qwenimage.ModelHubViewModel
 import com.tiggy.qwenimage.QwenUiState
 import com.tiggy.qwenimage.QwenViewModel
+import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.ActiveDownloadState
 import com.tiggy.qwenimage.data.BenchmarkModality
 import com.tiggy.qwenimage.data.DeviceFitLevel
@@ -96,18 +98,18 @@ import com.tiggy.qwenimage.data.ModelBenchmarkEntry
 import com.tiggy.qwenimage.data.formatBytesCompact
 import java.util.Locale
 
-private enum class ModelsPageTab(val label: String) {
-    Installed("本地模型"),
-    Discover("发现模型"),
-    Reference("能力参考")
+private enum class ModelsPageTab(@StringRes val labelRes: Int) {
+    Installed(R.string.models_tab_local),
+    Discover(R.string.models_tab_discover),
+    Reference(R.string.models_tab_benchmarks)
 }
 
 private enum class BuiltInDeleteTarget(val label: String) {
     Decision("Elephant-1 9B"),
-    Qwen("Qwen 图像模型"),
-    Moss("MOSS 本机模型"),
-    Yue2("YuE2-3B 音乐模型"),
-    Wan("Wan2.2 视频模型")
+    Qwen("Qwen-Image"),
+    Moss("MOSS-Image"),
+    Yue2("YuE2-3B"),
+    Wan("Wan2.2")
 }
 
 /** Unified model management and Hugging Face / hf-mirror discovery page. */
@@ -122,6 +124,7 @@ fun ModelsPage(
     onUseHubModel: (InstalledHubModel) -> Unit
 ) {
     val context = LocalContext.current
+    val localized = LocalLocalizedContext.current
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val llmState by llmViewModel.state.collectAsStateWithLifecycle()
@@ -170,16 +173,17 @@ fun ModelsPage(
     val mossStatus = state.mossModelStatus
     val wanStatus = state.wanModelStatus
     val yue2Status = state.yue2ModelStatus
+    val sourceDisplayName = hubState.hubSettings.localizedDisplayName()
 
     WorkspaceScaffold(
-        title = "模型",
-        subtitle = "下载源：${hubState.hubSettings.displayName}",
+        title = tr(R.string.nav_models),
+        subtitle = tr(R.string.models_source_subtitle, sourceDisplayName),
         onMenu = onMenu,
         actions = {
             TextButton(onClick = { showMirrorSheet = true }, modifier = Modifier.heightIn(min = 48.dp)) {
                 Icon(Icons.Outlined.Language, null, tint = OmniColors.Accent, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
-                Text("切换源", color = OmniColors.Accent)
+                Text(tr(R.string.models_switch_source), color = OmniColors.Accent)
             }
         }
     ) { padding ->
@@ -198,12 +202,16 @@ fun ModelsPage(
                         OmniTabs(
                             items = ModelsPageTab.entries,
                             selected = tab,
-                            label = { it.label },
+                            label = { localized.getString(it.labelRes) },
                             onSelect = { tab = it }
                         )
                         if (hubState.storage.availableBytes > 0L) {
                             Text(
-                                "模型已占 ${formatBytesCompact(hubState.storage.modelsUsedBytes)} · 手机剩余 ${formatBytesCompact(hubState.storage.availableBytes)}",
+                                tr(
+                                    R.string.models_storage_line,
+                                    formatBytesCompact(hubState.storage.modelsUsedBytes),
+                                    formatBytesCompact(hubState.storage.availableBytes)
+                                ),
                                 color = OmniColors.Dim,
                                 style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.padding(horizontal = 4.dp)
@@ -228,36 +236,36 @@ fun ModelsPage(
                 when (tab) {
                     ModelsPageTab.Installed -> {
                         if (hubState.installedModels.isNotEmpty()) {
-                            item(key = "hub-installed-label") { SectionLabel("已从社区下载", Modifier.padding(top = 12.dp)) }
+                            item(key = "hub-installed-label") { SectionLabel(tr(R.string.common_community_downloaded), Modifier.padding(top = 12.dp)) }
                             items(hubState.installedModels, key = { "hub-${it.id}" }) { model ->
                                 ModelRow(
                                     name = model.name,
-                                    status = "${model.type.label} · ${formatBytesCompact(model.totalBytes)} · ${model.repo}",
+                                    status = "${model.type.localizedLabel()} · ${formatBytesCompact(model.totalBytes)} · ${model.repo}",
                                     ready = true,
                                     trailing = {
-                                        ModelButton("使用", { onUseHubModel(model) })
-                                        ModelButton("删除", { deleteHubModel = model }, danger = true)
+                                        ModelButton(tr(R.string.common_use), { onUseHubModel(model) })
+                                        ModelButton(tr(R.string.common_delete), { deleteHubModel = model }, danger = true)
                                     }
                                 )
                             }
                         }
 
-                        item(key = "chat-label") { SectionLabel("对话 · 内置", Modifier.padding(top = 16.dp)) }
+                        item(key = "chat-label") { SectionLabel(tr(R.string.models_sec_chat_builtin), Modifier.padding(top = 16.dp)) }
                         items(llmState.models, key = { "chat-${it.spec.id}" }) { status ->
                             val dlId = "builtin-llm:${status.spec.id}"
                             val queued = downloads.isPendingOrActive(dlId)
                             val complete = status.present == status.spec.artifacts.size
                             ModelRow(
                                 name = status.spec.name,
-                                status = if (status.ready) "已校验 · ${formatBytesCompact(status.spec.totalBytes)}"
+                                status = if (status.ready) tr(R.string.models_verified_size, formatBytesCompact(status.spec.totalBytes))
                                 else "${status.message} · ${formatBytesCompact(status.spec.totalBytes)}",
                                 ready = status.ready,
                                 trailing = {
                                     when {
-                                        queued -> ModelButton("取消", { hubViewModel.cancelQueuedDownload(dlId) })
-                                        status.ready -> ModelButton("删除", { deleteChat = status }, enabled = !llmState.busy, danger = true)
-                                        complete -> ModelButton("校验", { llmViewModel.verifyModel(status.spec.id) }, enabled = !llmState.busy)
-                                        else -> ModelButton("下载", {
+                                        queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
+                                        status.ready -> ModelButton(tr(R.string.common_delete), { deleteChat = status }, enabled = !llmState.busy, danger = true)
+                                        complete -> ModelButton(tr(R.string.common_verify), { llmViewModel.verifyModel(status.spec.id) }, enabled = !llmState.busy)
+                                        else -> ModelButton(tr(R.string.common_download), {
                                             requestNotificationPermissionIfNeeded()
                                             llmViewModel.downloadModel(status.spec.id)
                                         })
@@ -266,14 +274,14 @@ fun ModelsPage(
                             )
                         }
 
-                        item(key = "decision-label") { SectionLabel("决策 · 内置", Modifier.padding(top = 16.dp)) }
+                        item(key = "decision-label") { SectionLabel(tr(R.string.models_sec_decision_builtin), Modifier.padding(top = 16.dp)) }
                         item(key = "decision") {
                             val model = decisionState.model
                             val dlId = "builtin-decision:elephant-1"
                             val queued = downloads.isPendingOrActive(dlId)
                             if (model == null) {
                                 Text(
-                                    "正在读取模型状态",
+                                    tr(R.string.models_reading_status),
                                     color = OmniColors.Muted,
                                     style = MaterialTheme.typography.bodyMedium,
                                     modifier = Modifier.padding(vertical = 16.dp)
@@ -282,20 +290,20 @@ fun ModelsPage(
                                 val complete = model.present == model.spec.artifacts.size
                                 ModelRow(
                                     name = model.spec.name,
-                                    status = if (model.ready) "已校验 · ${formatBytesCompact(model.spec.totalBytes)}"
+                                    status = if (model.ready) tr(R.string.models_verified_size, formatBytesCompact(model.spec.totalBytes))
                                     else "${model.message} · ${formatBytesCompact(model.spec.totalBytes)}",
                                     ready = model.ready,
                                     trailing = {
                                         when {
-                                            queued -> ModelButton("取消", { hubViewModel.cancelQueuedDownload(dlId) })
+                                            queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
                                             model.ready -> ModelButton(
-                                                "删除",
+                                                tr(R.string.common_delete),
                                                 { deleteBuiltIn = BuiltInDeleteTarget.Decision },
                                                 enabled = !decisionState.busy,
                                                 danger = true
                                             )
-                                            complete -> ModelButton("校验", decisionViewModel::verifyModel, enabled = !decisionState.busy)
-                                            else -> ModelButton("下载", {
+                                            complete -> ModelButton(tr(R.string.common_verify), decisionViewModel::verifyModel, enabled = !decisionState.busy)
+                                            else -> ModelButton(tr(R.string.common_download), {
                                                 requestNotificationPermissionIfNeeded()
                                                 decisionViewModel.downloadModel()
                                             })
@@ -305,9 +313,9 @@ fun ModelsPage(
                                         if (decisionState.busy) {
                                             Text(
                                                 when (decisionState.phase) {
-                                                    DecisionPhase.Verifying -> "正在校验"
-                                                    DecisionPhase.Loading -> "正在加载"
-                                                    DecisionPhase.Computing -> "正在推理"
+                                                    DecisionPhase.Verifying -> tr(R.string.decision_verifying)
+                                                    DecisionPhase.Loading -> tr(R.string.chat_loading_model)
+                                                    DecisionPhase.Computing -> tr(R.string.models_inferring)
                                                     DecisionPhase.Idle -> ""
                                                 },
                                                 color = OmniColors.Muted,
@@ -326,7 +334,7 @@ fun ModelsPage(
                                         if (!model.ready) {
                                             TextButton(onClick = { elephantManualOpen = !elephantManualOpen }) {
                                                 Text(
-                                                    if (elephantManualOpen) "收起 USB 手动导入说明" else "也可通过电脑 USB 导入",
+                                                    if (elephantManualOpen) tr(R.string.models_usb_hide) else tr(R.string.models_usb_import_hint),
                                                     color = OmniColors.Dim,
                                                     style = MaterialTheme.typography.labelMedium
                                                 )
@@ -349,24 +357,24 @@ fun ModelsPage(
                             }
                         }
 
-                        item(key = "image-label") { SectionLabel("图像 · 内置", Modifier.padding(top = 16.dp)) }
+                        item(key = "image-label") { SectionLabel(tr(R.string.models_sec_image_builtin), Modifier.padding(top = 16.dp)) }
                         item(key = "moss") {
                             val dlId = "builtin-image:moss"
                             val queued = downloads.isPendingOrActive(dlId)
                             ModelRow(
-                                name = "MOSS 本机",
-                                status = mossStatus?.message ?: "尚未找到模型",
+                                name = "MOSS-Image",
+                                status = mossStatus?.message ?: tr(R.string.common_not_downloaded),
                                 ready = mossStatus?.ready == true,
                                 trailing = {
                                     when {
-                                        queued -> ModelButton("取消", { hubViewModel.cancelQueuedDownload(dlId) })
+                                        queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
                                         mossStatus?.ready == true -> ModelButton(
-                                            "删除",
+                                            tr(R.string.common_delete),
                                             { deleteBuiltIn = BuiltInDeleteTarget.Moss },
                                             enabled = !modelBusy,
                                             danger = true
                                         )
-                                        else -> ModelButton("下载", {
+                                        else -> ModelButton(tr(R.string.common_download), {
                                             requestNotificationPermissionIfNeeded()
                                             viewModel.downloadMossModels()
                                         })
@@ -375,9 +383,9 @@ fun ModelsPage(
                                 below = {
                                     if (showModelTask && mossTaskActive) TaskLine(modelTask, modifier = Modifier.padding(bottom = 4.dp))
                                     Row(Modifier.padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        ModelButton("导入目录", { mossFolderPicker.launch(null) }, enabled = !modelBusy, modifier = Modifier.weight(1f))
+                                        ModelButton(tr(R.string.models_import_dir), { mossFolderPicker.launch(null) }, enabled = !modelBusy, modifier = Modifier.weight(1f))
                                         ModelButton(
-                                            "校验",
+                                            tr(R.string.common_verify),
                                             viewModel::verifyMossModels,
                                             enabled = !modelBusy && mossStatus?.let { it.total > 0 && it.present == it.total } == true,
                                             modifier = Modifier.weight(1f)
@@ -390,13 +398,13 @@ fun ModelsPage(
                             val dlId = "builtin-image:qwen"
                             val queued = downloads.isPendingOrActive(dlId)
                             ModelRow(
-                                name = "Qwen 图像",
-                                status = qwenStatus?.message ?: "尚未找到模型",
+                                name = "Qwen-Image 2.1",
+                                status = qwenStatus?.message ?: tr(R.string.common_not_downloaded),
                                 ready = qwenStatus?.ready == true,
                                 trailing = {
                                     if (qwenStatus?.ready == true) {
                                         ModelButton(
-                                            "删除",
+                                            tr(R.string.common_delete),
                                             { deleteBuiltIn = BuiltInDeleteTarget.Qwen },
                                             enabled = !modelBusy,
                                             danger = true
@@ -407,19 +415,19 @@ fun ModelsPage(
                                     if (showModelTask && !mossTaskActive) TaskLine(modelTask, modifier = Modifier.padding(bottom = 4.dp))
                                     if (qwenStatus?.ready == true) {
                                         ModelButton(
-                                            "检查推理引擎",
+                                            tr(R.string.models_check_engine),
                                             viewModel::checkRuntime,
                                             enabled = !modelBusy
                                         )
                                     }
                                     SettingRow(
-                                        title = "来源仓库",
-                                        detail = state.repo.ifBlank { "未设置仓库" },
+                                        title = tr(R.string.models_source_repo),
+                                        detail = state.repo.ifBlank { tr(R.string.models_repo_unset) },
                                         onClick = { sourceOpen = !sourceOpen },
                                         trailing = {
                                             Icon(
                                                 if (sourceOpen) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                                                if (sourceOpen) "收起来源" else "展开来源",
+                                                if (sourceOpen) tr(R.string.models_collapse_source) else tr(R.string.models_expand_source),
                                                 tint = OmniColors.Dim
                                             )
                                         }
@@ -430,7 +438,7 @@ fun ModelsPage(
                                                 value = state.repo,
                                                 onValueChange = viewModel::setRepo,
                                                 label = "Hugging Face owner/repo",
-                                                placeholder = "包含 manifest.json 的转换仓库",
+                                                placeholder = tr(R.string.models_repo_placeholder),
                                                 modifier = Modifier.fillMaxWidth()
                                             )
                                             OmniTextField(
@@ -441,10 +449,10 @@ fun ModelsPage(
                                             )
                                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                                 if (queued) {
-                                                    ModelButton("取消下载", { hubViewModel.cancelQueuedDownload(dlId) }, modifier = Modifier.weight(1f))
+                                                    ModelButton(tr(R.string.models_cancel_download), { hubViewModel.cancelQueuedDownload(dlId) }, modifier = Modifier.weight(1f))
                                                 } else {
                                                     ModelButton(
-                                                        "下载",
+                                                        tr(R.string.common_download),
                                                         {
                                                             requestNotificationPermissionIfNeeded()
                                                             viewModel.downloadModels()
@@ -454,7 +462,7 @@ fun ModelsPage(
                                                     )
                                                 }
                                                 ModelButton(
-                                                    "导入",
+                                                    tr(R.string.models_import_short),
                                                     { qwenFolderPicker.launch(null) },
                                                     enabled = !modelBusy,
                                                     modifier = Modifier.weight(1f)
@@ -466,25 +474,25 @@ fun ModelsPage(
                             )
                         }
 
-                        item(key = "music-label") { SectionLabel("音乐 · 内置", Modifier.padding(top = 16.dp)) }
+                        item(key = "music-label") { SectionLabel(tr(R.string.models_sec_music_builtin), Modifier.padding(top = 16.dp)) }
                         item(key = "yue2") {
                             val dlId = "builtin-music:yue2"
                             val queued = downloads.isPendingOrActive(dlId)
                             val ready = yue2Status?.ready == true
                             ModelRow(
-                                name = "YuE2-3B 本机",
-                                status = yue2Status?.let { "${it.message} · ${formatBytesCompact(it.totalBytes)}" } ?: "约 2.9 GB",
+                                name = "YuE2-3B",
+                                status = yue2Status?.let { "${it.message} · ${formatBytesCompact(it.totalBytes)}" } ?: "~2.9 GB",
                                 ready = ready,
                                 trailing = {
                                     when {
-                                        queued -> ModelButton("取消", { hubViewModel.cancelQueuedDownload(dlId) })
+                                        queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
                                         ready -> {
                                             if (yue2Status?.verified != true) {
-                                                ModelButton("校验", viewModel::verifyYue2Models, enabled = !modelBusy)
+                                                ModelButton(tr(R.string.common_verify), viewModel::verifyYue2Models, enabled = !modelBusy)
                                             }
-                                            ModelButton("删除", { deleteBuiltIn = BuiltInDeleteTarget.Yue2 }, enabled = !modelBusy, danger = true)
+                                            ModelButton(tr(R.string.common_delete), { deleteBuiltIn = BuiltInDeleteTarget.Yue2 }, enabled = !modelBusy, danger = true)
                                         }
-                                        else -> ModelButton("下载", {
+                                        else -> ModelButton(tr(R.string.common_download), {
                                             requestNotificationPermissionIfNeeded()
                                             viewModel.downloadYue2Models()
                                         })
@@ -492,7 +500,7 @@ fun ModelsPage(
                                 },
                                 below = {
                                     Text(
-                                        "权重为 CC BY-NC 4.0，仅限非商业使用",
+                                        tr(R.string.models_cc_by_nc_note),
                                         color = OmniColors.Dim,
                                         style = MaterialTheme.typography.labelSmall,
                                         modifier = Modifier.padding(bottom = 8.dp)
@@ -501,25 +509,25 @@ fun ModelsPage(
                             )
                         }
 
-                        item(key = "video-label") { SectionLabel("视频 · 内置", Modifier.padding(top = 16.dp)) }
+                        item(key = "video-label") { SectionLabel(tr(R.string.models_sec_video_builtin), Modifier.padding(top = 16.dp)) }
                         item(key = "wan22") {
                             val dlId = "builtin-video:wan22"
                             val queued = downloads.isPendingOrActive(dlId)
                             val ready = wanStatus?.ready == true
                             ModelRow(
-                                name = "Wan2.2 视频本机",
-                                status = wanStatus?.let { "${it.message} · ${formatBytesCompact(it.totalBytes)}" } ?: "约 5.9 GB",
+                                name = "Wan2.2 Turbo",
+                                status = wanStatus?.let { "${it.message} · ${formatBytesCompact(it.totalBytes)}" } ?: "~5.9 GB",
                                 ready = ready,
                                 trailing = {
                                     when {
-                                        queued -> ModelButton("取消", { hubViewModel.cancelQueuedDownload(dlId) })
+                                        queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
                                         ready -> {
                                             if (wanStatus?.verified != true) {
-                                                ModelButton("校验", viewModel::verifyWanModels, enabled = !modelBusy)
+                                                ModelButton(tr(R.string.common_verify), viewModel::verifyWanModels, enabled = !modelBusy)
                                             }
-                                            ModelButton("删除", { deleteBuiltIn = BuiltInDeleteTarget.Wan }, enabled = !modelBusy, danger = true)
+                                            ModelButton(tr(R.string.common_delete), { deleteBuiltIn = BuiltInDeleteTarget.Wan }, enabled = !modelBusy, danger = true)
                                         }
-                                        else -> ModelButton("下载", {
+                                        else -> ModelButton(tr(R.string.common_download), {
                                             requestNotificationPermissionIfNeeded()
                                             viewModel.downloadWanModels()
                                         })
@@ -527,7 +535,7 @@ fun ModelsPage(
                                 },
                                 below = {
                                     Text(
-                                        "含 DiT、UMT5 文本编码器与 TAE 视频解码器（480×832 本机运行）",
+                                        tr(R.string.models_wan_note),
                                         color = OmniColors.Dim,
                                         style = MaterialTheme.typography.labelSmall,
                                         modifier = Modifier.padding(bottom = 8.dp)
@@ -546,7 +554,7 @@ fun ModelsPage(
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     items(HubSearchCategory.entries) { cat ->
                                         ComposerChip(
-                                            label = cat.label,
+                                            label = cat.localizedLabel(),
                                             onClick = { hubViewModel.selectCategory(cat) },
                                             selected = hubState.category == cat
                                         )
@@ -563,19 +571,19 @@ fun ModelsPage(
                                     OmniTextField(
                                         value = hubState.query,
                                         onValueChange = hubViewModel::updateQuery,
-                                        label = "搜索仓库或输入 owner/repo",
+                                        label = tr(R.string.models_search_placeholder),
                                         placeholder = hubState.category.hint,
                                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                                         keyboardActions = KeyboardActions(onSearch = { submitSearch() }),
                                         trailingIcon = if (hubState.query.isNotEmpty()) ({
                                             IconButton(onClick = { hubViewModel.updateQuery("") }) {
-                                                Icon(Icons.Outlined.Close, "清空", tint = OmniColors.Dim, modifier = Modifier.size(18.dp))
+                                                Icon(Icons.Outlined.Close, tr(R.string.common_clear), tint = OmniColors.Dim, modifier = Modifier.size(18.dp))
                                             }
                                         }) else null,
                                         modifier = Modifier.weight(1f)
                                     )
                                     ModelButton(
-                                        text = if (hubState.searching) "搜索中" else "搜索",
+                                        text = if (hubState.searching) tr(R.string.models_searching) else tr(R.string.common_search),
                                         onClick = submitSearch,
                                         enabled = !hubState.searching && hubState.query.isNotBlank()
                                     )
@@ -584,8 +592,8 @@ fun ModelsPage(
                                     Text(it, color = OmniColors.Danger, style = MaterialTheme.typography.bodySmall)
                                 }
                                 SectionLabel(
-                                    if (hubState.showingRecommendations) "推荐起步模型 · 点击查看可下载文件"
-                                    else "搜索结果（${hubState.hubSettings.displayName}）"
+                                    if (hubState.showingRecommendations) tr(R.string.models_starter_header)
+                                    else tr(R.string.models_search_results, sourceDisplayName)
                                 )
                             }
                         }
@@ -597,7 +605,7 @@ fun ModelsPage(
                             }
                         } else if (hubState.searchResults.isEmpty()) {
                             item(key = "hub-empty") {
-                                OmniEmptyState(Icons.Outlined.Search, "没有匹配的模型", "换个关键词，或直接输入完整仓库名 owner/repo")
+                                OmniEmptyState(Icons.Outlined.Search, tr(R.string.models_empty_search), tr(R.string.models_empty_search_hint))
                             }
                         } else {
                             items(hubState.searchResults, key = { "repo-${it.id}" }) { repo ->
@@ -615,16 +623,18 @@ fun ModelsPage(
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     items(BenchmarkModality.entries) { modality ->
                                         ComposerChip(
-                                            label = modality.label,
+                                            label = modality.localizedLabel(),
                                             onClick = { benchmarkModality = modality },
                                             selected = benchmarkModality == modality
                                         )
                                     }
                                 }
-                                ContentCard(title = "评分与适配说明") {
-                                    val hwNote = hubState.deviceHardware?.summaryLine()?.let { "本机配置：$it。" }.orEmpty()
+                                ContentCard(title = tr(R.string.bench_guide_title)) {
+                                    val hwNote = hubState.deviceHardware?.localizedSummary()?.let {
+                                        tr(R.string.bench_device_prefix, it)
+                                    }.orEmpty()
                                     Text(
-                                        "${hwNote}公开榜单（Artificial Analysis / VBench / SongEval）仅评测官方原版基座，不覆盖第三方量化仓库。下表按基座家族标注可查证来源（公开独立榜单 / 官方技术报告 / 端侧专项参考），并结合量化精度保留率与本机内存评估适配度。",
+                                        tr(R.string.bench_guide_body, hwNote),
                                         color = OmniColors.Muted,
                                         style = MaterialTheme.typography.bodySmall
                                     )
@@ -667,7 +677,7 @@ fun ModelsPage(
     deleteChat?.let { status ->
         ConfirmModelDelete(
             status.spec.name,
-            "释放 ${formatBytesCompact(status.spec.totalBytes)} 空间。会话会保留。",
+            tr(R.string.models_free_space_keep_chats, formatBytesCompact(status.spec.totalBytes)),
             onConfirm = { llmViewModel.deleteModel(status.spec.id); deleteChat = null },
             onDismiss = { deleteChat = null }
         )
@@ -675,7 +685,7 @@ fun ModelsPage(
     deleteHubModel?.let { model ->
         ConfirmModelDelete(
             model.name,
-            "释放 ${formatBytesCompact(model.totalBytes)} 空间。",
+            tr(R.string.models_free_space, formatBytesCompact(model.totalBytes)),
             onConfirm = {
                 hubViewModel.deleteInstalled(model.id) {
                     llmViewModel.unloadIfLoadedSync(model.id)
@@ -688,7 +698,7 @@ fun ModelsPage(
     deleteBuiltIn?.let { target ->
         ConfirmModelDelete(
             target.label,
-            "将删除手机中已保存的模型文件，之后可重新下载。",
+            tr(R.string.models_delete_generic_body),
             onConfirm = {
                 when (target) {
                     BuiltInDeleteTarget.Decision -> decisionViewModel.deleteModel()
@@ -713,13 +723,13 @@ private fun DownloadStatusCard(
     onDismissError: () -> Unit
 ) {
     ContentCard(
-        title = active?.let { "正在下载 · ${it.title}" } ?: "下载提示",
+        title = active?.let { tr(R.string.models_downloading_title, it.title) } ?: tr(R.string.models_download_notice),
         trailing = {
             if (active != null) {
-                TextButton(onClick = onCancel) { Text("取消", color = OmniColors.Danger) }
+                TextButton(onClick = onCancel) { Text(tr(R.string.common_cancel), color = OmniColors.Danger) }
             } else if (error != null) {
                 IconButton(onClick = onDismissError, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Outlined.Close, "关闭", tint = OmniColors.Dim, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Outlined.Close, tr(R.string.common_close), tint = OmniColors.Dim, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -741,8 +751,8 @@ private fun DownloadStatusCard(
                 )
             }
             val speed = if (active.bytesPerSecond > 0L) " · ${formatBytesCompact(active.bytesPerSecond)}/s" else ""
-            val totalLabel = if (active.totalBytes > 0L) formatBytesCompact(active.totalBytes) else "计算中"
-            val queueLabel = if (queueSize > 0) " · 另有 $queueSize 项排队" else ""
+            val totalLabel = if (active.totalBytes > 0L) formatBytesCompact(active.totalBytes) else tr(R.string.models_calculating)
+            val queueLabel = if (queueSize > 0) tr(R.string.models_queue_more, queueSize) else ""
             if (active.file.isNotBlank() && active.file != active.title) {
                 Text(
                     active.file,
@@ -770,6 +780,8 @@ private fun DownloadStatusCard(
 private fun HubRepoRow(repo: HfRepoSummary, onClick: () -> Unit) {
     val benchmark = remember(repo.id) { ModelBenchmarkCatalog.matchRepoOrName(repo.id) }
     val trusted = remember(repo.author) { ModelBenchmarkCatalog.isTrustedPackager(repo.author) }
+    val authorText = if (trusted) tr(R.string.models_trusted_packager, repo.author) else repo.author
+    val downloadsText = if (repo.downloads > 0L) tr(R.string.models_downloads_count, formatCount(repo.downloads)) else null
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(vertical = 10.dp),
@@ -787,18 +799,18 @@ private fun HubRepoRow(repo: HfRepoSummary, onClick: () -> Unit) {
                         modifier = Modifier.weight(1f, fill = false)
                     )
                     if (repo.gated) {
-                        Icon(Icons.Outlined.Lock, "需授权", tint = OmniColors.Dim, modifier = Modifier.size(14.dp))
+                        Icon(Icons.Outlined.Lock, tr(R.string.models_gated), tint = OmniColors.Dim, modifier = Modifier.size(14.dp))
                     }
                 }
                 val meta = buildList {
-                    add(if (trusted) "${repo.author}（常用打包方）" else repo.author)
-                    if (repo.downloads > 0L) add("${formatCount(repo.downloads)} 下载")
+                    add(authorText)
+                    downloadsText?.let(::add)
                     if (repo.summary.isNotBlank()) add(repo.summary)
                 }.joinToString(" · ")
                 Text(meta, color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (benchmark != null) {
                     Text(
-                        "参考基座 ${benchmark.familyName} · ${benchmark.primaryScoreLabel}（${benchmark.evidenceTier.label}）",
+                        tr(R.string.bench_ref_line, benchmark.familyName, benchmark.primaryScoreLabel, benchmark.evidenceTier.localizedLabel()),
                         color = OmniColors.Dim,
                         style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
@@ -806,7 +818,7 @@ private fun HubRepoRow(repo: HfRepoSummary, onClick: () -> Unit) {
                     )
                 }
             }
-            Icon(Icons.Outlined.CloudDownload, "查看文件", tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
+            Icon(Icons.Outlined.CloudDownload, tr(R.string.models_view_files), tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
         }
         HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
     }
@@ -850,20 +862,20 @@ private fun BenchmarkReferenceRow(
                     .filter { it.isNotBlank() }.joinToString(" · ")
                 Text(scores, color = OmniColors.Accent, style = MaterialTheme.typography.labelMedium)
                 Text(entry.strengths, color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
-                val fitText = ramFit?.let { " · ${it.label}" }.orEmpty()
+                val fitText = ramFit?.let { " · ${it.localizedLabel()}" }.orEmpty()
                 Text(
-                    "推荐 ${entry.recommendedQuant} · 建议 ≥ ${entry.minRamGb} GB 内存$fitText",
+                    tr(R.string.bench_rec_line, entry.recommendedQuant, entry.minRamGb, fitText),
                     color = deviceFitColor(ramFit),
                     style = MaterialTheme.typography.labelSmall
                 )
                 Text(
-                    "来源：${entry.source}（${entry.evidenceTier.label}）",
+                    tr(R.string.bench_source_line, entry.source, entry.evidenceTier.localizedLabel()),
                     color = OmniColors.Dim,
                     style = MaterialTheme.typography.labelSmall
                 )
             }
             if (onInspect != null) {
-                ModelButton("查看下载", onInspect)
+                ModelButton(tr(R.string.models_view_downloads), onInspect)
             }
         }
         HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
@@ -890,7 +902,7 @@ private fun HubRepoFilesSheet(
     OmniSheet(repo, onDismiss) {
         if (benchmark != null) {
             Text(
-                "基座参考：${benchmark.familyName} · ${benchmark.primaryScoreLabel}（${benchmark.source}）",
+                tr(R.string.bench_ref_line, benchmark.familyName, benchmark.primaryScoreLabel, benchmark.source),
                 color = OmniColors.Muted,
                 style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(bottom = 8.dp)
@@ -905,7 +917,7 @@ private fun HubRepoFilesSheet(
                 ) {
                     CircularProgressIndicator(Modifier.size(20.dp), color = OmniColors.Accent, strokeWidth = 2.dp)
                     Spacer(Modifier.width(10.dp))
-                    Text("正在读取文件列表…", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                    Text(tr(R.string.models_loading_files), color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
                 }
             }
             state.repoError != null -> {
@@ -920,12 +932,16 @@ private fun HubRepoFilesSheet(
                         val fit = remember(option.totalBytes, state.deviceHardware) {
                             ModelBenchmarkCatalog.evaluateDeviceFit(option.totalBytes, state.deviceHardware)
                         }
+                        val recRamText = tr(R.string.models_rec_ram, option.recommendedRamGb)
+                        val filesCountText = if (option.files.size > 1) tr(R.string.models_files_count, option.files.size) else null
                         val detail = buildList {
                             option.quantTag?.let(::add)
                             add(formatBytesCompact(option.totalBytes))
-                            add("建议 ≥ ${option.recommendedRamGb} GB 内存")
-                            if (option.files.size > 1) add("${option.files.size} 个文件")
+                            add(recRamText)
+                            filesCountText?.let(::add)
                         }.joinToString(" · ")
+                        val fitLabel = fit.localizedLabel()
+                        val quantText = quantHint?.let { tr(R.string.models_quant_retention, it.retentionPercent, it.note) }
                         Column(Modifier.fillMaxWidth()) {
                             Row(
                                 Modifier.fillMaxWidth().padding(vertical = 10.dp),
@@ -940,10 +956,7 @@ private fun HubRepoFilesSheet(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(detail, color = OmniColors.Muted, style = MaterialTheme.typography.labelSmall)
-                                    val fitLine = buildList {
-                                        add(fit.label)
-                                        quantHint?.let { add("量化保留约 ${it.retentionPercent}% · ${it.note}") }
-                                    }.joinToString(" · ")
+                                    val fitLine = listOfNotNull(fitLabel, quantText).joinToString(" · ")
                                     Text(fitLine, color = deviceFitColor(fit), style = MaterialTheme.typography.labelSmall)
                                     option.companionSummary?.let {
                                         Text(it, color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall)
@@ -954,9 +967,9 @@ private fun HubRepoFilesSheet(
                                 }
                                 ModelButton(
                                     text = when {
-                                        installed -> "已安装"
-                                        queued -> "队列中"
-                                        else -> "下载"
+                                        installed -> tr(R.string.models_installed_badge)
+                                        queued -> tr(R.string.image_status_queued)
+                                        else -> tr(R.string.common_download)
                                     },
                                     onClick = { onDownload(option) },
                                     enabled = !installed && !queued && option.splitWarning == null
@@ -978,9 +991,10 @@ fun MirrorSourceSheet(
     onDismiss: () -> Unit
 ) {
     val settings = state.hubSettings
+    val customLabel = tr(R.string.common_custom)
     var customUrl by remember(settings.customBaseUrl) { mutableStateOf(settings.customBaseUrl) }
     var token by remember(settings.token) { mutableStateOf(settings.token) }
-    OmniSheet("模型下载源", onDismiss) {
+    OmniSheet(tr(R.string.models_mirror_title), onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OmniTabs(
                 items = HubMirrorMode.entries,
@@ -989,13 +1003,13 @@ fun MirrorSourceSheet(
                     when (it) {
                         HubMirrorMode.Official -> "Hugging Face"
                         HubMirrorMode.HfMirror -> "HF-Mirror"
-                        HubMirrorMode.Custom -> "自定义"
+                        HubMirrorMode.Custom -> customLabel
                     }
                 },
                 onSelect = hubViewModel::setMirrorMode
             )
             Text(
-                "当前地址：${settings.effectiveBaseUrl}。所有模型搜索与下载均通过此源进行，校验仍以原始 SHA-256 为准。",
+                tr(R.string.models_mirror_desc, settings.effectiveBaseUrl),
                 color = OmniColors.Muted,
                 style = MaterialTheme.typography.bodySmall
             )
@@ -1006,7 +1020,7 @@ fun MirrorSourceSheet(
                         customUrl = it
                         hubViewModel.setCustomMirrorUrl(it)
                     },
-                    label = "自定义镜像根地址",
+                    label = tr(R.string.models_mirror_custom_url),
                     placeholder = "https://hf-mirror.com",
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1017,7 +1031,7 @@ fun MirrorSourceSheet(
                     token = it
                     hubViewModel.setHubToken(it)
                 },
-                label = "Access Token（可选，用于受限模型）",
+                label = tr(R.string.models_mirror_token),
                 placeholder = "hf_...",
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1026,7 +1040,7 @@ fun MirrorSourceSheet(
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ModelButton(
-                    text = if (state.probing) "测速中…" else "测试连接",
+                    text = if (state.probing) tr(R.string.models_testing) else tr(R.string.models_test_conn),
                     onClick = hubViewModel::probeHub,
                     enabled = !state.probing
                 )
@@ -1103,10 +1117,10 @@ private fun ModelButton(
 private fun ConfirmModelDelete(name: String, text: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("删除 $name？") },
+        title = { Text(tr(R.string.models_delete_confirm, name)) },
         text = { Text(text) },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("删除", color = OmniColors.Danger) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(tr(R.string.common_delete), color = OmniColors.Danger) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr(R.string.common_cancel)) } },
         containerColor = OmniColors.Raised
     )
 }

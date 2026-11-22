@@ -34,6 +34,7 @@ import com.tiggy.qwenimage.DecisionDraft
 import com.tiggy.qwenimage.DecisionPhase
 import com.tiggy.qwenimage.DecisionUiState
 import com.tiggy.qwenimage.DecisionViewModel
+import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.DecisionAnswer
 import com.tiggy.qwenimage.data.DecisionKind
 import com.tiggy.qwenimage.data.decisionSlotLabels
@@ -50,11 +51,11 @@ private val slotLabels: List<String> by lazy { decisionSlotLabels() }
 fun DecisionScreen(viewModel: DecisionViewModel, onMenu: (() -> Unit)?, onModels: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     WorkspaceScaffold(
-        title = "决策",
-        subtitle = "Elephant-1 · 本机" + if (state.loaded) " · 已加载" else "",
+        title = tr(R.string.nav_decision),
+        subtitle = tr(R.string.common_on_device_tag, "Elephant-1") + if (state.loaded) tr(R.string.decision_loaded_suffix) else "",
         onMenu = onMenu,
         actions = {
-            TextButton(onClick = viewModel::showExample, enabled = !state.busy) { Text("示例") }
+            TextButton(onClick = viewModel::showExample, enabled = !state.busy) { Text(tr(R.string.decision_example)) }
         },
         composer = { haze ->
             ActionArea(state, haze, onRun = viewModel::run, onCancel = viewModel::cancel, onModels = onModels)
@@ -67,6 +68,7 @@ fun DecisionScreen(viewModel: DecisionViewModel, onMenu: (() -> Unit)?, onModels
 @Composable
 private fun DecisionForm(state: DecisionUiState, viewModel: DecisionViewModel, padding: PaddingValues) {
     val busy = state.busy
+    val textTabLabel = tr(R.string.decision_text_tab)
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
@@ -77,13 +79,13 @@ private fun DecisionForm(state: DecisionUiState, viewModel: DecisionViewModel, p
     ) {
         item(key = "state") {
             ReadingColumn {
-                SectionLabel("状态")
+                SectionLabel(tr(R.string.decision_state))
                 OmniTextField(
                     value = state.stateText,
                     onValueChange = viewModel::updateState,
-                    label = if (state.jsonState) "JSON 状态" else "文本状态",
+                    label = if (state.jsonState) tr(R.string.decision_json_state) else tr(R.string.decision_text_state),
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = "事实、上下文或 JSON",
+                    placeholder = tr(R.string.decision_state_hint),
                     minLines = 4,
                     maxLines = 8,
                     enabled = !busy
@@ -92,7 +94,7 @@ private fun DecisionForm(state: DecisionUiState, viewModel: DecisionViewModel, p
                     OmniTabs(
                         items = listOf(false, true),
                         selected = state.jsonState,
-                        label = { if (it) "JSON" else "文本" },
+                        label = { if (it) "JSON" else textTabLabel },
                         enabled = !busy
                     ) { viewModel.setJsonState(it) }
                 }
@@ -119,7 +121,7 @@ private fun DecisionForm(state: DecisionUiState, viewModel: DecisionViewModel, p
                     modifier = Modifier.padding(top = 4.dp)
                 ) {
                     Icon(Icons.Outlined.Add, null, modifier = Modifier.size(18.dp))
-                    Text("添加问题", modifier = Modifier.padding(start = 6.dp))
+                    Text(tr(R.string.decision_add_question), modifier = Modifier.padding(start = 6.dp))
                 }
             }
         }
@@ -127,7 +129,7 @@ private fun DecisionForm(state: DecisionUiState, viewModel: DecisionViewModel, p
             item(key = "summary") {
                 ReadingColumn {
                     Text(
-                        "共享前缀 ${result.prefixTokens} tokens · ${seconds(result.prefixPrefillUs + result.branchPrefillUs)}",
+                        tr(R.string.decision_shared_prefix, result.prefixTokens, seconds(result.prefixPrefillUs + result.branchPrefillUs)),
                         color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(top = 4.dp)
                     )
@@ -146,14 +148,17 @@ private fun QuestionBlock(
     busy: Boolean,
     viewModel: DecisionViewModel
 ) {
+    val choiceLabel = tr(R.string.decision_choice)
+    val yesNoLabel = tr(R.string.decision_yesno)
+    val scoreLabel = tr(R.string.decision_score)
     Column(Modifier.fillMaxWidth()) {
         HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("问题 ${index + 1}", color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium,
+            Text(tr(R.string.decision_question_n, index + 1), color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.weight(1f))
             if (removable) {
                 IconButton(onClick = { viewModel.removeQuestion(question.id) }, enabled = !busy, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Outlined.DeleteOutline, "删除问题", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.DeleteOutline, tr(R.string.decision_delete_question), tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
                 }
             }
         }
@@ -161,16 +166,22 @@ private fun QuestionBlock(
             OmniTabs(
                 items = DecisionKind.entries,
                 selected = question.kind,
-                label = { kindLabel(it) },
+                label = {
+                    when (it) {
+                        DecisionKind.Choice -> choiceLabel
+                        DecisionKind.Noul -> yesNoLabel
+                        DecisionKind.Score -> scoreLabel
+                    }
+                },
                 enabled = !busy
             ) { viewModel.changeKind(question.id, it) }
             OmniTextField(
                 value = question.instructions,
                 onValueChange = { viewModel.updateInstructions(question.id, it) },
                 label = when (question.kind) {
-                    DecisionKind.Choice -> "问题"
-                    DecisionKind.Noul -> "判断"
-                    DecisionKind.Score -> "评分问题"
+                    DecisionKind.Choice -> tr(R.string.decision_question)
+                    DecisionKind.Noul -> yesNoLabel
+                    DecisionKind.Score -> tr(R.string.decision_score_question)
                 },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = when (question.kind) {
@@ -197,7 +208,7 @@ private fun OptionsEditor(question: DecisionDraft, busy: Boolean, viewModel: Dec
                     OmniTextField(
                         value = option.name,
                         onValueChange = { viewModel.updateOptionName(question.id, index, it) },
-                        label = "选项 ${slotLabels.getOrNull(index) ?: index + 1}",
+                        label = tr(R.string.decision_option_n, slotLabels.getOrNull(index) ?: (index + 1).toString()),
                         modifier = Modifier.fillMaxWidth(),
                         enabled = !busy
                     )
@@ -205,9 +216,9 @@ private fun OptionsEditor(question: DecisionDraft, busy: Boolean, viewModel: Dec
                 OmniTextField(
                     value = option.description,
                     onValueChange = { viewModel.updateOptionDescription(question.id, index, it) },
-                    label = if (score) "等级 $index" else "说明",
+                    label = if (score) tr(R.string.decision_level_n, index) else tr(R.string.decision_notes),
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = if (score) "描述该等级" else "可选",
+                    placeholder = if (score) tr(R.string.decision_level_hint) else tr(R.string.decision_optional),
                     maxLines = 3,
                     enabled = !busy
                 )
@@ -218,7 +229,7 @@ private fun OptionsEditor(question: DecisionDraft, busy: Boolean, viewModel: Dec
                     enabled = !busy,
                     modifier = Modifier.size(48.dp)
                 ) {
-                    Icon(Icons.Outlined.DeleteOutline, "删除选项", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.DeleteOutline, tr(R.string.decision_delete_option), tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
                 }
             }
         }
@@ -227,7 +238,7 @@ private fun OptionsEditor(question: DecisionDraft, busy: Boolean, viewModel: Dec
     if (question.options.size < limit) {
         TextButton(onClick = { viewModel.addOption(question.id) }, enabled = !busy) {
             Icon(Icons.Outlined.Add, null, modifier = Modifier.size(17.dp))
-            Text(if (score) "添加等级" else "添加选项", modifier = Modifier.padding(start = 6.dp))
+            Text(if (score) tr(R.string.decision_add_level) else tr(R.string.decision_add_option), modifier = Modifier.padding(start = 6.dp))
         }
     }
 }
@@ -235,10 +246,12 @@ private fun OptionsEditor(question: DecisionDraft, busy: Boolean, viewModel: Dec
 @Composable
 private fun AnswerBlock(answer: DecisionAnswer) {
     val best = answer.options.getOrNull(answer.bestIndex)
+    val yesLabel = tr(R.string.decision_yes)
+    val noLabel = tr(R.string.decision_no)
     val headline = when (answer.kind) {
-        DecisionKind.Noul -> best?.let { (if (answer.bestIndex == 0) "是 " else "否 ") + percent(it.probability) }
+        DecisionKind.Noul -> best?.let { (if (answer.bestIndex == 0) "$yesLabel " else "$noLabel ") + percent(it.probability) }
         DecisionKind.Choice -> best?.name
-        DecisionKind.Score -> "评分 ${decimal(answer.score ?: 0.0)} / ${answer.options.lastIndex}"
+        DecisionKind.Score -> tr(R.string.decision_score_result, decimal(answer.score ?: 0.0), answer.options.lastIndex)
     }
     Column(Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Column {
@@ -247,14 +260,14 @@ private fun AnswerBlock(answer: DecisionAnswer) {
                     fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             answer.confidence?.let {
-                Text("置信 ${percent(it)}", color = OmniColors.Muted, style = MaterialTheme.typography.labelMedium)
+                Text(tr(R.string.decision_confidence, percent(it)), color = OmniColors.Muted, style = MaterialTheme.typography.labelMedium)
             }
         }
         answer.options.forEachIndexed { index, option ->
             val name = when (answer.kind) {
-                DecisionKind.Noul -> if (index == 0) "是" else "否"
+                DecisionKind.Noul -> if (index == 0) yesLabel else noLabel
                 DecisionKind.Choice -> option.name
-                DecisionKind.Score -> "等级 $index"
+                DecisionKind.Score -> tr(R.string.decision_level_n, index)
             }
             Column(Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -278,7 +291,7 @@ private fun AnswerBlock(answer: DecisionAnswer) {
             }
         }
         if (answer.chunks > 1) {
-            Text("${answer.chunks} 个分块 · 标签概率质量 ${percent(answer.allowedMass)}",
+            Text(tr(R.string.decision_chunks_mass, answer.chunks, percent(answer.allowedMass)),
                 color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall)
         }
     }
@@ -297,9 +310,9 @@ private fun ActionArea(
             if (state.busy) {
                 Text(
                     when (state.phase) {
-                        DecisionPhase.Verifying -> "正在校验模型"
-                        DecisionPhase.Loading -> "正在加载 9B 模型"
-                        DecisionPhase.Computing -> "正在计算 ${state.progress}/${state.total}"
+                        DecisionPhase.Verifying -> tr(R.string.decision_verifying)
+                        DecisionPhase.Loading -> tr(R.string.decision_loading_9b)
+                        DecisionPhase.Computing -> tr(R.string.decision_evaluating, state.progress, state.total)
                         DecisionPhase.Idle -> ""
                     },
                     color = OmniColors.Muted, style = MaterialTheme.typography.labelMedium
@@ -321,18 +334,12 @@ private fun ActionArea(
                 Text(it, color = OmniColors.Danger, style = MaterialTheme.typography.bodySmall)
             }
             when {
-                state.busy -> OmniPrimaryButton("停止", onClick = onCancel)
-                !state.modelReady -> OmniPrimaryButton("准备模型", onClick = onModels, enabled = state.ready)
-                else -> OmniPrimaryButton("开始决策", onClick = onRun, enabled = state.ready && state.stateText.isNotBlank())
+                state.busy -> OmniPrimaryButton(tr(R.string.common_stop), onClick = onCancel)
+                !state.modelReady -> OmniPrimaryButton(tr(R.string.decision_prepare_model), onClick = onModels, enabled = state.ready)
+                else -> OmniPrimaryButton(tr(R.string.decision_run), onClick = onRun, enabled = state.ready && state.stateText.isNotBlank())
             }
         }
     }
-}
-
-private fun kindLabel(kind: DecisionKind) = when (kind) {
-    DecisionKind.Choice -> "选择"
-    DecisionKind.Noul -> "判断"
-    DecisionKind.Score -> "评分"
 }
 
 private fun percent(value: Double): String = String.format(Locale.getDefault(), "%.1f%%", value * 100)

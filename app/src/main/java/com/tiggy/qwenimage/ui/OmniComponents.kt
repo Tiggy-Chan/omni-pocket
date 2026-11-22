@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.TaskUiState
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
@@ -156,7 +157,7 @@ fun WorkspaceTopBar(
         ) {
             if (onMenu != null) {
                 IconButton(onClick = onMenu, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Outlined.Menu, "打开侧栏", tint = OmniColors.Muted)
+                    Icon(Icons.Outlined.Menu, tr(R.string.cd_open_sidebar), tint = OmniColors.Muted)
                 }
             } else {
                 Spacer(Modifier.width(12.dp))
@@ -249,7 +250,7 @@ fun SendButton(running: Boolean, enabled: Boolean, onClick: () -> Unit) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 if (running) Icons.Outlined.Stop else Icons.Outlined.ArrowUpward,
-                if (running) "停止" else "发送",
+                if (running) tr(R.string.common_stop) else tr(R.string.common_send),
                 tint = if (active) OmniColors.OnAccent else OmniColors.Dim,
                 modifier = Modifier.size(20.dp)
             )
@@ -366,7 +367,7 @@ fun TaskLine(task: TaskUiState, onCancel: (() -> Unit)? = null, modifier: Modifi
             }
             if (task.running && onCancel != null) {
                 IconButton(onClick = onCancel, modifier = Modifier.size(40.dp)) {
-                    Icon(Icons.Outlined.Stop, "停止", tint = OmniColors.Muted, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Outlined.Stop, tr(R.string.common_stop), tint = OmniColors.Muted, modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -532,7 +533,7 @@ fun OmniLogDisclosure(logs: List<String>) {
     var expanded by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
         TextButton(onClick = { expanded = !expanded }) {
-            Text(if (expanded) "收起日志" else "运行日志", color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
+            Text(if (expanded) tr(R.string.common_hide_logs) else tr(R.string.common_show_logs), color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
             Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, tint = OmniColors.Dim,
                 modifier = Modifier.size(16.dp))
         }

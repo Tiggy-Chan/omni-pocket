@@ -65,6 +65,7 @@ import com.tiggy.qwenimage.LlmPhase
 import com.tiggy.qwenimage.LlmUiState
 import com.tiggy.qwenimage.LlmUsage
 import com.tiggy.qwenimage.LlmViewModel
+import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.LlmMessage
 import com.tiggy.qwenimage.data.LlmMessageStatus
 import java.util.Locale
@@ -75,7 +76,7 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
     var picking by remember { mutableStateOf(false) }
     val conversation = state.conversation
     val selectedModel = state.selectedModelChoice
-    val modelName = selectedModel?.name ?: if (conversation?.modelId.isNullOrBlank()) "对话模型" else "未安装模型"
+    val modelName = selectedModel?.name ?: if (conversation?.modelId.isNullOrBlank()) tr(R.string.chat_models_sheet_title) else tr(R.string.chat_no_model)
     val thinking = conversation?.thinking == true
     val loading = state.phase == LlmPhase.Loading
     val running = loading || state.phase == LlmPhase.Generating
@@ -83,9 +84,9 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
     state.alert?.let { message ->
         AlertDialog(
             onDismissRequest = viewModel::clearAlert,
-            title = { Text("需要处理") },
+            title = { Text(tr(R.string.common_action_needed)) },
             text = { Text(message) },
-            confirmButton = { TextButton(onClick = viewModel::clearAlert) { Text("知道了") } },
+            confirmButton = { TextButton(onClick = viewModel::clearAlert) { Text(tr(R.string.common_got_it)) } },
             containerColor = OmniColors.Raised
         )
     }
@@ -100,7 +101,7 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
     }
 
     WorkspaceScaffold(
-        title = conversation?.title ?: "对话",
+        title = conversation?.title ?: tr(R.string.nav_chat),
         subtitle = modelName,
         onMenu = onMenu,
         actions = {
@@ -111,7 +112,7 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.Outlined.Psychology, "深度思考",
+                        Icons.Outlined.Psychology, tr(R.string.chat_deep_thinking),
                         tint = (if (thinking) OmniColors.Accent else OmniColors.Muted).copy(alpha = if (state.busy) 0.5f else 1f),
                         modifier = Modifier.size(22.dp)
                     )
@@ -121,7 +122,7 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
         composer = { haze ->
             val status: (@Composable () -> Unit)? = if (loading || state.error != null) ({
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    if (loading) Text("正在加载模型…", color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
+                    if (loading) Text(tr(R.string.chat_loading_model), color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
                     state.error?.let { Text(it, color = OmniColors.Danger, style = MaterialTheme.typography.bodySmall) }
                 }
             }) else null
@@ -129,7 +130,7 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
                 hazeState = haze,
                 value = state.draft,
                 onValueChange = viewModel::updateDraft,
-                placeholder = "发消息",
+                placeholder = tr(R.string.chat_input_placeholder),
                 onSend = viewModel::send,
                 sendEnabled = !state.busy && state.draft.isNotBlank(),
                 running = running,
@@ -173,10 +174,10 @@ private fun Transcript(state: LlmUiState, padding: PaddingValues, onModels: () -
             item {
                 Box(Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("开始对话", color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium)
+                        Text(tr(R.string.chat_start_title), color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium)
                         if (state.ready && !state.modelReady) {
-                            Text("先在模型页下载内置或社区对话模型", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
-                            TextButton(onClick = onModels) { Text("打开模型") }
+                            Text(tr(R.string.chat_start_subtitle), color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                            TextButton(onClick = onModels) { Text(tr(R.string.common_open_models)) }
                         }
                     }
                 }
@@ -206,6 +207,8 @@ private fun MessageItem(
     onRegenerate: () -> Unit = {}
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val copiedToast = tr(R.string.common_copied)
+    val copyLabel = tr(R.string.chat_copy_reply)
     if (message.role == "user") {
         SelectionContainer { RequestBubble(message.content) }
         return
@@ -218,7 +221,7 @@ private fun MessageItem(
                 Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(8.dp)).clickable { expanded = !expanded },
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(if (thinkingNow) "正在思考" else "思考过程", color = OmniColors.Muted,
+                Text(if (thinkingNow) tr(R.string.chat_thinking_now) else tr(R.string.chat_thinking_process), color = OmniColors.Muted,
                     style = MaterialTheme.typography.labelMedium)
                 Icon(if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null,
                     tint = OmniColors.Muted, modifier = Modifier.padding(start = 2.dp).size(17.dp))
@@ -238,12 +241,12 @@ private fun MessageItem(
         }
         val status = when (message.status) {
             LlmMessageStatus.Complete, LlmMessageStatus.Streaming -> null
-            LlmMessageStatus.Cancelled -> "已停止"
-            LlmMessageStatus.Interrupted -> "已中断"
+            LlmMessageStatus.Cancelled -> tr(R.string.chat_stopped)
+            LlmMessageStatus.Interrupted -> tr(R.string.chat_interrupted)
             LlmMessageStatus.MaxTokens -> if (message.reasoning.isNotBlank() && message.content.isBlank()) {
-                "思考已达上限，未生成答案"
-            } else "已到输出上限"
-            LlmMessageStatus.Failed -> "生成失败"
+                tr(R.string.chat_think_limit)
+            } else tr(R.string.chat_limit_reached)
+            LlmMessageStatus.Failed -> tr(R.string.chat_failed)
         }
         status?.let {
             Text(it, color = if (message.status == LlmMessageStatus.Failed) OmniColors.Danger else OmniColors.Dim,
@@ -260,18 +263,18 @@ private fun MessageItem(
                         onClick = {
                             runCatching {
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("回复内容", message.content))
-                                Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                                clipboard.setPrimaryClip(ClipData.newPlainText(copyLabel, message.content))
+                                Toast.makeText(context, copiedToast, Toast.LENGTH_SHORT).show()
                             }
                         },
                         modifier = Modifier.size(40.dp)
                     ) {
-                        Icon(Icons.Outlined.ContentCopy, "复制回复", tint = OmniColors.Dim, modifier = Modifier.size(17.dp))
+                        Icon(Icons.Outlined.ContentCopy, copyLabel, tint = OmniColors.Dim, modifier = Modifier.size(17.dp))
                     }
                 }
                 if (canRegenerate) {
                     IconButton(onClick = onRegenerate, modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Outlined.Refresh, "重新生成", tint = OmniColors.Dim, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.Refresh, tr(R.string.chat_regenerate), tint = OmniColors.Dim, modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -297,7 +300,7 @@ private fun ModelChip(name: String, enabled: Boolean, onClick: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f, fill = false)
             )
-            Icon(Icons.Outlined.ExpandMore, "选择模型", tint = OmniColors.Muted,
+            Icon(Icons.Outlined.ExpandMore, tr(R.string.chat_choose_model), tint = OmniColors.Muted,
                 modifier = Modifier.padding(start = 2.dp).size(18.dp))
         }
     }
@@ -311,7 +314,7 @@ private fun ModelPicker(
     onManage: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    OmniSheet("选择模型", onDismiss) {
+    OmniSheet(tr(R.string.chat_choose_model), onDismiss) {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             state.chatModels.forEach { choice ->
                 SettingRow(
@@ -336,8 +339,8 @@ private fun ModelPicker(
                 HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
             }
             SettingRow(
-                title = "搜索或管理模型",
-                detail = "从 Hugging Face / HF-Mirror 下载更多 GGUF 与 MNN 模型",
+                title = tr(R.string.chat_manage_models),
+                detail = tr(R.string.chat_manage_models_sub),
                 onClick = onManage,
                 trailing = { Icon(Icons.Outlined.Memory, null, tint = OmniColors.Muted, modifier = Modifier.size(20.dp)) }
             )
@@ -345,12 +348,13 @@ private fun ModelPicker(
     }
 }
 
+@Composable
 private fun usageCaption(usage: LlmUsage): String {
     val rate = if (usage.decodeUs > 0) {
         String.format(Locale.getDefault(), " · %.1f tok/s", usage.generatedTokens * 1_000_000.0 / usage.decodeUs)
     } else ""
-    return (if (usage.droppedMessages > 0) "省略 ${usage.droppedMessages} 条旧消息 · " else "") +
-        "${usage.promptTokens} → ${usage.generatedTokens} tokens$rate"
+    val dropped = if (usage.droppedMessages > 0) tr(R.string.chat_dropped_messages, usage.droppedMessages) else ""
+    return "$dropped${usage.promptTokens} → ${usage.generatedTokens} tokens$rate"
 }
 
 private fun modelSize(bytes: Long): String = String.format(Locale.getDefault(), "%.1f GB", bytes / 1_000_000_000.0)

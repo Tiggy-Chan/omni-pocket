@@ -68,8 +68,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.annotation.StringRes
 import com.tiggy.qwenimage.QwenUiState
 import com.tiggy.qwenimage.QwenViewModel
+import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.CoTMode
 import com.tiggy.qwenimage.data.MusicJob
 import com.tiggy.qwenimage.data.MusicSettings
@@ -88,30 +90,30 @@ private val lyricSectionTags = listOf(
 private val musicDurationChoices = listOf(15, 30, 60, 90)
 
 /** Text-only starting points; they fill the composer and lyrics but ship no audio. */
-private data class MusicTemplate(val name: String, val style: String, val bpm: Int, val lyrics: String)
+private data class MusicTemplate(@StringRes val nameRes: Int, val style: String, val bpm: Int, val lyrics: String)
 
 private val musicTemplates = listOf(
     MusicTemplate(
-        "抒情流行", "emotional Mandarin pop ballad, warm female vocal, piano and strings, soft drums", 88,
+        R.string.music_tpl_ballad, "emotional Mandarin pop ballad, warm female vocal, piano and strings, soft drums", 88,
         "[Verse]\n晚风吹过街角的灯\n城市慢慢安静下来\n我把今天写进旋律\n留给明天的自己\n\n[Chorus]\n唱吧 让心跳跟着节拍\n唱吧 把烦恼留在窗外"
     ),
     MusicTemplate(
-        "城市流行", "city pop, nu-disco groove, bright male vocal, funky bass, electric piano", 118,
+        R.string.music_tpl_citypop, "city pop, nu-disco groove, bright male vocal, funky bass, electric piano", 118,
         "[Verse]\n霓虹亮起的路口\n车流像河一样温柔\n\n[Chorus]\n跟着节奏 向前走\n今晚的风刚刚好"
     ),
     MusicTemplate(
-        "电子偶像", "Vocaloid style J-pop, bright synthetic female vocal, sparkling synths, fast electronic beat", 136,
+        R.string.music_tpl_vocaloid, "Vocaloid style J-pop, bright synthetic female vocal, sparkling synths, fast electronic beat", 136,
         "[Verse]\n電子の海を飛び越えて\n新しい朝へ走り出す\n\n[Chorus]\n今日も元気に歌おう\n光のリズムに乗って"
     ),
     MusicTemplate(
-        "摇滚", "energetic rock, distorted guitars, powerful male vocal, driving drums", 150,
+        R.string.music_tpl_rock, "energetic rock, distorted guitars, powerful male vocal, driving drums", 150,
         "[Verse]\n把旧地图揉成一团\n脚下的路自己来选\n\n[Chorus]\n大声唱 别回头\n让世界听见我们"
     ),
     MusicTemplate(
-        "国风", "Chinese traditional fusion, guzheng and dizi, ethereal female vocal, gentle percussion", 76,
+        R.string.music_tpl_guofeng, "Chinese traditional fusion, guzheng and dizi, ethereal female vocal, gentle percussion", 76,
         "[Verse]\n青山远 白云闲\n一叶小舟过江南\n\n[Chorus]\n风吹过 千年月\n照见故人旧时颜"
     ),
-    MusicTemplate("纯音乐", "instrumental lo-fi hip hop, mellow piano, vinyl texture, soft beat", 80, "[Instrumental]")
+    MusicTemplate(R.string.music_tpl_instrumental, "instrumental lo-fi hip hop, mellow piano, vinyl texture, soft beat", 80, "[Instrumental]")
 )
 
 private enum class MusicSheet { Model, Lyrics, Params }
@@ -165,8 +167,8 @@ fun MusicWorkspace(
     val composerError = task.error?.takeIf { !task.running && it !in jobErrors }
 
     WorkspaceScaffold(
-        title = "音乐",
-        subtitle = if (ready) "$modelLabel · 本机" else "$modelLabel · 模型未就绪",
+        title = tr(R.string.nav_music),
+        subtitle = if (ready) tr(R.string.common_on_device_tag, modelLabel) else tr(R.string.common_model_not_ready_tag, modelLabel),
         onMenu = onMenu,
         composer = { haze ->
             val status: (@Composable () -> Unit)? = if (composerError != null) ({
@@ -176,7 +178,7 @@ fun MusicWorkspace(
                 hazeState = haze,
                 value = settings.style,
                 onValueChange = viewModel::setMusicStyle,
-                placeholder = "风格，例如 抒情流行，钢琴与女声",
+                placeholder = tr(R.string.music_style_hint),
                 onSend = viewModel::startMusicGeneration,
                 sendEnabled = ready && settings.style.isNotBlank(),
                 running = task.running,
@@ -184,10 +186,10 @@ fun MusicWorkspace(
                 status = status,
                 tools = {
                     ComposerChip(modelLabel.take(12), onClick = { sheet = MusicSheet.Model })
-                    ComposerChip("歌词", onClick = { sheet = MusicSheet.Lyrics }, icon = Icons.Outlined.EditNote,
+                    ComposerChip(tr(R.string.music_lyrics), onClick = { sheet = MusicSheet.Lyrics }, icon = Icons.Outlined.EditNote,
                         selected = settings.lyrics.isNotBlank())
-                    ComposerChip("${settings.targetDurationSec} 秒", onClick = { sheet = MusicSheet.Params })
-                    ComposerChip("", onClick = { sheet = MusicSheet.Params }, icon = Icons.Outlined.Tune, contentDescription = "参数")
+                    ComposerChip(tr(R.string.common_seconds_value, settings.targetDurationSec), onClick = { sheet = MusicSheet.Params })
+                    ComposerChip("", onClick = { sheet = MusicSheet.Params }, icon = Icons.Outlined.Tune, contentDescription = tr(R.string.common_parameters))
                 }
             )
         }
@@ -195,7 +197,7 @@ fun MusicWorkspace(
         if (blocks.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(inner), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("描述一段音乐", color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium)
+                    Text(tr(R.string.music_empty_title), color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium)
                     if (!ready) MusicModelNote(modelLabel, missing, onModels)
                 }
             }
@@ -273,17 +275,18 @@ fun MusicWorkspace(
     }
     scoreTrack?.let { track -> MusicScoreSheet(track) { scoreTrack = null } }
     pendingDelete?.let { track ->
+        val untitled = tr(R.string.music_untitled)
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text("删除曲目？") },
-            text = { Text("将删除音频文件「${track.title.ifBlank { "未命名曲目" }}」，此操作无法撤销。") },
+            title = { Text(tr(R.string.music_delete_title)) },
+            text = { Text(tr(R.string.music_delete_body, track.title.ifBlank { untitled })) },
             confirmButton = {
                 TextButton(onClick = {
                     pendingDelete = null
                     viewModel.deleteMusicTrack(track)
-                }) { Text("删除", color = OmniColors.Danger) }
+                }) { Text(tr(R.string.common_delete), color = OmniColors.Danger) }
             },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { pendingDelete = null }) { Text(tr(R.string.common_cancel)) } },
             containerColor = OmniColors.Raised,
             titleContentColor = OmniColors.Ink,
             textContentColor = OmniColors.Muted
@@ -293,14 +296,13 @@ fun MusicWorkspace(
 
 @Composable
 private fun MusicModelNote(modelLabel: String, missing: List<String>, onModels: () -> Unit) {
-    val pkg = LocalContext.current.packageName
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("$modelLabel 未就绪", color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
-            TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 48.dp)) { Text("前往下载") }
+            Text(tr(R.string.common_model_not_ready_tag, modelLabel), color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
+            TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 48.dp)) { Text(tr(R.string.common_go_download)) }
         }
         Text(
-            "缺少：${missing.joinToString("、")}\n可在「模型」页下载内置 YuE2 或社区 ACE-Step / HeartMuLa / Stable Audio 3 模型，或放入 Android/data/$pkg/files/models/yue2",
+            tr(R.string.music_missing_hint, missing.joinToString(", ")),
             color = OmniColors.Dim,
             style = MaterialTheme.typography.labelSmall,
             textAlign = TextAlign.Center
@@ -315,19 +317,20 @@ private fun MusicModelSheet(
     onManage: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    OmniSheet("音乐模型", onDismiss) {
+    val currentLabel = tr(R.string.common_current)
+    OmniSheet(tr(R.string.music_models_title), onDismiss) {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             SettingRow(
-                title = "YuE2-3B · 内置",
-                detail = if (state.yue2ModelStatus?.ready == true) "已就绪 · 支持 ABC 乐谱与人声" else "未下载",
+                title = tr(R.string.common_builtin_tag, "YuE2-3B"),
+                detail = if (state.yue2ModelStatus?.ready == true) tr(R.string.music_builtin_ready) else tr(R.string.common_not_downloaded),
                 onClick = { onSelect("") }
             ) {
                 if (state.musicSettings.modelId.isBlank()) {
-                    Icon(Icons.Outlined.Check, "当前", tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
+                    Icon(Icons.Outlined.Check, currentLabel, tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
                 }
             }
             if (state.customMusicModels.isNotEmpty()) {
-                SectionLabel("已从社区下载")
+                SectionLabel(tr(R.string.common_community_downloaded))
                 state.customMusicModels.forEach { model ->
                     SettingRow(
                         title = model.name,
@@ -335,14 +338,14 @@ private fun MusicModelSheet(
                         onClick = { onSelect(model.id) }
                     ) {
                         if (state.musicSettings.modelId == model.id) {
-                            Icon(Icons.Outlined.Check, "当前", tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Outlined.Check, currentLabel, tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
             }
             SettingRow(
-                title = "从模型页搜索更多音乐模型",
-                detail = "支持 ACE-Step 1.5 / HeartMuLa / Stable Audio 3 / YuE2 GGUF",
+                title = tr(R.string.music_search_more),
+                detail = tr(R.string.music_search_more_sub),
                 onClick = onManage
             )
         }
@@ -363,9 +366,16 @@ private fun MusicTrackBlock(
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
-    val title = track.title.ifBlank { "未命名曲目" }
+    val untitled = tr(R.string.music_untitled)
+    val shareTitle = tr(R.string.music_share_title)
+    val pauseLabel = tr(R.string.common_pause)
+    val playLabel = tr(R.string.common_play)
+    val shareLabel = tr(R.string.common_share)
+    val deleteLabel = tr(R.string.common_delete)
+    val scoreLabel = tr(R.string.music_score)
+    val title = track.title.ifBlank { untitled }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        if (track.title.isNotBlank() && track.title != "未命名曲目") {
+        if (track.title.isNotBlank() && track.title != "未命名曲目" && track.title != untitled) {
             Text(title, color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.align(Alignment.End).padding(end = 4.dp))
         }
@@ -381,7 +391,7 @@ private fun MusicTrackBlock(
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 if (playing) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
-                                if (playing) "暂停 $title" else "播放 $title",
+                                if (playing) "$pauseLabel $title" else "$playLabel $title",
                                 tint = OmniColors.OnAccent,
                                 modifier = Modifier.size(24.dp)
                             )
@@ -396,18 +406,18 @@ private fun MusicTrackBlock(
                     }
                     if (!track.abcScore.isNullOrBlank()) {
                         IconButton(onClick = onScore, modifier = Modifier.size(44.dp)) {
-                            Icon(Icons.Outlined.Piano, "查看 $title 的乐谱", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Outlined.Piano, "$scoreLabel · $title", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
                         }
                     }
                     IconButton(onClick = onReuse, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.Replay, "复用风格与歌词", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Outlined.Replay, tr(R.string.music_reuse), tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
                     }
-                    IconButton(onClick = { shareMusicTrack(context, track) }, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.Share, "分享 $title", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                    IconButton(onClick = { shareMusicTrack(context, track, shareTitle) }, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Outlined.Share, "$shareLabel $title", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
                     }
                     if (!track.id.startsWith("preset_")) {
                         IconButton(onClick = onDelete, modifier = Modifier.size(44.dp)) {
-                            Icon(Icons.Outlined.DeleteOutline, "删除 $title", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                            Icon(Icons.Outlined.DeleteOutline, "$deleteLabel $title", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
                         }
                     }
                 }
@@ -421,6 +431,7 @@ private fun MusicTrackBlock(
 
 @Composable
 private fun MusicPlaybackBar(positionMs: Int, durationMs: Int, onSeek: (Int) -> Unit, modifier: Modifier = Modifier) {
+    val progressCd = tr(R.string.music_playback_progress)
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val fraction = dragFraction ?: if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
     Column(modifier) {
@@ -433,7 +444,7 @@ private fun MusicPlaybackBar(positionMs: Int, durationMs: Int, onSeek: (Int) -> 
             },
             enabled = durationMs > 0,
             colors = musicSliderColors(),
-            modifier = Modifier.fillMaxWidth().semantics { contentDescription = "播放进度" }
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = progressCd }
         )
         Row(Modifier.fillMaxWidth()) {
             Text(formatPlaybackTime((fraction * durationMs).roundToInt()), color = OmniColors.Dim,
@@ -472,12 +483,13 @@ private fun MusicJobBlock(
 
 @Composable
 private fun MusicLyricsSheet(settings: MusicSettings, viewModel: QwenViewModel, onDismiss: () -> Unit) {
-    OmniSheet("歌词", onDismiss) {
+    val localized = LocalLocalizedContext.current
+    OmniSheet(tr(R.string.music_lyrics), onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(musicTemplates) { template ->
                     ComposerChip(
-                        template.name,
+                        localized.getString(template.nameRes),
                         onClick = {
                             viewModel.setMusicStyle(template.style)
                             viewModel.setMusicBpm(template.bpm)
@@ -490,15 +502,15 @@ private fun MusicLyricsSheet(settings: MusicSettings, viewModel: QwenViewModel, 
             OmniTextField(
                 value = settings.title,
                 onValueChange = viewModel::setMusicTitle,
-                label = "标题",
-                placeholder = "未命名曲目",
+                label = tr(R.string.music_title_label),
+                placeholder = tr(R.string.music_untitled),
                 modifier = Modifier.fillMaxWidth()
             )
             OmniTextField(
                 value = settings.lyrics,
                 onValueChange = viewModel::setMusicLyrics,
-                label = "歌词",
-                placeholder = "输入歌词，可用 [Verse]、[Chorus] 分段",
+                label = tr(R.string.music_lyrics),
+                placeholder = tr(R.string.music_lyrics_hint),
                 minLines = 8,
                 maxLines = 14,
                 modifier = Modifier.fillMaxWidth()
@@ -522,30 +534,36 @@ private fun MusicLyricsSheet(settings: MusicSettings, viewModel: QwenViewModel, 
 
 @Composable
 private fun MusicParamsSheet(settings: MusicSettings, viewModel: QwenViewModel, onDismiss: () -> Unit) {
+    val localized = LocalLocalizedContext.current
+    val cotLabels = mapOf(
+        CoTMode.Melody to CoTMode.Melody.localizedLabel(),
+        CoTMode.Full to CoTMode.Full.localizedLabel(),
+        CoTMode.Off to CoTMode.Off.localizedLabel()
+    )
     var seedText by remember(settings.seed) { mutableStateOf(settings.seed.toString()) }
     var guidanceText by remember(settings.guidanceScale) { mutableStateOf(settings.guidanceScale.toString()) }
-    OmniSheet("参数", onDismiss) {
+    OmniSheet(tr(R.string.common_parameters), onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            MusicSliderRow("节奏", "${settings.bpm} BPM", settings.bpm, 50..220) { viewModel.setMusicBpm(it) }
+            MusicSliderRow(tr(R.string.music_tempo), "${settings.bpm} BPM", settings.bpm, 50..220) { viewModel.setMusicBpm(it) }
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("CoT 规划", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                Text(tr(R.string.music_cot_label), color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
                 OmniTabs(
                     items = CoTMode.entries,
                     selected = settings.cotMode,
-                    label = { musicCotLabel(it) },
+                    label = { cotLabels[it] ?: it.name },
                     onSelect = viewModel::setMusicCotMode
                 )
             }
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("目标时长", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                Text(tr(R.string.music_target_duration), color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
                 OmniTabs(
                     items = musicDurationChoices,
                     selected = settings.targetDurationSec,
-                    label = { "$it 秒" },
+                    label = { localized.getString(R.string.common_seconds_value, it) },
                     onSelect = viewModel::setMusicTargetDuration
                 )
             }
-            MusicSliderRow("ODE 步数", "${settings.odeSteps}", settings.odeSteps, 4..32) { viewModel.setMusicOdeSteps(it) }
+            MusicSliderRow(tr(R.string.music_ode_steps), "${settings.odeSteps}", settings.odeSteps, 4..32) { viewModel.setMusicOdeSteps(it) }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OmniTextField(
                     value = seedText,
@@ -553,7 +571,7 @@ private fun MusicParamsSheet(settings: MusicSettings, viewModel: QwenViewModel, 
                         seedText = value
                         value.toLongOrNull()?.let(viewModel::setMusicSeed)
                     },
-                    label = "随机种子",
+                    label = tr(R.string.common_seed),
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(8.dp))
@@ -561,7 +579,7 @@ private fun MusicParamsSheet(settings: MusicSettings, viewModel: QwenViewModel, 
                     onClick = { viewModel.setMusicSeed(Random.nextLong(100_000, 100_000_000)) },
                     modifier = Modifier.size(48.dp)
                 ) {
-                    Icon(Icons.Outlined.Refresh, "随机种子", tint = OmniColors.Muted)
+                    Icon(Icons.Outlined.Refresh, tr(R.string.common_seed), tint = OmniColors.Muted)
                 }
             }
             OmniTextField(
@@ -570,12 +588,12 @@ private fun MusicParamsSheet(settings: MusicSettings, viewModel: QwenViewModel, 
                     guidanceText = value
                     value.toFloatOrNull()?.takeIf { it.isFinite() }?.let(viewModel::setMusicGuidanceScale)
                 },
-                label = "引导强度",
+                label = tr(R.string.music_guidance),
                 modifier = Modifier.fillMaxWidth()
             )
             SettingRow(
-                title = "Vulkan GPU 加速",
-                detail = "开启后尝试在手机 GPU 加速音频合成",
+                title = tr(R.string.music_vulkan_gpu),
+                detail = tr(R.string.music_vulkan_hint),
                 onClick = { viewModel.setMusicUseVulkan(!settings.useVulkan) },
                 trailing = { Switch(checked = settings.useVulkan, onCheckedChange = null) }
             )
@@ -614,23 +632,24 @@ private fun musicSliderColors(): SliderColors = SliderDefaults.colors(
 private fun MusicScoreSheet(track: MusicTrack, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val score = track.abcScore.orEmpty()
-    val details = listOfNotNull(
-        abcHeaderValue(score, "K")?.let { "调号 $it" },
-        abcHeaderValue(score, "M")?.let { "拍号 $it" }
-    ).joinToString(" · ")
-    OmniSheet("乐谱", onDismiss) {
+    val abcLabel = tr(R.string.music_abc_score)
+    val abcCopied = tr(R.string.music_abc_copied)
+    val keySig = abcHeaderValue(score, "K")?.let { tr(R.string.music_key_sig, it) }
+    val timeSig = abcHeaderValue(score, "M")?.let { tr(R.string.music_time_sig, it) }
+    val details = listOfNotNull(keySig, timeSig).joinToString(" · ")
+    OmniSheet(tr(R.string.music_score), onDismiss) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(track.title.ifBlank { "未命名曲目" }, color = OmniColors.Ink, style = MaterialTheme.typography.bodyLarge,
+                Text(track.title.ifBlank { tr(R.string.music_untitled) }, color = OmniColors.Ink, style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (details.isNotEmpty()) {
                     Text(details, color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall)
                 }
             }
-            TextButton(onClick = { copyAbcScore(context, score) }, modifier = Modifier.heightIn(min = 48.dp)) {
+            TextButton(onClick = { copyAbcScore(context, score, abcLabel, abcCopied) }, modifier = Modifier.heightIn(min = 48.dp)) {
                 Icon(Icons.Outlined.ContentCopy, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("复制")
+                Text(tr(R.string.common_copy))
             }
         }
         Box(
@@ -646,16 +665,11 @@ private fun MusicScoreSheet(track: MusicTrack, onDismiss: () -> Unit) {
     }
 }
 
-private fun musicCotLabel(mode: CoTMode): String = when (mode) {
-    CoTMode.Melody -> "旋律"
-    CoTMode.Full -> "旋律与和弦"
-    CoTMode.Off -> "关闭"
-}
-
+@Composable
 private fun musicTrackMetadata(track: MusicTrack): String = listOfNotNull(
     track.durationSec.takeIf { it.isFinite() && it > 0f }?.let { formatMediaDuration(it) },
     track.bpm.takeIf { it > 0 }?.let { "$it BPM" }
-).joinToString(" · ").ifBlank { "音频信息未知" }
+).joinToString(" · ").ifBlank { tr(R.string.common_unknown) }
 
 private fun musicTrackDurationMs(track: MusicTrack): Int {
     val seconds = track.durationSec
@@ -673,32 +687,21 @@ private fun abcHeaderValue(score: String, header: String): String? = score.lineS
     .map { it.substringAfter(':').trim() }
     .firstOrNull { it.isNotEmpty() }
 
-private fun copyAbcScore(context: Context, score: String) {
+private fun copyAbcScore(context: Context, score: String, clipLabel: String, copiedToast: String) {
     runCatching {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("ABC 乐谱", score))
+        clipboard.setPrimaryClip(ClipData.newPlainText(clipLabel, score))
     }.onSuccess {
-        Toast.makeText(context, "ABC 已复制", Toast.LENGTH_SHORT).show()
-    }.onFailure {
-        Toast.makeText(context, "复制失败，请重试", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, copiedToast, Toast.LENGTH_SHORT).show()
     }
 }
 
-private fun shareMusicTrack(context: Context, track: MusicTrack) {
+private fun shareMusicTrack(context: Context, track: MusicTrack, shareTitle: String) {
     val file = File(track.audioPath)
-    if (!file.isFile) {
-        Toast.makeText(context, "音频文件不存在", Toast.LENGTH_SHORT).show()
-        return
-    }
-    val mimeType = musicAudioMimeType(file.extension)
-    if (mimeType == null) {
-        Toast.makeText(context, "无法识别音频格式", Toast.LENGTH_SHORT).show()
-        return
-    }
+    if (!file.isFile) return
+    val mimeType = musicAudioMimeType(file.extension) ?: return
     runCatching {
-        shareMediaFile(context, file, mimeType, "分享音乐")
-    }.onFailure {
-        Toast.makeText(context, "分享失败，请检查文件和分享应用", Toast.LENGTH_SHORT).show()
+        shareMediaFile(context, file, mimeType, shareTitle)
     }
 }
 

@@ -47,6 +47,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.MossLayoutItem
 import com.tiggy.qwenimage.data.MossLayoutLabel
 import com.tiggy.qwenimage.data.MossSettings
@@ -73,16 +74,19 @@ internal fun MossLayoutEditor(
     val ink = OmniColors.Ink
     val muted = OmniColors.Muted
     val shape = RoundedCornerShape(12.dp)
+    val textLabel = tr(R.string.moss_label_text)
+    val objectLabel = tr(R.string.moss_label_object)
+    val canvasCd = tr(R.string.moss_canvas_cd)
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            LayoutAddButton("文字") {
-                val next = items + defaultLayoutItem(MossLayoutLabel.Text, items.size)
+            LayoutAddButton(textLabel) {
+                val next = items + defaultLayoutItem(MossLayoutLabel.Text, items.size, textLabel, objectLabel)
                 selected = items.size
                 currentOnSettings { it.copy(layout = it.layout.copy(items = next)) }
             }
-            LayoutAddButton("对象") {
-                val next = items + defaultLayoutItem(MossLayoutLabel.Object, items.size)
+            LayoutAddButton(objectLabel) {
+                val next = items + defaultLayoutItem(MossLayoutLabel.Object, items.size, textLabel, objectLabel)
                 selected = items.size
                 currentOnSettings { it.copy(layout = it.layout.copy(items = next)) }
             }
@@ -119,7 +123,7 @@ internal fun MossLayoutEditor(
                         }
                     )
                 }
-                .semantics { contentDescription = "布局画布。拖动移动元素，拖动右下角调整大小。" }
+                .semantics { contentDescription = canvasCd }
         ) {
             currentSettings.layout.items.forEachIndexed { index, item ->
                 val rect = item.rect(size)
@@ -130,7 +134,7 @@ internal fun MossLayoutEditor(
                 if (isSelected) drawCircle(ink, radius = 8f, center = rect.bottomRight)
             }
         }
-        Text("${items.size} 个元素", color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall)
+        Text(tr(R.string.moss_items_count, items.size), color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall)
         items.forEachIndexed { index, item ->
             val isSelected = selected == index
             Row(
@@ -142,7 +146,7 @@ internal fun MossLayoutEditor(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "${index + 1}. ${if (item.label == MossLayoutLabel.Text) "文字" else "对象"} · ${item.caption}",
+                    "${index + 1}. ${if (item.label == MossLayoutLabel.Text) textLabel else objectLabel} · ${item.caption}",
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -160,7 +164,7 @@ internal fun MossLayoutEditor(
                             state.copy(layout = state.layout.copy(items = state.layout.items.mapIndexed { i, old -> if (i == index) old.copy(caption = value) else old }))
                         }
                     },
-                    label = "元素描述",
+                    label = tr(R.string.moss_desc_hint),
                     minLines = 2,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -172,7 +176,7 @@ internal fun MossLayoutEditor(
                                 state.copy(layout = state.layout.copy(items = state.layout.items.mapIndexed { i, old -> if (i == index) old.copy(text = value) else old }))
                             }
                         },
-                        label = "要渲染的文字",
+                        label = tr(R.string.moss_text_hint),
                         minLines = 2,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -188,7 +192,7 @@ internal fun MossLayoutEditor(
                 ) {
                     Icon(Icons.Outlined.DeleteOutline, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("删除元素")
+                    Text(tr(R.string.common_delete))
                 }
             }
         }
@@ -214,11 +218,11 @@ private fun LayoutAddButton(label: String, onClick: () -> Unit) {
     }
 }
 
-private fun defaultLayoutItem(label: MossLayoutLabel, index: Int): MossLayoutItem {
+private fun defaultLayoutItem(label: MossLayoutLabel, index: Int, textCaption: String, objectCaption: String): MossLayoutItem {
     val offset = (index % 5) * 0.04
     return MossLayoutItem(
         label = label,
-        caption = if (label == MossLayoutLabel.Text) "标题文字" else "画面主体",
+        caption = if (label == MossLayoutLabel.Text) textCaption else objectCaption,
         text = if (label == MossLayoutLabel.Text) "TEXT" else "",
         left = 0.15 + offset,
         top = 0.15 + offset,
