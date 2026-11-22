@@ -45,14 +45,10 @@ jobs:
           "$SDKMANAGER" --install "ndk;28.2.13676358"
 
       - name: Build unified stable-diffusion.cpp Android runtime (MOSS + Wan2.2 + SD)
-        env:
-          ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
-        run: JOBS=4 bash scripts/build_sd_android.sh
+        run: ANDROID_NDK="$ANDROID_HOME/ndk/28.2.13676358" JOBS=4 bash scripts/build_sd_android.sh
 
       - name: Build YuE2 Android music runtime
-        env:
-          ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
-        run: JOBS=4 bash scripts/build_yue2_android.sh
+        run: ANDROID_NDK="$ANDROID_HOME/ndk/28.2.13676358" JOBS=4 bash scripts/build_yue2_android.sh
 
       - name: Version and hash for build outputs
         id: v

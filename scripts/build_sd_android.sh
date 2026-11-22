@@ -171,7 +171,7 @@ SD_CMAKE_ARGS=(
     -DSD_WEBM=ON
 )
 
-UPSTREAM_VERSION="$(git -C "$SD_SRC" describe --tags --abbrev=7 --dirty=+)"
+UPSTREAM_VERSION="$(git -C "$SD_SRC" describe --tags --always --abbrev=7 --dirty=+)"
 {
     printf 'stable-diffusion.cpp revision: %s\n' "$SD_REVISION"
     printf 'stable-diffusion.cpp version: %s\n' "$UPSTREAM_VERSION"
