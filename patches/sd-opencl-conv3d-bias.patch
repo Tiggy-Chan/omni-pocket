@@ -1,0 +1,22 @@
+diff --git a/src/core/ggml_extend.cpp b/src/core/ggml_extend.cpp
+index b2d79240..4a6bc9d3 100644
+--- a/src/core/ggml_extend.cpp
++++ b/src/core/ggml_extend.cpp
+@@ -443,7 +443,7 @@ ggml_tensor* ggml_ext_conv_2d(ggml_context* ctx,
+     }
+     if (b != nullptr) {
+         b = ggml_reshape_4d(ctx, b, 1, 1, b->ne[0], 1);
+-        x = ggml_add_inplace(ctx, x, b);
++        x = ggml_add(ctx, x, b);
+     }
+     return x;
+ }
+@@ -510,7 +510,7 @@ ggml_tensor* ggml_ext_conv_3d(ggml_context* ctx,
+     }
+     if (b != nullptr) {
+         b = ggml_reshape_4d(ctx, b, 1, 1, 1, b->ne[0]);  // [OC, 1, 1, 1]
+-        x = ggml_add_inplace(ctx, x, b);
++        x = ggml_add(ctx, x, b);
+     }
+     return x;
+ }

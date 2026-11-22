@@ -17,7 +17,7 @@ OPENCL_HEADERS_REVISION="4ea6df132107e3b4b9407f903204b5522fdffcd6"
 OPENCL_ICD_REVISION="5907ac1114079de4383cecddf1c8640e3f52f92b"
 NDK_REVISION="28.2.13676358"
 ANDROID_PLATFORM="android-28"
-PATCH="$ROOT/patches/moss-android.patch"
+PATCH="$ROOT/patches/sd-opencl-conv3d-bias.patch"
 
 if [[ -z "${ANDROID_NDK:-}" || ! -f "${ANDROID_NDK}/source.properties" ]] || ! grep -q "Pkg.Revision = $NDK_REVISION" "${ANDROID_NDK}/source.properties" 2>/dev/null; then
     if [[ -n "${ANDROID_HOME:-}" && -d "$ANDROID_HOME/ndk/$NDK_REVISION" ]]; then
