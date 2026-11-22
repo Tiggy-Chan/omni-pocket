@@ -229,6 +229,9 @@ private fun SidebarRow(
 
 @Composable
 private fun OmniBrandMark(modifier: Modifier = Modifier) {
+    val dark = LocalOmniPalette.current.dark
+    val bgRes = if (dark) R.drawable.ic_brand_dark_bg else R.drawable.ic_brand_light_bg
+    val fgRes = if (dark) R.drawable.ic_brand_dark_fg else R.drawable.ic_brand_light_fg
     val shape = RoundedCornerShape(7.dp)
     Box(
         modifier = modifier
@@ -236,12 +239,12 @@ private fun OmniBrandMark(modifier: Modifier = Modifier) {
             .border(0.5.dp, OmniColors.Line, shape)
     ) {
         Image(
-            painter = painterResource(R.drawable.ic_launcher_background),
+            painter = painterResource(bgRes),
             contentDescription = null,
             modifier = Modifier.fillMaxSize().scale(1.5f)
         )
         Image(
-            painter = painterResource(R.drawable.ic_launcher_foreground),
+            painter = painterResource(fgRes),
             contentDescription = null,
             modifier = Modifier.fillMaxSize().scale(1.5f)
         )

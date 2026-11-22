@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/assets/logo.svg" width="96" height="96" alt="Omni Pocket Logo" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg" />
+    <img src="docs/assets/logo.svg" width="96" height="96" alt="Omni Pocket Logo" />
+  </picture>
 </p>
 
 <h1 align="center">Omni Pocket</h1>

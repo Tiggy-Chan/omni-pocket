@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="18 18 72 72" width="512" height="512" role="img" aria-label="Omni Pocket logo (dark)">
+  <defs>
+    <clipPath id="squircle">
+      <rect x="18" y="18" width="72" height="72" rx="16.2" ry="16.2"/>
+    </clipPath>
+    <linearGradient id="bg" x1="54" y1="0" x2="54" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1C222F"/>
+      <stop offset="52%" stop-color="#11141C"/>
+      <stop offset="100%" stop-color="#0A0C11"/>
+    </linearGradient>
+    <radialGradient id="ambient" cx="54" cy="38" r="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4A7FF0" stop-opacity="0.23"/>
+      <stop offset="62%" stop-color="#2A52B2" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#0A0C11" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="backFill" x1="54" y1="46.8" x2="54" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2C354A" stop-opacity="0.91"/>
+      <stop offset="35%" stop-color="#10141D" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#090B11" stop-opacity="0.96"/>
+    </linearGradient>
+    <linearGradient id="backRim" x1="54" y1="46.8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.33"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="orbFill" cx="49" cy="39.2" r="29" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#B8D3FF"/>
+      <stop offset="24%" stop-color="#7CA5FF"/>
+      <stop offset="60%" stop-color="#3A6FE0"/>
+      <stop offset="86%" stop-color="#2249AA"/>
+      <stop offset="100%" stop-color="#173482"/>
+    </radialGradient>
+    <linearGradient id="orbRim" x1="38.2" y1="29.7" x2="69.8" y2="61.3" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#EEF6FF" stop-opacity="0.46"/>
+      <stop offset="42%" stop-color="#8CB4FF" stop-opacity="0.09"/>
+      <stop offset="100%" stop-color="#3A6FE0" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="pocketBase" x1="54" y1="49" x2="54" y2="78.5" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#364056" stop-opacity="0.89"/>
+      <stop offset="46%" stop-color="#222938" stop-opacity="0.92"/>
+      <stop offset="100%" stop-color="#191F2C" stop-opacity="0.96"/>
+    </linearGradient>
+    <radialGradient id="pocketRefract" cx="54" cy="49.4" r="19.5" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#76A6FF" stop-opacity="0.73"/>
+      <stop offset="40%" stop-color="#447AF0" stop-opacity="0.42"/>
+      <stop offset="76%" stop-color="#2C56BC" stop-opacity="0.13"/>
+      <stop offset="100%" stop-color="#1C2848" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="pocketFrost" x1="31" y1="49" x2="77" y2="78.5" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#F2F7FF" stop-opacity="0.27"/>
+      <stop offset="45%" stop-color="#E2ECFC" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#C6D6F2" stop-opacity="0.17"/>
+    </linearGradient>
+    <linearGradient id="pocketRim" x1="54" y1="49" x2="54" y2="78.5" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.93"/>
+      <stop offset="22%" stop-color="#DEEAFE" stop-opacity="0.56"/>
+      <stop offset="66%" stop-color="#B0C2E2" stop-opacity="0.31"/>
+      <stop offset="100%" stop-color="#CCDAF6" stop-opacity="0.42"/>
+    </linearGradient>
+    <clipPath id="pocketClip">
+      <path d="M 31,54.5 A 5.5,5.5 0 0,1 36.5,49 Q 54,51.6 71.5,49 A 5.5,5.5 0 0,1 77,54.5 L 77,60 A 18.5,18.5 0 0,1 58.5,78.5 L 49.5,78.5 A 18.5,18.5 0 0,1 31,60 Z"/>
+    </clipPath>
+    <filter id="pocketShadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="2.4" stdDeviation="2.4" flood-color="#020409" flood-opacity="0.56"/>
+    </filter>
+  </defs>
+  <g clip-path="url(#squircle)">
+    <rect x="0" y="0" width="108" height="108" fill="url(#bg)"/>
+    <rect x="0" y="0" width="108" height="108" fill="url(#ambient)"/>
+    <path d="M 32.2,51.4 A 4.6,4.6 0 0,1 36.8,46.8 L 71.2,46.8 A 4.6,4.6 0 0,1 75.8,51.4 L 75.8,59 A 17.5,17.5 0 0,1 58.3,76.5 L 49.7,76.5 A 17.5,17.5 0 0,1 32.2,59 Z" fill="url(#backFill)" stroke="url(#backRim)" stroke-width="0.72"/>
+    <circle cx="54" cy="45.5" r="15.8" fill="url(#orbFill)"/>
+    <circle cx="54" cy="45.5" r="15.3" fill="none" stroke="url(#orbRim)" stroke-width="1"/>
+    <path d="M 31,54.5 A 5.5,5.5 0 0,1 36.5,49 Q 54,51.6 71.5,49 A 5.5,5.5 0 0,1 77,54.5 L 77,60 A 18.5,18.5 0 0,1 58.5,78.5 L 49.5,78.5 A 18.5,18.5 0 0,1 31,60 Z" fill="url(#pocketBase)" filter="url(#pocketShadow)"/>
+    <g clip-path="url(#pocketClip)">
+      <rect x="30" y="48" width="48" height="32" fill="url(#pocketRefract)"/>
+      <rect x="30" y="48" width="48" height="32" fill="url(#pocketFrost)"/>
+    </g>
+    <path d="M 31,54.5 A 5.5,5.5 0 0,1 36.5,49 Q 54,51.6 71.5,49 A 5.5,5.5 0 0,1 77,54.5 L 77,60 A 18.5,18.5 0 0,1 58.5,78.5 L 49.5,78.5 A 18.5,18.5 0 0,1 31,60 Z" fill="none" stroke="url(#pocketRim)" stroke-width="1.15"/>
+  </g>
+  <rect x="18.25" y="18.25" width="71.5" height="71.5" rx="16" ry="16" fill="none" stroke="#FFFFFF" stroke-opacity="0.12" stroke-width="0.5"/>
+</svg>
