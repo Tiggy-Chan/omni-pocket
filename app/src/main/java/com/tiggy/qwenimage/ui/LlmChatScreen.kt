@@ -58,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tiggy.qwenimage.LlmPhase
@@ -74,7 +75,7 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
     var picking by remember { mutableStateOf(false) }
     val conversation = state.conversation
     val selectedModel = state.selectedModelChoice
-    val modelName = selectedModel?.name ?: "Qwen3.5"
+    val modelName = selectedModel?.name ?: if (conversation?.modelId.isNullOrBlank()) "对话模型" else "未安装模型"
     val thinking = conversation?.thinking == true
     val loading = state.phase == LlmPhase.Loading
     val running = loading || state.phase == LlmPhase.Generating
@@ -174,7 +175,7 @@ private fun Transcript(state: LlmUiState, padding: PaddingValues, onModels: () -
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("开始对话", color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium)
                         if (state.ready && !state.modelReady) {
-                            Text("先在模型页下载 Qwen3.5", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                            Text("先在模型页下载内置或社区对话模型", color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
                             TextButton(onClick = onModels) { Text("打开模型") }
                         }
                     }
@@ -288,7 +289,14 @@ private fun ModelChip(name: String, enabled: Boolean, onClick: () -> Unit) {
         modifier = Modifier.heightIn(min = 40.dp)
     ) {
         Row(Modifier.padding(start = 10.dp, end = 6.dp).heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(name, color = OmniColors.Muted, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            Text(
+                name,
+                color = OmniColors.Muted,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
             Icon(Icons.Outlined.ExpandMore, "选择模型", tint = OmniColors.Muted,
                 modifier = Modifier.padding(start = 2.dp).size(18.dp))
         }

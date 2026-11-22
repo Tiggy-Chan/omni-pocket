@@ -31,6 +31,8 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.ExpandLess
@@ -417,17 +419,24 @@ fun OmniTextField(
     placeholder: String? = null,
     minLines: Int = 1,
     maxLines: Int = if (minLines == 1) 1 else 8,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    trailingIcon: (@Composable () -> Unit)? = null
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier,
         enabled = enabled,
+        singleLine = minLines == 1 && maxLines == 1,
         minLines = minLines,
         maxLines = maxLines,
+        keyboardOptions = keyboardOptions,
+        keyboardActions = keyboardActions,
         label = { Text(label) },
         placeholder = placeholder?.let { { Text(it, color = OmniColors.Dim) } },
+        trailingIcon = trailingIcon,
         shape = RoundedCornerShape(12.dp),
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = OmniColors.Ink),
         colors = OutlinedTextFieldDefaults.colors(

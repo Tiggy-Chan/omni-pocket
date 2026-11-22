@@ -1,7 +1,11 @@
 package com.tiggy.qwenimage.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,7 +28,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
@@ -103,9 +113,23 @@ fun ModelsPage(
     onMenu: (() -> Unit)?,
     onUseHubModel: (InstalledHubModel) -> Unit
 ) {
+    val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val llmState by llmViewModel.state.collectAsStateWithLifecycle()
     val decisionState by decisionViewModel.state.collectAsStateWithLifecycle()
     val hubState by hubViewModel.state.collectAsStateWithLifecycle()
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {}
+    val requestNotificationPermissionIfNeeded = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     var tab by rememberSaveable { mutableStateOf(ModelsPageTab.Installed) }
     var deleteChat by remember { mutableStateOf<LlmModelStatus?>(null) }
@@ -224,7 +248,10 @@ fun ModelsPage(
                                         queued -> ModelButton("取消", { hubViewModel.cancelQueuedDownload(dlId) })
                                         status.ready -> ModelButton("删除", { deleteChat = status }, enabled = !llmState.busy, danger = true)
                                         complete -> ModelButton("校验", { llmViewModel.verifyModel(status.spec.id) }, enabled = !llmState.busy)
-                                        else -> ModelButton("下载", { llmViewModel.downloadModel(status.spec.id) })
+                                        else -> ModelButton("下载", {
+                                            requestNotificationPermissionIfNeeded()
+                                            llmViewModel.downloadModel(status.spec.id)
+                                        })
                                     }
                                 }
                             )
@@ -259,7 +286,10 @@ fun ModelsPage(
                                                 danger = true
                                             )
                                             complete -> ModelButton("校验", decisionViewModel::verifyModel, enabled = !decisionState.busy)
-                                            else -> ModelButton("下载", decisionViewModel::downloadModel)
+                                            else -> ModelButton("下载", {
+                                                requestNotificationPermissionIfNeeded()
+                                                decisionViewModel.downloadModel()
+                                            })
                                         }
                                     },
                                     below = {
@@ -327,7 +357,10 @@ fun ModelsPage(
                                             enabled = !modelBusy,
                                             danger = true
                                         )
-                                        else -> ModelButton("下载", viewModel::downloadMossModels)
+                                        else -> ModelButton("下载", {
+                                            requestNotificationPermissionIfNeeded()
+                                            viewModel.downloadMossModels()
+                                        })
                                     }
                                 },
                                 below = {
@@ -403,7 +436,10 @@ fun ModelsPage(
                                                 } else {
                                                     ModelButton(
                                                         "下载",
-                                                        viewModel::downloadModels,
+                                                        {
+                                                            requestNotificationPermissionIfNeeded()
+                                                            viewModel.downloadModels()
+                                                        },
                                                         enabled = state.repo.isNotBlank(),
                                                         modifier = Modifier.weight(1f)
                                                     )
@@ -439,7 +475,10 @@ fun ModelsPage(
                                             }
                                             ModelButton("删除", { deleteBuiltIn = BuiltInDeleteTarget.Yue2 }, enabled = !modelBusy, danger = true)
                                         }
-                                        else -> ModelButton("下载", viewModel::downloadYue2Models)
+                                        else -> ModelButton("下载", {
+                                            requestNotificationPermissionIfNeeded()
+                                            viewModel.downloadYue2Models()
+                                        })
                                     }
                                 },
                                 below = {
@@ -471,7 +510,10 @@ fun ModelsPage(
                                             }
                                             ModelButton("删除", { deleteBuiltIn = BuiltInDeleteTarget.Wan }, enabled = !modelBusy, danger = true)
                                         }
-                                        else -> ModelButton("下载", viewModel::downloadWanModels)
+                                        else -> ModelButton("下载", {
+                                            requestNotificationPermissionIfNeeded()
+                                            viewModel.downloadWanModels()
+                                        })
                                     }
                                 },
                                 below = {
@@ -499,16 +541,30 @@ fun ModelsPage(
                                     onSelect = hubViewModel::selectCategory
                                 )
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    val submitSearch = {
+                                        if (!hubState.searching && hubState.query.isNotBlank()) {
+                                            keyboardController?.hide()
+                                            focusManager.clearFocus()
+                                            hubViewModel.executeSearch()
+                                        }
+                                    }
                                     OmniTextField(
                                         value = hubState.query,
                                         onValueChange = hubViewModel::updateQuery,
                                         label = "搜索仓库或输入 owner/repo",
                                         placeholder = hubState.category.hint,
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                        keyboardActions = KeyboardActions(onSearch = { submitSearch() }),
+                                        trailingIcon = if (hubState.query.isNotEmpty()) ({
+                                            IconButton(onClick = { hubViewModel.updateQuery("") }) {
+                                                Icon(Icons.Outlined.Close, "清空", tint = OmniColors.Dim, modifier = Modifier.size(18.dp))
+                                            }
+                                        }) else null,
                                         modifier = Modifier.weight(1f)
                                     )
                                     ModelButton(
                                         text = if (hubState.searching) "搜索中" else "搜索",
-                                        onClick = hubViewModel::executeSearch,
+                                        onClick = submitSearch,
                                         enabled = !hubState.searching && hubState.query.isNotBlank()
                                     )
                                 }
@@ -550,7 +606,10 @@ fun ModelsPage(
         HubRepoFilesSheet(
             repo = repo,
             state = hubState,
-            onDownload = hubViewModel::downloadOption,
+            onDownload = { option ->
+                requestNotificationPermissionIfNeeded()
+                hubViewModel.downloadOption(option)
+            },
             onDismiss = hubViewModel::closeRepoSheet
         )
     }
@@ -633,11 +692,20 @@ private fun DownloadStatusCard(
             val speed = if (active.bytesPerSecond > 0L) " · ${formatBytesCompact(active.bytesPerSecond)}/s" else ""
             val totalLabel = if (active.totalBytes > 0L) formatBytesCompact(active.totalBytes) else "计算中"
             val queueLabel = if (queueSize > 0) " · 另有 $queueSize 项排队" else ""
+            if (active.file.isNotBlank() && active.file != active.title) {
+                Text(
+                    active.file,
+                    color = OmniColors.Dim,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Text(
-                "${active.file} · ${formatBytesCompact(active.downloadedBytes)} / $totalLabel$speed$queueLabel",
+                "${formatBytesCompact(active.downloadedBytes)} / $totalLabel$speed$queueLabel",
                 color = OmniColors.Muted,
                 style = MaterialTheme.typography.labelSmall,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }

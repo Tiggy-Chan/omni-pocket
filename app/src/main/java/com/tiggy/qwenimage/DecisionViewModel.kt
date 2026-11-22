@@ -251,7 +251,7 @@ class DecisionViewModel(
         val snapshot = _state.value
         if (!snapshot.ready || snapshot.busy) return
         if (!snapshot.modelReady) {
-            _state.update { it.copy(showModels = true, error = "请先从电脑导入并校验 Elephant-1") }
+            _state.update { it.copy(showModels = true, error = "请先在模型页下载并校验 Elephant-1") }
             return
         }
         val questions = try {
