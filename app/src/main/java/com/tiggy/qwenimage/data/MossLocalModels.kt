@@ -35,9 +35,10 @@ data class MossLocalSettings(
 }
 
 val ImageGenerationBackend.isMoss: Boolean
-    get() = this != ImageGenerationBackend.QwenLocal
+    get() = this == ImageGenerationBackend.MossLocal
 
 fun ImageGenerationBackend.displayName(): String = when (this) {
     ImageGenerationBackend.QwenLocal -> "Qwen · 本机"
     ImageGenerationBackend.MossLocal -> "MOSS · 本机"
+    ImageGenerationBackend.CustomSd -> "通用扩散 · 本机"
 }

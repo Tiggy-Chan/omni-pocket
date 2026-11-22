@@ -66,7 +66,9 @@ data class GenerationJob(
     val outputWidth: Int = 0,
     val outputHeight: Int = 0,
     val backend: ImageGenerationBackend = ImageGenerationBackend.QwenLocal,
-    val mossSettings: MossSettings? = null
+    val mossSettings: MossSettings? = null,
+    val customModelId: String? = null,
+    val customModelName: String? = null
 ) {
     fun toJson() = JSONObject().apply {
         put("id", id); put("settings", settings.toJson()); put("state", state); put("progress", progress)
@@ -74,6 +76,8 @@ data class GenerationJob(
         put("outputWidth", outputWidth); put("outputHeight", outputHeight)
         put("backend", backend.name)
         put("mossSettings", mossSettings?.toJson() ?: JSONObject.NULL)
+        if (!customModelId.isNullOrBlank()) put("customModelId", customModelId)
+        if (!customModelName.isNullOrBlank()) put("customModelName", customModelName)
     }
     companion object {
         fun fromJson(o: JSONObject) = GenerationJob(
@@ -92,7 +96,9 @@ data class GenerationJob(
                 "MossWorkstation" -> ImageGenerationBackend.MossLocal
                 else -> runCatching { ImageGenerationBackend.valueOf(name) }.getOrDefault(ImageGenerationBackend.QwenLocal)
             },
-            mossSettings = o.optJSONObject("mossSettings")?.let(MossSettings::fromJson)
+            mossSettings = o.optJSONObject("mossSettings")?.let(MossSettings::fromJson),
+            customModelId = o.optString("customModelId").takeIf { it.isNotBlank() && it != "null" },
+            customModelName = o.optString("customModelName").takeIf { it.isNotBlank() && it != "null" }
         )
     }
 }

@@ -7,7 +7,7 @@ import kotlin.math.roundToInt
 
 const val DEFAULT_MOSS_NEGATIVE_PROMPT = "nsfw, worst quality, bad anatomy, watermark, jpeg artifact"
 
-enum class ImageGenerationBackend { QwenLocal, MossLocal }
+enum class ImageGenerationBackend { QwenLocal, MossLocal, CustomSd }
 
 enum class MossInputMode { Prompt, Layout }
 

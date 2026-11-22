@@ -36,7 +36,7 @@ class LocalMossEngine(
         settings.validateLocal()
         val modelStatus = repository.status()
         check(modelStatus.ready) { modelStatus.message }
-        val nativeLib = File(context.applicationInfo.nativeLibraryDir, "libmoss_cli.so")
+        val nativeLib = resolveSdCliBinary(context.applicationInfo.nativeLibraryDir)
         check(nativeLib.isFile) { "本机 MOSS 推理库未安装" }
         check(activeProcess == null) { "已有 MOSS 本机任务正在执行" }
         if (!outputDirectory.isDirectory && !outputDirectory.mkdirs()) throw IOException("无法创建 MOSS 输出目录")
