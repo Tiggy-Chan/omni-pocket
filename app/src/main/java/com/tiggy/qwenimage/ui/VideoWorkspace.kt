@@ -106,8 +106,8 @@ fun VideoWorkspace(
     val context = LocalContext.current
     val settings = state.videoSettings
     val task = state.videoTask
-    // Stats model files, so check once per visit and after each job rather than on every recomposition.
-    val runtime = remember(task.running) { viewModel.videoRuntimeStatus() }
+    // Stats model files, so check once per visit and after each job or download rather than on every recomposition.
+    val runtime = remember(task.running, state.wanModelStatus) { viewModel.videoRuntimeStatus() }
     val ready = runtime.localReady
     val firstFrame = settings.inputImageUri
     val parameterError = when {
@@ -271,13 +271,14 @@ fun VideoWorkspace(
 
 @Composable
 private fun VideoModelNote(missing: List<String>, onModels: () -> Unit) {
+    val pkg = LocalContext.current.packageName
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("本机 Wan2.2 模型未就绪", color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
-            TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 48.dp)) { Text("模型") }
+            TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 48.dp)) { Text("前往下载") }
         }
         Text(
-            "缺少：${missing.joinToString("、")}\n放入 Android/data/com.tiggy.qwenimage/files/models/wan22_turbo",
+            "缺少：${missing.joinToString("、")}\n可在「模型」页直接下载，或放入 Android/data/$pkg/files/models/wan22_turbo",
             color = OmniColors.Dim,
             style = MaterialTheme.typography.labelSmall,
             textAlign = TextAlign.Center

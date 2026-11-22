@@ -1,5 +1,9 @@
 package com.tiggy.qwenimage.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,19 +17,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Psychology
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -64,8 +73,8 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
     val state by viewModel.state.collectAsStateWithLifecycle()
     var picking by remember { mutableStateOf(false) }
     val conversation = state.conversation
-    val model = state.models.firstOrNull { it.spec.id == conversation?.modelId }
-    val modelName = model?.spec?.name ?: "Qwen3.5"
+    val selectedModel = state.selectedModelChoice
+    val modelName = selectedModel?.name ?: "Qwen3.5"
     val thinking = conversation?.thinking == true
     val loading = state.phase == LlmPhase.Loading
     val running = loading || state.phase == LlmPhase.Generating
@@ -130,12 +139,12 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
             )
         }
     ) { padding ->
-        Transcript(state, padding, onModels)
+        Transcript(state, padding, onModels, onRegenerate = viewModel::regenerateLast)
     }
 }
 
 @Composable
-private fun Transcript(state: LlmUiState, padding: PaddingValues, onModels: () -> Unit) {
+private fun Transcript(state: LlmUiState, padding: PaddingValues, onModels: () -> Unit, onRegenerate: () -> Unit) {
     val listState = rememberLazyListState()
     val conversation = state.conversation
     val messages = conversation?.messages.orEmpty()
@@ -175,7 +184,13 @@ private fun Transcript(state: LlmUiState, padding: PaddingValues, onModels: () -
             val lastId = messages.last().id
             items(messages, key = { it.id }) { message ->
                 ReadingColumn {
-                    MessageItem(message, usage = if (message.id == lastId && !state.busy) state.usage else null)
+                    val isLast = message.id == lastId
+                    MessageItem(
+                        message = message,
+                        usage = if (isLast && !state.busy) state.usage else null,
+                        canRegenerate = isLast && !state.busy && message.role == "assistant",
+                        onRegenerate = onRegenerate
+                    )
                 }
             }
         }
@@ -183,7 +198,13 @@ private fun Transcript(state: LlmUiState, padding: PaddingValues, onModels: () -
 }
 
 @Composable
-private fun MessageItem(message: LlmMessage, usage: LlmUsage?) {
+private fun MessageItem(
+    message: LlmMessage,
+    usage: LlmUsage?,
+    canRegenerate: Boolean = false,
+    onRegenerate: () -> Unit = {}
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     if (message.role == "user") {
         SelectionContainer { RequestBubble(message.content) }
         return
@@ -231,6 +252,29 @@ private fun MessageItem(message: LlmMessage, usage: LlmUsage?) {
             Text(usageCaption(it), color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall,
                 modifier = Modifier.padding(top = 6.dp))
         }
+        if (message.status != LlmMessageStatus.Streaming && (message.content.isNotBlank() || canRegenerate)) {
+            Row(Modifier.offset(x = (-10).dp), verticalAlignment = Alignment.CenterVertically) {
+                if (message.content.isNotBlank()) {
+                    IconButton(
+                        onClick = {
+                            runCatching {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(ClipData.newPlainText("回复内容", message.content))
+                                Toast.makeText(context, "已复制", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(Icons.Outlined.ContentCopy, "复制回复", tint = OmniColors.Dim, modifier = Modifier.size(17.dp))
+                    }
+                }
+                if (canRegenerate) {
+                    IconButton(onClick = onRegenerate, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Outlined.Refresh, "重新生成", tint = OmniColors.Dim, modifier = Modifier.size(18.dp))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -260,18 +304,18 @@ private fun ModelPicker(
     onDismiss: () -> Unit
 ) {
     OmniSheet("选择模型", onDismiss) {
-        Column {
-            state.models.forEach { status ->
+        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            state.chatModels.forEach { choice ->
                 SettingRow(
-                    title = status.spec.name,
-                    detail = if (status.ready) "已就绪" else "${status.message} · ${modelSize(status.spec.totalBytes)}",
-                    modifier = Modifier.alpha(if (status.ready) 1f else 0.55f),
-                    onClick = if (status.ready) ({ onSelect(status.spec.id) }) else null,
+                    title = choice.name,
+                    detail = choice.detail,
+                    modifier = Modifier.alpha(if (choice.ready) 1f else 0.55f),
+                    onClick = if (choice.ready) ({ onSelect(choice.id) }) else null,
                     trailing = {
                         RadioButton(
-                            selected = status.spec.id == selectedId,
+                            selected = choice.id == selectedId,
                             onClick = null,
-                            enabled = status.ready,
+                            enabled = choice.ready,
                             colors = RadioButtonDefaults.colors(
                                 selectedColor = OmniColors.Accent,
                                 unselectedColor = OmniColors.Dim,
@@ -284,7 +328,8 @@ private fun ModelPicker(
                 HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
             }
             SettingRow(
-                title = "管理模型",
+                title = "搜索或管理模型",
+                detail = "从 Hugging Face / HF-Mirror 下载更多 GGUF 与 MNN 模型",
                 onClick = onManage,
                 trailing = { Icon(Icons.Outlined.Memory, null, tint = OmniColors.Muted, modifier = Modifier.size(20.dp)) }
             )

@@ -31,6 +31,9 @@ class MainActivity : ComponentActivity() {
     private val decisionViewModel: DecisionViewModel by viewModels {
         appFactory { DecisionViewModel(application, inferenceCoordinator) }
     }
+    private val hubViewModel: ModelHubViewModel by viewModels {
+        appFactory { ModelHubViewModel(application) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,7 +49,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 Surface(modifier = Modifier.fillMaxSize(), color = OmniColors.Background) {
-                    QwenApp(viewModel, llmViewModel, decisionViewModel)
+                    QwenApp(viewModel, llmViewModel, decisionViewModel, hubViewModel)
                 }
             }
         }

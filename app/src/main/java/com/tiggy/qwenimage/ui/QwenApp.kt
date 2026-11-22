@@ -42,9 +42,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tiggy.qwenimage.DecisionViewModel
 import com.tiggy.qwenimage.LlmPhase
 import com.tiggy.qwenimage.LlmViewModel
+import com.tiggy.qwenimage.ModelHubViewModel
 import com.tiggy.qwenimage.QwenUiState
 import com.tiggy.qwenimage.QwenViewModel
 import com.tiggy.qwenimage.data.AppDomain
+import com.tiggy.qwenimage.data.HubModelType
 import com.tiggy.qwenimage.data.TaskDomain
 import kotlinx.coroutines.launch
 
@@ -57,7 +59,8 @@ import kotlinx.coroutines.launch
 fun QwenApp(
     viewModel: QwenViewModel,
     llmViewModel: LlmViewModel,
-    decisionViewModel: DecisionViewModel
+    decisionViewModel: DecisionViewModel,
+    hubViewModel: ModelHubViewModel
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val llmState by llmViewModel.state.collectAsStateWithLifecycle()
@@ -93,7 +96,7 @@ fun QwenApp(
             )
         }
         val destination = @Composable {
-            Destination(page, state, viewModel, llmViewModel, decisionViewModel, openMenu,
+            Destination(page, state, viewModel, llmViewModel, decisionViewModel, hubViewModel, openMenu,
                 onPreview = { previewImagePath = it }, onPage = { page = it })
         }
         BackHandler(enabled = !wide && drawer.isOpen) { scope.launch { drawer.close() } }
@@ -142,6 +145,7 @@ private fun Destination(
     viewModel: QwenViewModel,
     llmViewModel: LlmViewModel,
     decisionViewModel: DecisionViewModel,
+    hubViewModel: ModelHubViewModel,
     onMenu: (() -> Unit)?,
     onPreview: (String) -> Unit,
     onPage: (AppPage) -> Unit
@@ -156,8 +160,29 @@ private fun Destination(
         }
         AppPage.Library -> LibraryScreen(state, viewModel, onMenu, onPreview,
             onOpenWorkspace = { domain -> viewModel.setDomain(domain); onPage(AppPage.Workspace) })
-        AppPage.Models -> ModelsPage(state, viewModel, llmViewModel, decisionViewModel, onMenu)
-        AppPage.Settings -> SettingsPage(state, viewModel, onMenu)
+        AppPage.Models -> ModelsPage(
+            state = state,
+            viewModel = viewModel,
+            llmViewModel = llmViewModel,
+            decisionViewModel = decisionViewModel,
+            hubViewModel = hubViewModel,
+            onMenu = onMenu,
+            onUseHubModel = { model ->
+                when (model.type) {
+                    HubModelType.GgufChat, HubModelType.MnnChat -> {
+                        llmViewModel.selectModel(model.id)
+                        viewModel.setDomain(AppDomain.Conversation)
+                        onPage(AppPage.Workspace)
+                    }
+                    HubModelType.SdImage -> {
+                        viewModel.selectCustomImageModel(model.id)
+                        viewModel.setDomain(AppDomain.ImageStudio)
+                        onPage(AppPage.Workspace)
+                    }
+                }
+            }
+        )
+        AppPage.Settings -> SettingsPage(state, viewModel, llmViewModel, hubViewModel, onMenu)
     }
 }
 

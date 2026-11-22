@@ -11,6 +11,7 @@ import com.tiggy.qwenimage.data.LlmModelKind
 import com.tiggy.qwenimage.data.LlmModelRepository
 import com.tiggy.qwenimage.data.LlmModelSpec
 import com.tiggy.qwenimage.data.LlmModelStatus
+import com.tiggy.qwenimage.data.ModelDownloadManager
 import com.tiggy.qwenimage.data.parseDecisionResult
 import com.tiggy.qwenimage.data.planDecisionRequest
 import com.tiggy.qwenimage.data.renderDecisionState
@@ -78,6 +79,16 @@ class DecisionViewModel(
         viewModelScope.launch {
             val model = withContext(Dispatchers.IO) { refreshStatus() }
             _state.update { it.copy(ready = true, model = model) }
+        }
+        viewModelScope.launch {
+            var lastRev = ModelDownloadManager.state.value.revision
+            ModelDownloadManager.state.collect { dl ->
+                if (dl.revision != lastRev) {
+                    lastRev = dl.revision
+                    val model = withContext(Dispatchers.IO) { refreshStatus() }
+                    _state.update { it.copy(model = model) }
+                }
+            }
         }
     }
 
@@ -186,6 +197,19 @@ class DecisionViewModel(
         viewModelScope.launch {
             val model = withContext(Dispatchers.IO) { refreshStatus() }
             _state.update { it.copy(model = model) }
+        }
+    }
+
+    fun downloadModel() {
+        ModelDownloadManager.enqueue(
+            context = getApplication(),
+            id = "builtin-decision:$MODEL_ID",
+            title = "Elephant-1 9B",
+            onSuccess = { refreshModel() }
+        ) { onProgress ->
+            repository.download(MODEL_ID) { progress ->
+                onProgress(progress.file, progress.completed, progress.total)
+            }
         }
     }
 

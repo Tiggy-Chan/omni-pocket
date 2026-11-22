@@ -71,8 +71,10 @@ import com.tiggy.qwenimage.data.ImageGenerationBackend
 import com.tiggy.qwenimage.data.MossInputMode
 import com.tiggy.qwenimage.data.MossSettings
 import com.tiggy.qwenimage.data.displayName
+import com.tiggy.qwenimage.data.formatBytesCompact
 import com.tiggy.qwenimage.data.hasVae
 import com.tiggy.qwenimage.data.isMoss
+import com.tiggy.qwenimage.engine.CustomSdSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -86,6 +88,13 @@ private val MossSizePresets = listOf(
     SizePreset(1024, 1024, "1024²"),
     SizePreset(1024, 768, "横屏"),
     SizePreset(768, 1024, "竖屏")
+)
+
+private val CustomSdSizePresets = listOf(
+    SizePreset(512, 512, "512²"),
+    SizePreset(768, 768, "768²"),
+    SizePreset(768, 512, "横屏"),
+    SizePreset(512, 768, "竖屏")
 )
 
 private val QwenSizes = listOf(320, 384, 512)
@@ -107,11 +116,19 @@ fun ImageWorkspace(
     val backend = state.imageBackend
     val settings = state.settings
     val moss = state.mossSettings
+    val customSd = state.customSdSettings
+    val selectedCustomModel = state.customImageModels.firstOrNull { it.id == customSd.modelId }
     val isQwen = backend == ImageGenerationBackend.QwenLocal
+    val isCustomSd = backend == ImageGenerationBackend.CustomSd
     val features = state.modelStatus?.manifest?.features.orEmpty()
     val editAvailable = "image-edit" in features
     val layoutMode = backend.isMoss && moss.inputMode == MossInputMode.Layout
-    val prompt = if (isQwen) settings.prompt else moss.prompt
+    val prompt = when (backend) {
+        ImageGenerationBackend.QwenLocal -> settings.prompt
+        ImageGenerationBackend.MossLocal -> moss.prompt
+        ImageGenerationBackend.CustomSd -> customSd.prompt
+    }
+    val backendLabel = if (isCustomSd) (selectedCustomModel?.name ?: backend.displayName()) else backend.displayName()
     val backendReady = backendReady(state, backend)
     val needsReference = isQwen && settings.mode == GenerationMode.ImageEdit && settings.inputUri == null
     val sendEnabled = prompt.isNotBlank() && backendReady && !needsReference
@@ -181,15 +198,18 @@ fun ImageWorkspace(
 
     WorkspaceScaffold(
         title = "图像",
-        subtitle = backend.displayName(),
+        subtitle = backendLabel,
         onMenu = onMenu,
         composer = { haze ->
             OmniComposer(
                 hazeState = haze,
                 value = prompt,
                 onValueChange = { value ->
-                    if (isQwen) viewModel.setPrompt(value)
-                    else viewModel.updateMossSettings { it.copy(prompt = value) }
+                    when (backend) {
+                        ImageGenerationBackend.QwenLocal -> viewModel.setPrompt(value)
+                        ImageGenerationBackend.MossLocal -> viewModel.updateMossSettings { it.copy(prompt = value) }
+                        ImageGenerationBackend.CustomSd -> viewModel.updateCustomSdSettings { it.copy(prompt = value) }
+                    }
                 },
                 placeholder = placeholder,
                 onSend = viewModel::enqueue,
@@ -214,7 +234,7 @@ fun ImageWorkspace(
                             )
                         }
                     }
-                    ComposerChip(backend.displayName(), onClick = { sheet = ImageSheet.Backend })
+                    ComposerChip(backendLabel.take(18), onClick = { sheet = ImageSheet.Backend })
                     if (backend.isMoss) {
                         ComposerChip("布局", onClick = { sheet = ImageSheet.Layout }, selected = layoutMode)
                     }
@@ -232,10 +252,21 @@ fun ImageWorkspace(
 
     when (sheet) {
         ImageSheet.Backend -> OmniSheet("生成方式", onDismiss = { sheet = null }) {
-            ImageBackendOptions(state) { target ->
-                viewModel.setImageBackend(target)
-                sheet = null
-            }
+            ImageBackendOptions(
+                state = state,
+                onSelectBuiltIn = { target ->
+                    viewModel.setImageBackend(target)
+                    sheet = null
+                },
+                onSelectCustom = { modelId ->
+                    viewModel.selectCustomImageModel(modelId)
+                    sheet = null
+                },
+                onManageModels = {
+                    sheet = null
+                    onModels()
+                }
+            )
         }
         ImageSheet.Layout -> OmniSheet("布局", onDismiss = { sheet = null }) {
             SheetScroll {
@@ -252,7 +283,11 @@ fun ImageWorkspace(
         }
         ImageSheet.Params -> OmniSheet("参数", onDismiss = { sheet = null }) {
             SheetScroll {
-                if (isQwen) QwenParams(state, viewModel) else MossParams(state, viewModel)
+                when (backend) {
+                    ImageGenerationBackend.QwenLocal -> QwenParams(state, viewModel)
+                    ImageGenerationBackend.MossLocal -> MossParams(state, viewModel)
+                    ImageGenerationBackend.CustomSd -> CustomSdParams(state, viewModel)
+                }
             }
         }
         null -> Unit
@@ -262,6 +297,7 @@ fun ImageWorkspace(
 private fun backendReady(state: QwenUiState, backend: ImageGenerationBackend): Boolean = when (backend) {
     ImageGenerationBackend.QwenLocal -> state.modelStatus?.ready == true
     ImageGenerationBackend.MossLocal -> state.mossModelStatus?.ready == true
+    ImageGenerationBackend.CustomSd -> state.customImageModels.any { it.id == state.customSdSettings.modelId }
 }
 
 @Composable
@@ -439,7 +475,7 @@ private fun jobCaption(job: GenerationJob): String {
     val width = job.outputWidth.takeIf { it > 0 } ?: job.settings.width
     val height = job.outputHeight.takeIf { it > 0 } ?: job.settings.height
     return buildList {
-        add(job.backend.displayName())
+        add(if (job.backend == ImageGenerationBackend.CustomSd) job.customModelName ?: job.backend.displayName() else job.backend.displayName())
         add("${width}×${height}")
         add("${job.settings.steps} 步")
         if (job.state == "done" && job.elapsedMs > 0) add("${job.elapsedMs / 1000} 秒")
@@ -494,21 +530,49 @@ private fun decodeReference(context: Context, uri: Uri, maxDimension: Int): Bitm
 }
 
 @Composable
-private fun ImageBackendOptions(state: QwenUiState, onSelect: (ImageGenerationBackend) -> Unit) {
-    ImageGenerationBackend.entries.forEach { target ->
-        val detail = when (target) {
-            ImageGenerationBackend.QwenLocal -> if (state.modelStatus?.ready == true) "已就绪" else "模型未就绪"
-            ImageGenerationBackend.MossLocal -> if (state.mossModelStatus?.ready == true) "已就绪" else "模型未就绪"
-        }
-        SettingRow(
-            title = target.displayName(),
-            detail = detail,
-            onClick = { onSelect(target) }
-        ) {
-            if (state.imageBackend == target) {
-                Icon(Icons.Outlined.Check, "当前", tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
+private fun ImageBackendOptions(
+    state: QwenUiState,
+    onSelectBuiltIn: (ImageGenerationBackend) -> Unit,
+    onSelectCustom: (String) -> Unit,
+    onManageModels: () -> Unit
+) {
+    Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+        listOf(ImageGenerationBackend.QwenLocal, ImageGenerationBackend.MossLocal).forEach { target ->
+            val detail = when (target) {
+                ImageGenerationBackend.QwenLocal -> if (state.modelStatus?.ready == true) "已就绪" else "模型未就绪"
+                ImageGenerationBackend.MossLocal -> if (state.mossModelStatus?.ready == true) "已就绪" else "模型未就绪"
+                ImageGenerationBackend.CustomSd -> ""
+            }
+            SettingRow(
+                title = target.displayName(),
+                detail = detail,
+                onClick = { onSelectBuiltIn(target) }
+            ) {
+                if (state.imageBackend == target) {
+                    Icon(Icons.Outlined.Check, "当前", tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
+                }
             }
         }
+        if (state.customImageModels.isNotEmpty()) {
+            SectionLabel("已从社区下载")
+            state.customImageModels.forEach { model ->
+                val selected = state.imageBackend == ImageGenerationBackend.CustomSd && state.customSdSettings.modelId == model.id
+                SettingRow(
+                    title = model.name,
+                    detail = "${model.repo} · ${formatBytesCompact(model.totalBytes)}",
+                    onClick = { onSelectCustom(model.id) }
+                ) {
+                    if (selected) {
+                        Icon(Icons.Outlined.Check, "当前", tint = OmniColors.Accent, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+        }
+        SettingRow(
+            title = "从模型页搜索更多图像模型",
+            detail = "支持 Hugging Face / HF-Mirror 单文件权重",
+            onClick = onManageModels
+        )
     }
 }
 
@@ -591,6 +655,38 @@ private fun MossParams(state: QwenUiState, viewModel: QwenViewModel) {
         minLines = 2,
         modifier = Modifier.fillMaxWidth()
     )
+}
+
+@Composable
+private fun CustomSdParams(state: QwenUiState, viewModel: QwenViewModel) {
+    val sd = state.customSdSettings
+    val update: ((CustomSdSettings) -> CustomSdSettings) -> Unit = viewModel::updateCustomSdSettings
+
+    SectionLabel("尺寸 · ${sd.width}×${sd.height}")
+    OmniTabs(
+        items = CustomSdSizePresets,
+        selected = CustomSdSizePresets.firstOrNull { it.width == sd.width && it.height == sd.height }
+            ?: SizePreset(sd.width, sd.height, ""),
+        label = { it.label },
+        onSelect = { preset -> update { it.copy(width = preset.width, height = preset.height) } }
+    )
+    NumberField("Seed", sd.seed.toString()) { text ->
+        text.toLongOrNull()?.takeIf { it >= 0L }?.let { seed -> update { it.copy(seed = seed) } }
+    }
+    NumberField("步数", sd.steps.toString()) { text ->
+        text.toIntOrNull()?.let { steps -> update { it.copy(steps = steps.coerceIn(1, 60)) } }
+    }
+    NumberField("CFG", sd.cfg.toString()) { text ->
+        text.toDoubleOrNull()?.let { cfg -> update { it.copy(cfg = cfg) } }
+    }
+    OmniTextField(
+        value = sd.negativePrompt,
+        onValueChange = { value -> update { it.copy(negativePrompt = value) } },
+        label = "负向提示词",
+        minLines = 2,
+        modifier = Modifier.fillMaxWidth()
+    )
+    SwitchRow("OpenCL GPU 加速", sd.useOpenCl) { enabled -> update { it.copy(useOpenCl = enabled) } }
 }
 
 @Composable

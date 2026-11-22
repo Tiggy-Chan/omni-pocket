@@ -1,8 +1,11 @@
 package com.tiggy.qwenimage
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.tiggy.qwenimage.data.HubModelType
+import com.tiggy.qwenimage.data.InstalledHubModelsRepository
 import com.tiggy.qwenimage.data.LlmChatSnapshot
 import com.tiggy.qwenimage.data.LlmChatStore
 import com.tiggy.qwenimage.data.LlmConversation
@@ -12,8 +15,11 @@ import com.tiggy.qwenimage.data.LlmMessageStatus
 import com.tiggy.qwenimage.data.LlmModelKind
 import com.tiggy.qwenimage.data.LlmModelRepository
 import com.tiggy.qwenimage.data.LlmModelStatus
+import com.tiggy.qwenimage.data.ModelDownloadManager
+import com.tiggy.qwenimage.data.formatBytesCompact
 import com.tiggy.qwenimage.data.splitReasoning
 import com.tiggy.qwenimage.engine.LocalInferenceCoordinator
+import com.tiggy.qwenimage.engine.LocalLlamaChatEngine
 import com.tiggy.qwenimage.engine.LocalLlmEngine
 import com.tiggy.qwenimage.engine.NativeLlmResult
 import kotlinx.coroutines.CancellationException
@@ -34,6 +40,21 @@ import java.util.UUID
 
 enum class LlmPhase { Idle, Downloading, Loading, Generating }
 
+enum class ChatEngineBackend(val label: String) {
+    Mnn("MNN"),
+    LlamaGguf("GGUF")
+}
+
+data class ChatModelChoice(
+    val id: String,
+    val name: String,
+    val backend: ChatEngineBackend,
+    val totalBytes: Long,
+    val ready: Boolean,
+    val detail: String,
+    val builtIn: Boolean
+)
+
 data class LlmUsage(
     val promptTokens: Int,
     val generatedTokens: Int,
@@ -48,6 +69,10 @@ data class LlmUiState(
     val selectedId: String? = null,
     val drafts: Map<String, String> = emptyMap(),
     val models: List<LlmModelStatus> = emptyList(),
+    val chatModels: List<ChatModelChoice> = emptyList(),
+    val maxNewTokens: Int = 1024,
+    val contextTokens: Int = 4096,
+    val threads: Int = 4,
     val phase: LlmPhase = LlmPhase.Idle,
     val workingModelId: String? = null,
     val download: LlmDownloadProgress? = null,
@@ -61,7 +86,8 @@ data class LlmUiState(
     val conversation: LlmConversation? get() = conversations.firstOrNull { it.id == selectedId }
     val draft: String get() = drafts[selectedId].orEmpty()
     val busy: Boolean get() = phase != LlmPhase.Idle
-    val modelReady: Boolean get() = models.firstOrNull { it.spec.id == conversation?.modelId }?.ready == true
+    val selectedModelChoice: ChatModelChoice? get() = chatModels.firstOrNull { it.id == conversation?.modelId }
+    val modelReady: Boolean get() = selectedModelChoice?.ready == true
 }
 
 @OptIn(FlowPreview::class)
@@ -70,13 +96,23 @@ class LlmViewModel(
     private val coordinator: LocalInferenceCoordinator
 ) : AndroidViewModel(application) {
     private val repository = LlmModelRepository(application)
+    private val hubRepository = InstalledHubModelsRepository.get(application)
     private val store = LlmChatStore(application)
-    private val engine = LocalLlmEngine(File(application.cacheDir, "llm-runtime"))
-    private val _state = MutableStateFlow(LlmUiState())
+    private val prefs = application.getSharedPreferences("llm-settings", Context.MODE_PRIVATE)
+    private val mnnEngine = LocalLlmEngine(File(application.cacheDir, "llm-runtime"))
+    private val llamaEngine = LocalLlamaChatEngine()
+    private val _state = MutableStateFlow(
+        LlmUiState(
+            maxNewTokens = prefs.getInt("maxNewTokens", DEFAULT_MAX_NEW_TOKENS).coerceIn(128, 4096),
+            contextTokens = prefs.getInt("contextTokens", DEFAULT_CONTEXT_TOKENS).coerceIn(1024, 16384),
+            threads = prefs.getInt("threads", DEFAULT_THREADS).coerceIn(2, 8)
+        )
+    )
     val state: StateFlow<LlmUiState> = _state.asStateFlow()
     private var operation: Job? = null
     private var activeConversationId: String? = null
     private var activeMessageId: String? = null
+    @Volatile private var activeBackend: ChatEngineBackend? = null
     @Volatile private var cancelRequested = false
     private val evictionKey = "llm:${System.identityHashCode(this)}"
     private var persistenceEnabled = false
@@ -84,7 +120,8 @@ class LlmViewModel(
 
     init {
         coordinator.registerEvictor(evictionKey) {
-            engine.unload()
+            mnnEngine.unload()
+            llamaEngine.unload()
             _state.update { it.copy(loadedModelId = null) }
         }
         viewModelScope.launch {
@@ -95,20 +132,41 @@ class LlmViewModel(
             } else Result.success(Unit)
             persistenceEnabled = !restoreFailed || recovered.isSuccess
             val snapshot = restored.getOrElse { LlmChatSnapshot(emptyList(), null) }
-            val conversations = snapshot.conversations.ifEmpty { listOf(newConversation()) }
-            val models = withContext(Dispatchers.IO) { refreshStatuses() }
+            val (models, choices) = withContext(Dispatchers.IO) { buildModelLists() }
+            val preferredModel = choices.firstOrNull { it.ready }?.id ?: DEFAULT_MODEL
+            val conversations = snapshot.conversations.ifEmpty { listOf(newConversation(preferredModel)) }
             _state.update {
-                it.copy(ready = true, conversations = conversations,
+                it.copy(
+                    ready = true,
+                    conversations = conversations,
                     selectedId = snapshot.selectedId ?: conversations.first().id,
                     drafts = snapshot.drafts,
                     models = models,
+                    chatModels = choices,
                     alert = if (restoreFailed) {
                         if (persistenceEnabled) "旧会话无法读取，原文件已备份" else "会话存档无法读取，原文件未覆盖"
-                    } else null)
+                    } else null
+                )
             }
             viewModelScope.launch {
                 state.map { LlmChatSnapshot(it.conversations, it.selectedId, it.drafts) }
                     .distinctUntilChanged().debounce(400).collect(::persist)
+            }
+        }
+        viewModelScope.launch {
+            hubRepository.models.collect {
+                val (models, choices) = withContext(Dispatchers.IO) { buildModelLists() }
+                _state.update { it.copy(models = models, chatModels = choices) }
+            }
+        }
+        viewModelScope.launch {
+            var lastRev = ModelDownloadManager.state.value.revision
+            ModelDownloadManager.state.collect { dl ->
+                if (dl.revision != lastRev) {
+                    lastRev = dl.revision
+                    val (models, choices) = withContext(Dispatchers.IO) { buildModelLists() }
+                    _state.update { it.copy(models = models, chatModels = choices) }
+                }
             }
         }
     }
@@ -117,6 +175,24 @@ class LlmViewModel(
         if (value.length > MAX_INPUT_CHARACTERS) return
         val id = _state.value.selectedId ?: return
         _state.update { it.copy(drafts = it.drafts + (id to value), error = null) }
+    }
+
+    fun setMaxNewTokens(value: Int) {
+        val clamped = value.coerceIn(128, 4096)
+        prefs.edit().putInt("maxNewTokens", clamped).apply()
+        _state.update { it.copy(maxNewTokens = clamped) }
+    }
+
+    fun setContextTokens(value: Int) {
+        val clamped = value.coerceIn(1024, 16384)
+        prefs.edit().putInt("contextTokens", clamped).apply()
+        _state.update { it.copy(contextTokens = clamped) }
+    }
+
+    fun setThreads(value: Int) {
+        val clamped = value.coerceIn(2, 8)
+        prefs.edit().putInt("threads", clamped).apply()
+        _state.update { it.copy(threads = clamped) }
     }
 
     fun selectConversation(id: String) {
@@ -130,10 +206,20 @@ class LlmViewModel(
             _state.update { it.copy(alert = "最多保存 100 个会话，请先删除不用的会话") }
             return
         }
-        val conversation = newConversation(_state.value.conversation?.modelId ?: DEFAULT_MODEL)
+        val currentModel = _state.value.conversation?.modelId
+            ?.takeIf { id -> _state.value.chatModels.any { it.id == id } }
+            ?: _state.value.chatModels.firstOrNull { it.ready }?.id
+            ?: DEFAULT_MODEL
+        val conversation = newConversation(currentModel)
         _state.update {
-            it.copy(conversations = listOf(conversation) + it.conversations, selectedId = conversation.id,
-                showConversations = false, showModels = false, usage = null, error = null)
+            it.copy(
+                conversations = listOf(conversation) + it.conversations,
+                selectedId = conversation.id,
+                showConversations = false,
+                showModels = false,
+                usage = null,
+                error = null
+            )
         }
     }
 
@@ -144,10 +230,15 @@ class LlmViewModel(
         }
         _state.update { state ->
             val remaining = state.conversations.filterNot { it.id == id }
-            val conversations = remaining.ifEmpty { listOf(newConversation()) }
-            state.copy(conversations = conversations,
+            val fallbackModel = state.chatModels.firstOrNull { it.ready }?.id ?: DEFAULT_MODEL
+            val conversations = remaining.ifEmpty { listOf(newConversation(fallbackModel)) }
+            state.copy(
+                conversations = conversations,
                 selectedId = if (state.selectedId == id) conversations.first().id else state.selectedId,
-                drafts = state.drafts - id, usage = null, error = null)
+                drafts = state.drafts - id,
+                usage = null,
+                error = null
+            )
         }
     }
 
@@ -158,7 +249,7 @@ class LlmViewModel(
     }
 
     fun selectModel(id: String) {
-        if (_state.value.busy || _state.value.models.none { it.spec.id == id }) return
+        if (_state.value.busy || _state.value.chatModels.none { it.id == id }) return
         updateConversation(_state.value.selectedId ?: return) { it.copy(modelId = id) }
         _state.update { it.copy(error = null) }
     }
@@ -174,15 +265,13 @@ class LlmViewModel(
 
     fun showModels(show: Boolean) {
         _state.update { it.copy(showModels = show, showConversations = false) }
-        if (show) viewModelScope.launch(Dispatchers.IO) {
-            val models = refreshStatuses()
-            _state.update { it.copy(models = models) }
-        }
+        if (show) refreshModels()
     }
+
     fun refreshModels() {
         viewModelScope.launch(Dispatchers.IO) {
-            val models = refreshStatuses()
-            _state.update { it.copy(models = models) }
+            val (models, choices) = buildModelLists()
+            _state.update { it.copy(models = models, chatModels = choices) }
         }
     }
 
@@ -194,54 +283,149 @@ class LlmViewModel(
         val conversation = snapshot.conversation ?: return
         val text = snapshot.draft.trim()
         if (text.isEmpty()) return
-        val status = snapshot.models.firstOrNull { it.spec.id == conversation.modelId }
-        if (status?.ready != true) {
-            _state.update { it.copy(alert = "请先下载并校验 ${status?.spec?.name ?: "语言模型"}") }
-            showModels(true)
+        val choice = snapshot.chatModels.firstOrNull { it.id == conversation.modelId }
+        if (choice?.ready != true) {
+            _state.update { it.copy(alert = "请先下载或选择已就绪的对话模型") }
             return
         }
         cancelRequested = false
         val user = LlmMessage(UUID.randomUUID().toString(), "user", text)
         val assistant = LlmMessage(UUID.randomUUID().toString(), "assistant", "", status = LlmMessageStatus.Streaming)
         updateConversation(conversation.id) { current ->
-            current.copy(title = if (current.messages.isEmpty()) conversationTitle(text) else current.title,
+            current.copy(
+                title = if (current.messages.isEmpty()) conversationTitle(text) else current.title,
                 messages = current.messages + user + assistant,
-                updatedAt = System.currentTimeMillis())
+                updatedAt = System.currentTimeMillis()
+            )
         }
-        _state.update { it.copy(drafts = it.drafts + (conversation.id to ""), phase = LlmPhase.Loading,
-            workingModelId = conversation.modelId, usage = null, error = null) }
+        _state.update {
+            it.copy(
+                drafts = it.drafts + (conversation.id to ""),
+                phase = LlmPhase.Loading,
+                workingModelId = conversation.modelId,
+                usage = null,
+                error = null
+            )
+        }
         activeConversationId = conversation.id
         activeMessageId = assistant.id
         operation = viewModelScope.launch { generate(conversation.id, assistant.id) }
+    }
+
+    fun regenerateLast() {
+        val snapshot = _state.value
+        if (!snapshot.ready || snapshot.busy) return
+        val conversation = snapshot.conversation ?: return
+        val messages = conversation.messages
+        if (messages.size < 2 || messages.last().role != "assistant") return
+        val choice = snapshot.chatModels.firstOrNull { it.id == conversation.modelId }
+        if (choice?.ready != true) {
+            _state.update { it.copy(alert = "请先下载或选择已就绪的对话模型") }
+            return
+        }
+        cancelRequested = false
+        val replacement = LlmMessage(UUID.randomUUID().toString(), "assistant", "", status = LlmMessageStatus.Streaming)
+        updateConversation(conversation.id) { current ->
+            current.copy(
+                messages = current.messages.dropLast(1) + replacement,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+        _state.update {
+            it.copy(
+                phase = LlmPhase.Loading,
+                workingModelId = conversation.modelId,
+                usage = null,
+                error = null
+            )
+        }
+        activeConversationId = conversation.id
+        activeMessageId = replacement.id
+        operation = viewModelScope.launch { generate(conversation.id, replacement.id) }
     }
 
     private suspend fun generate(conversationId: String, messageId: String) {
         try {
             val owner = "llm:$conversationId"
             val result = coordinator.withInference(owner) {
-                val conversation = requireNotNull(_state.value.conversations.firstOrNull { it.id == conversationId })
-                val status = withContext(Dispatchers.IO) {
-                    var current = repository.status(conversation.modelId)
-                    if (!current.ready && current.present == current.spec.artifacts.size) {
-                        runCatching { repository.verify(conversation.modelId) }
-                        current = repository.status(conversation.modelId)
+                val snapshot = _state.value
+                val conversation = requireNotNull(snapshot.conversations.firstOrNull { it.id == conversationId })
+                val modelId = conversation.modelId
+                val threads = snapshot.threads
+                val contextTokens = snapshot.contextTokens
+                val maxNewTokens = snapshot.maxNewTokens.coerceAtMost(contextTokens / 2)
+
+                val hubModel = withContext(Dispatchers.IO) { hubRepository.find(modelId) }
+                if (hubModel != null) {
+                    check(hubRepository.isPresent(hubModel)) { "模型文件缺失，请重新下载" }
+                    val entry = hubRepository.entryFile(hubModel)
+                    when (hubModel.type) {
+                        HubModelType.GgufChat -> {
+                            mnnEngine.unload()
+                            activeBackend = ChatEngineBackend.LlamaGguf
+                            if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
+                            val error = llamaEngine.load(entry, "${hubModel.id}:${hubModel.installedAt}", threads, contextTokens)
+                            if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
+                            check(error == null) { error.orEmpty() }
+                            _state.update { it.copy(loadedModelId = modelId, phase = LlmPhase.Generating) }
+                            var raw = ""
+                            llamaEngine.generate(conversationId, conversation.modelMessages(), maxNewTokens, conversation.thinking) { chunk ->
+                                raw += chunk
+                                if (activeConversationId == conversationId && activeMessageId == messageId) {
+                                    updateMessage(conversationId, messageId, raw, LlmMessageStatus.Streaming, conversation.thinking)
+                                    true
+                                } else false
+                            }
+                        }
+                        HubModelType.MnnChat -> {
+                            llamaEngine.unload()
+                            activeBackend = ChatEngineBackend.Mnn
+                            if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
+                            val error = mnnEngine.load(entry, "${hubModel.id}:${hubModel.installedAt}:$threads:$contextTokens", threads, contextTokens)
+                            if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
+                            check(error == null) { error.orEmpty() }
+                            _state.update { it.copy(loadedModelId = modelId, phase = LlmPhase.Generating) }
+                            var raw = ""
+                            mnnEngine.generate(conversationId, conversation.modelMessages(), maxNewTokens, conversation.thinking) { chunk ->
+                                raw += chunk
+                                if (activeConversationId == conversationId && activeMessageId == messageId) {
+                                    updateMessage(conversationId, messageId, raw, LlmMessageStatus.Streaming, conversation.thinking)
+                                    true
+                                } else false
+                            }
+                        }
+                        HubModelType.SdImage -> error("所选模型为图像模型，无法用于对话")
                     }
-                    current
-                }
-                check(status.ready) { "模型未通过校验：${status.message}" }
-                if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
-                val error = engine.load(File(status.directory, "config.json"), status.spec.revision,
-                    threads = 4, contextTokens = CONTEXT_TOKENS)
-                if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
-                check(error == null) { error.orEmpty() }
-                _state.update { it.copy(loadedModelId = conversation.modelId, phase = LlmPhase.Generating) }
-                var raw = ""
-                engine.generate(conversationId, conversation.modelMessages(), MAX_NEW_TOKENS, conversation.thinking) { chunk ->
-                    raw += chunk
-                    if (activeConversationId == conversationId && activeMessageId == messageId) {
-                        updateMessage(conversationId, messageId, raw, LlmMessageStatus.Streaming, conversation.thinking)
-                        true
-                    } else false
+                } else {
+                    llamaEngine.unload()
+                    activeBackend = ChatEngineBackend.Mnn
+                    val status = withContext(Dispatchers.IO) {
+                        var current = repository.status(modelId)
+                        if (!current.ready && current.present == current.spec.artifacts.size) {
+                            runCatching { repository.verify(modelId) }
+                            current = repository.status(modelId)
+                        }
+                        current
+                    }
+                    check(status.ready) { "模型未通过校验：${status.message}" }
+                    if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
+                    val error = mnnEngine.load(
+                        File(status.directory, "config.json"),
+                        "${status.spec.revision}:$threads:$contextTokens",
+                        threads = threads,
+                        contextTokens = contextTokens
+                    )
+                    if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
+                    check(error == null) { error.orEmpty() }
+                    _state.update { it.copy(loadedModelId = modelId, phase = LlmPhase.Generating) }
+                    var raw = ""
+                    mnnEngine.generate(conversationId, conversation.modelMessages(), maxNewTokens, conversation.thinking) { chunk ->
+                        raw += chunk
+                        if (activeConversationId == conversationId && activeMessageId == messageId) {
+                            updateMessage(conversationId, messageId, raw, LlmMessageStatus.Streaming, conversation.thinking)
+                            true
+                        } else false
+                    }
                 }
             }
             checkNotNull(result) { "另一个任务正在运行，请稍后重试" }
@@ -255,12 +439,16 @@ class LlmViewModel(
         } catch (error: Throwable) {
             updateActiveMessage(LlmMessageStatus.Failed)
             _state.update {
-                it.copy(phase = LlmPhase.Idle, workingModelId = null,
-                    error = if (it.selectedId == conversationId) error.message ?: error.toString() else it.error)
+                it.copy(
+                    phase = LlmPhase.Idle,
+                    workingModelId = null,
+                    error = if (it.selectedId == conversationId) error.message ?: error.toString() else it.error
+                )
             }
         } finally {
             activeConversationId = null
             activeMessageId = null
+            activeBackend = null
             operation = null
         }
     }
@@ -275,12 +463,20 @@ class LlmViewModel(
         val thinking = _state.value.conversations.firstOrNull { it.id == conversationId }?.thinking == true
         updateMessage(conversationId, messageId, result.text, status, thinking)
         _state.update {
-            it.copy(phase = LlmPhase.Idle, workingModelId = null,
+            it.copy(
+                phase = LlmPhase.Idle,
+                workingModelId = null,
                 error = if (it.selectedId == conversationId) result.error.ifBlank { null } else it.error,
                 usage = if (it.selectedId == conversationId && (result.promptTokens > 0 || result.generatedTokens > 0)) {
-                    LlmUsage(result.promptTokens, result.generatedTokens, result.droppedMessages,
-                        result.prefillUs, result.decodeUs)
-                } else if (it.selectedId == conversationId) null else it.usage)
+                    LlmUsage(
+                        result.promptTokens,
+                        result.generatedTokens,
+                        result.droppedMessages,
+                        result.prefillUs,
+                        result.decodeUs
+                    )
+                } else if (it.selectedId == conversationId) null else it.usage
+            )
         }
     }
 
@@ -290,14 +486,31 @@ class LlmViewModel(
         }
         when (_state.value.phase) {
             LlmPhase.Downloading -> operation?.cancel()
-            LlmPhase.Loading, LlmPhase.Generating -> engine.cancel()
+            LlmPhase.Loading, LlmPhase.Generating -> {
+                when (activeBackend) {
+                    ChatEngineBackend.LlamaGguf -> llamaEngine.cancel()
+                    ChatEngineBackend.Mnn -> mnnEngine.cancel()
+                    null -> {
+                        mnnEngine.cancel()
+                        llamaEngine.cancel()
+                    }
+                }
+            }
             LlmPhase.Idle -> Unit
         }
     }
 
-    fun downloadModel(id: String) = runModelTask(id) { modelId ->
-        repository.download(modelId) { progress ->
-            _state.update { it.copy(download = progress) }
+    fun downloadModel(id: String) {
+        val spec = repository.catalog.firstOrNull { it.id == id } ?: return
+        ModelDownloadManager.enqueue(
+            context = getApplication(),
+            id = "builtin-llm:$id",
+            title = spec.name,
+            onSuccess = { refreshModels() }
+        ) { onProgress ->
+            repository.download(id) { progress ->
+                onProgress(progress.file, progress.completed, progress.total)
+            }
         }
     }
 
@@ -315,14 +528,30 @@ class LlmViewModel(
                     withContext(Dispatchers.IO) { action(id) }
                 }
                 checkNotNull(completed) { "另一个任务正在运行，请稍后重试" }
-                _state.update { it.copy(models = refreshStatuses(), phase = LlmPhase.Idle,
-                    workingModelId = null, download = null) }
+                val (models, choices) = withContext(Dispatchers.IO) { buildModelLists() }
+                _state.update {
+                    it.copy(
+                        models = models,
+                        chatModels = choices,
+                        phase = LlmPhase.Idle,
+                        workingModelId = null,
+                        download = null
+                    )
+                }
             } catch (error: CancellationException) {
                 _state.update { it.copy(phase = LlmPhase.Idle, workingModelId = null, download = null) }
                 throw error
             } catch (error: Throwable) {
-                _state.update { it.copy(phase = LlmPhase.Idle, workingModelId = null,
-                    alert = error.message ?: error.toString(), models = refreshStatuses()) }
+                val (models, choices) = withContext(Dispatchers.IO) { buildModelLists() }
+                _state.update {
+                    it.copy(
+                        phase = LlmPhase.Idle,
+                        workingModelId = null,
+                        alert = error.message ?: error.toString(),
+                        models = models,
+                        chatModels = choices
+                    )
+                }
             } finally {
                 operation = null
             }
@@ -336,28 +565,86 @@ class LlmViewModel(
             try {
                 val deleted = coordinator.withInference("llm-delete:$id") {
                     if (_state.value.loadedModelId == id) {
-                        engine.unload()
+                        mnnEngine.unload()
+                        llamaEngine.unload()
                         _state.update { it.copy(loadedModelId = null) }
                     }
                     withContext(Dispatchers.IO) { repository.delete(id) }
                 }
                 checkNotNull(deleted) { "另一个任务正在运行，请稍后重试" }
-                _state.update { it.copy(models = refreshStatuses(), phase = LlmPhase.Idle, workingModelId = null) }
+                val (models, choices) = withContext(Dispatchers.IO) { buildModelLists() }
+                _state.update {
+                    it.copy(models = models, chatModels = choices, phase = LlmPhase.Idle, workingModelId = null)
+                }
             } catch (error: Throwable) {
-                _state.update { it.copy(phase = LlmPhase.Idle, workingModelId = null,
-                    alert = error.message ?: error.toString(), models = refreshStatuses()) }
+                val (models, choices) = withContext(Dispatchers.IO) { buildModelLists() }
+                _state.update {
+                    it.copy(
+                        phase = LlmPhase.Idle,
+                        workingModelId = null,
+                        alert = error.message ?: error.toString(),
+                        models = models,
+                        chatModels = choices
+                    )
+                }
             } finally {
                 operation = null
             }
         }
     }
 
-    private fun refreshStatuses(): List<LlmModelStatus> = repository.catalog.filter {
-        it.kind == LlmModelKind.Chat
-    }.map { spec ->
-        runCatching { repository.status(spec.id) }.getOrElse {
-            LlmModelStatus(spec, repository.directory(spec.id), 0, false, "无法读取模型目录")
+    fun unloadIfLoaded(modelId: String) {
+        if (_state.value.loadedModelId == modelId) {
+            viewModelScope.launch {
+                mnnEngine.unload()
+                llamaEngine.unload()
+                _state.update { it.copy(loadedModelId = null) }
+            }
         }
+    }
+
+    private fun buildModelLists(): Pair<List<LlmModelStatus>, List<ChatModelChoice>> {
+        val builtIn = repository.catalog.filter { it.kind == LlmModelKind.Chat }.map { spec ->
+            runCatching { repository.status(spec.id) }.getOrElse {
+                LlmModelStatus(spec, repository.directory(spec.id), 0, false, "无法读取模型目录")
+            }
+        }
+        val hubInstalled = hubRepository.refresh().filter {
+            it.type == HubModelType.GgufChat || it.type == HubModelType.MnnChat
+        }
+        val choices = buildList {
+            builtIn.forEach { status ->
+                add(
+                    ChatModelChoice(
+                        id = status.spec.id,
+                        name = status.spec.name,
+                        backend = ChatEngineBackend.Mnn,
+                        totalBytes = status.spec.totalBytes,
+                        ready = status.ready,
+                        detail = if (status.ready) "已就绪 · MNN · ${formatBytesCompact(status.spec.totalBytes)}"
+                        else "${status.message} · ${formatBytesCompact(status.spec.totalBytes)}",
+                        builtIn = true
+                    )
+                )
+            }
+            hubInstalled.forEach { model ->
+                val backend = if (model.type == HubModelType.GgufChat) ChatEngineBackend.LlamaGguf else ChatEngineBackend.Mnn
+                val present = hubRepository.isPresent(model)
+                add(
+                    ChatModelChoice(
+                        id = model.id,
+                        name = model.name,
+                        backend = backend,
+                        totalBytes = model.totalBytes,
+                        ready = present,
+                        detail = if (present) "已就绪 · ${backend.label} · ${formatBytesCompact(model.totalBytes)}"
+                        else "文件缺失",
+                        builtIn = false
+                    )
+                )
+            }
+        }
+        return builtIn to choices
     }
 
     private fun updateActiveMessage(status: LlmMessageStatus) {
@@ -404,14 +691,16 @@ class LlmViewModel(
     }
 
     override fun onCleared() {
-        engine.cancel()
+        mnnEngine.cancel()
+        llamaEngine.cancel()
         if (_state.value.ready) {
             kotlinx.coroutines.runBlocking {
                 persist(LlmChatSnapshot(_state.value.conversations, _state.value.selectedId, _state.value.drafts))
             }
         }
         Thread({
-            engine.close()
+            mnnEngine.close()
+            llamaEngine.close()
             coordinator.unregisterEvictor(evictionKey)
         }, "llm-engine-close").start()
         super.onCleared()
@@ -419,8 +708,9 @@ class LlmViewModel(
 
     private companion object {
         const val DEFAULT_MODEL = "qwen35-0.8b"
-        const val CONTEXT_TOKENS = 4096
-        const val MAX_NEW_TOKENS = 512
+        const val DEFAULT_CONTEXT_TOKENS = 4096
+        const val DEFAULT_MAX_NEW_TOKENS = 1024
+        const val DEFAULT_THREADS = 4
         const val MAX_INPUT_CHARACTERS = 8_000
 
         fun newConversation(modelId: String = DEFAULT_MODEL) = LlmConversation(

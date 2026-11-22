@@ -9,7 +9,11 @@ import com.tiggy.qwenimage.data.CoTMode
 import com.tiggy.qwenimage.data.GenerationJob
 import com.tiggy.qwenimage.data.GenerationMode
 import com.tiggy.qwenimage.data.GenerationSettings
+import com.tiggy.qwenimage.data.HubModelType
 import com.tiggy.qwenimage.data.ImageGenerationBackend
+import com.tiggy.qwenimage.data.InstalledHubModel
+import com.tiggy.qwenimage.data.InstalledHubModelsRepository
+import com.tiggy.qwenimage.data.ModelDownloadManager
 import com.tiggy.qwenimage.data.ModelManifest
 import com.tiggy.qwenimage.data.ModelRepository
 import com.tiggy.qwenimage.data.ModelStatus
@@ -20,6 +24,8 @@ import com.tiggy.qwenimage.data.MusicJob
 import com.tiggy.qwenimage.data.MusicSettings
 import com.tiggy.qwenimage.data.MusicStudioTab
 import com.tiggy.qwenimage.data.MusicTrack
+import com.tiggy.qwenimage.data.PackagedModelRepository
+import com.tiggy.qwenimage.data.PackagedModelStatus
 import com.tiggy.qwenimage.data.TaskDomain
 import com.tiggy.qwenimage.data.TaskStates
 import com.tiggy.qwenimage.data.TaskUiState
@@ -34,8 +40,10 @@ import com.tiggy.qwenimage.data.WorkspaceTab
 import com.tiggy.qwenimage.data.hasVae
 import com.tiggy.qwenimage.data.isMoss
 import com.tiggy.qwenimage.data.validateFor
+import com.tiggy.qwenimage.engine.CustomSdSettings
 import com.tiggy.qwenimage.engine.EngineSettings
 import com.tiggy.qwenimage.engine.LocalMossEngine
+import com.tiggy.qwenimage.engine.LocalSdImageEngine
 import com.tiggy.qwenimage.engine.MusicEngine
 import com.tiggy.qwenimage.engine.QwenEngine
 import com.tiggy.qwenimage.engine.VideoEngine
@@ -72,9 +80,13 @@ data class QwenUiState(
     val settings: GenerationSettings = GenerationSettings(),
     val imageBackend: ImageGenerationBackend = ImageGenerationBackend.QwenLocal,
     val mossSettings: MossSettings = MossSettings(),
+    val customSdSettings: CustomSdSettings = CustomSdSettings(),
+    val customImageModels: List<InstalledHubModel> = emptyList(),
     val jobs: List<GenerationJob> = emptyList(),
     val modelStatus: ModelStatus? = null,
     val mossModelStatus: MossModelStatus? = null,
+    val wanModelStatus: PackagedModelStatus? = null,
+    val yue2ModelStatus: PackagedModelStatus? = null,
     val repo: String = "",
     val revision: String = "main",
     val tasks: TaskStates = TaskStates(),
@@ -126,6 +138,9 @@ class QwenViewModel(
 ) : AndroidViewModel(application) {
     private val repository = ModelRepository(application)
     private val mossRepository = MossModelRepository(application)
+    private val wanRepository = PackagedModelRepository.wanVideo(application)
+    private val yue2Repository = PackagedModelRepository.yue2Music(application)
+    private val hubModels = InstalledHubModelsRepository.get(application)
     private val preferences = application.getSharedPreferences("qwen-pocket", Application.MODE_PRIVATE)
     private val restoredJobs = runCatching {
         val array = JSONArray(preferences.getString("jobs", "[]"))
@@ -136,8 +151,16 @@ class QwenViewModel(
         }
     }.getOrDefault(emptyList())
     private val _state = MutableStateFlow(
-        QwenUiState(repo = repository.sourceRepo, revision = repository.revision, jobs = restoredJobs,
-            modelStatus = repository.status(), mossModelStatus = mossRepository.status())
+        QwenUiState(
+            repo = repository.sourceRepo,
+            revision = repository.revision,
+            jobs = restoredJobs,
+            modelStatus = repository.status(),
+            mossModelStatus = mossRepository.status(),
+            wanModelStatus = wanRepository.status(),
+            yue2ModelStatus = yue2Repository.status(),
+            customImageModels = hubModels.listByType(HubModelType.SdImage)
+        )
     )
     val state: StateFlow<QwenUiState> = _state.asStateFlow()
     private val queue = Channel<GenerationJob>(Channel.UNLIMITED)
@@ -148,6 +171,7 @@ class QwenViewModel(
     private val musicEngine = MusicEngine(application)
     private val videoEngine = VideoEngine(application)
     private val localMossEngine = LocalMossEngine(application, mossRepository)
+    private val localSdImageEngine = LocalSdImageEngine(application, hubModels)
     private val evictionKey = "qwen:${System.identityHashCode(this)}"
 
     init {
@@ -236,6 +260,30 @@ class QwenViewModel(
         viewModelScope.launch {
             restoredJobs.filter { it.state == "queued" }.forEach { queue.send(it) }
             for (job in queue) runJob(job)
+        }
+        viewModelScope.launch {
+            hubModels.models.collect { all ->
+                val sdImages = all.filter { it.type == HubModelType.SdImage }
+                _state.update { state ->
+                    val currentId = state.customSdSettings.modelId
+                    val validCurrent = sdImages.firstOrNull { it.id == currentId }
+                    val nextCustom = when {
+                        validCurrent != null -> state.customSdSettings
+                        sdImages.isNotEmpty() -> CustomSdSettings.defaultsFor(sdImages.first(), state.customSdSettings)
+                        else -> state.customSdSettings.copy(modelId = "")
+                    }
+                    state.copy(customImageModels = sdImages, customSdSettings = nextCustom)
+                }
+            }
+        }
+        viewModelScope.launch {
+            var lastRev = ModelDownloadManager.state.value.revision
+            ModelDownloadManager.state.collect { dl ->
+                if (dl.revision != lastRev) {
+                    lastRev = dl.revision
+                    refreshAllModelStatuses()
+                }
+            }
         }
     }
 
@@ -336,10 +384,12 @@ class QwenViewModel(
             val backend = when (job.backend) {
                 ImageGenerationBackend.QwenLocal -> VideoBackend.LocalQwen
                 ImageGenerationBackend.MossLocal -> VideoBackend.LocalMoss
+                ImageGenerationBackend.CustomSd -> VideoBackend.LocalCustomSd
             }
             val status = when (job.backend) {
                 ImageGenerationBackend.QwenLocal -> "正在初始化图像任务"
                 ImageGenerationBackend.MossLocal -> "正在准备 MOSS 本机"
+                ImageGenerationBackend.CustomSd -> "正在准备图像模型"
             }
             if (beginTask(
                     TaskDomain.Image,
@@ -787,19 +837,57 @@ class QwenViewModel(
     }
 
     fun reuseJob(job: GenerationJob) {
-        if (job.backend.isMoss) {
-            val settings = job.mossSettings ?: MossSettings()
-            preferences.edit().putString("mossSettings", settings.toJson().toString()).apply()
-            _state.update {
-                it.copy(
-                    imageBackend = job.backend,
-                    mossSettings = settings,
-                    mossModelStatus = if (job.backend == ImageGenerationBackend.MossLocal) mossRepository.status() else it.mossModelStatus,
-                    tab = WorkspaceTab.Generate
+        when (job.backend) {
+            ImageGenerationBackend.MossLocal -> {
+                val settings = job.mossSettings ?: MossSettings()
+                preferences.edit().putString("mossSettings", settings.toJson().toString()).apply()
+                _state.update {
+                    it.copy(
+                        imageBackend = job.backend,
+                        mossSettings = settings,
+                        mossModelStatus = mossRepository.status(),
+                        tab = WorkspaceTab.Generate
+                    )
+                }
+            }
+            ImageGenerationBackend.CustomSd -> {
+                _state.update { state ->
+                    state.copy(
+                        imageBackend = ImageGenerationBackend.CustomSd,
+                        customSdSettings = state.customSdSettings.copy(
+                            modelId = job.customModelId ?: state.customSdSettings.modelId,
+                            prompt = job.settings.prompt,
+                            negativePrompt = job.settings.negativePrompt,
+                            width = job.settings.width,
+                            height = job.settings.height,
+                            steps = job.settings.steps,
+                            seed = job.settings.seed.toLong().coerceAtLeast(0L)
+                        ),
+                        tab = WorkspaceTab.Generate
+                    )
+                }
+            }
+            ImageGenerationBackend.QwenLocal -> useSettings(job.settings)
+        }
+    }
+
+    fun refreshAllModelStatuses() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val qwen = repository.status()
+            val moss = mossRepository.status()
+            val wan = wanRepository.status()
+            val yue2 = yue2Repository.status()
+            val customImages = hubModels.refresh().filter { it.type == HubModelType.SdImage }
+            _state.update { state ->
+                state.copy(
+                    modelStatus = qwen,
+                    mossModelStatus = moss,
+                    wanModelStatus = wan,
+                    yue2ModelStatus = yue2,
+                    customImageModels = customImages,
+                    settings = compatibleSettings(state.settings, qwen)
                 )
             }
-        } else {
-            useSettings(job.settings)
         }
     }
 
@@ -810,6 +898,14 @@ class QwenViewModel(
 
     fun refreshMossModelStatus() = _state.update { state ->
         state.copy(mossModelStatus = mossRepository.status())
+    }
+
+    fun refreshWanModelStatus() = _state.update { state ->
+        state.copy(wanModelStatus = wanRepository.status())
+    }
+
+    fun refreshYue2ModelStatus() = _state.update { state ->
+        state.copy(yue2ModelStatus = yue2Repository.status())
     }
 
     fun checkRuntime() {
@@ -841,37 +937,45 @@ class QwenViewModel(
     }
 
     fun downloadModels() {
-        if (rejectIfBusy(TaskDomain.Model)) return
         val snapshot = _state.value
+        val repo = snapshot.repo.trim()
+        if (!repo.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))) {
+            showTaskError(TaskDomain.Model, "仓库格式为 owner/repo，必须是包含 manifest.json 的 MNN 仓库")
+            return
+        }
+        repository.sourceRepo = repo
+        repository.revision = snapshot.revision
+        ModelDownloadManager.enqueue(
+            context = getApplication(),
+            id = "builtin-image:qwen",
+            title = "Qwen 图像 ($repo)",
+            onSuccess = {
+                viewModelScope.launch {
+                    invalidateEngine()
+                    refreshAllModelStatuses()
+                }
+            }
+        ) { onProgress ->
+            repository.download { file, done, total -> onProgress(file, done, total) }
+        }
+    }
+
+    fun deleteQwenModels() {
+        if (rejectIfBusy(TaskDomain.Model)) return
         val taskId = UUID.randomUUID().toString()
         viewModelScope.launch {
-            if (!beginTask(TaskDomain.Model, taskId, status = "读取模型清单…", progress = 0)) return@launch
-            repository.sourceRepo = snapshot.repo
-            repository.revision = snapshot.revision
-            runCatching {
-                repository.download { file, done, total ->
-                    val percent = if (total > 0) ((done * 100) / total).toInt() else null
-                    updateTask(TaskDomain.Model, taskId) {
-                        it.copy(
-                            progress = percent,
-                            status = "下载 $file · ${(done / 1_000_000_000.0).format1()} / ${(total / 1_000_000_000.0).format1()} GB"
-                        )
-                    }
-                }
+            if (!beginTask(TaskDomain.Model, taskId, status = "正在删除 Qwen 图像模型…")) return@launch
+            val result = runCatching {
                 invalidateEngine()
-            }.onSuccess {
-                val status = repository.status()
-                _state.update {
-                    it.copy(modelStatus = status, settings = compatibleSettings(it.settings, status))
-                }
-                finishTask(TaskDomain.Model, taskId) {
-                    it.copy(progress = 100, status = "模型已校验", error = null)
-                }
+                withContext(Dispatchers.IO) { repository.delete() }
+            }
+            val status = withContext(Dispatchers.IO) { repository.status() }
+            _state.update { it.copy(modelStatus = status, settings = compatibleSettings(it.settings, status)) }
+            result.onSuccess {
+                finishTask(TaskDomain.Model, taskId) { it.copy(status = "已删除 Qwen 图像模型", error = null) }
             }.onFailure { error ->
                 val message = error.message ?: error.toString()
-                finishTask(TaskDomain.Model, taskId, alert = message) {
-                    it.copy(status = "模型下载失败", error = message)
-                }
+                finishTask(TaskDomain.Model, taskId, alert = message) { it.copy(status = "删除失败", error = message) }
             }
         }
     }
@@ -903,14 +1007,77 @@ class QwenViewModel(
         }
     }
 
-    fun downloadMossModels() = runMossModelTask("下载 MOSS 模型") { taskId ->
-        mossRepository.download { file, done, total ->
-            val percent = if (total > 0) ((done * 100) / total).toInt() else null
-            updateTask(TaskDomain.Model, taskId) {
-                it.copy(
-                    progress = percent,
-                    status = "下载 $file · ${(done / 1_000_000_000.0).format1()} / ${(total / 1_000_000_000.0).format1()} GB"
-                )
+    fun downloadMossModels() {
+        ModelDownloadManager.enqueue(
+            context = getApplication(),
+            id = "builtin-image:moss",
+            title = "MOSS-Image 本机",
+            onSuccess = { refreshAllModelStatuses() }
+        ) { onProgress ->
+            mossRepository.download { file, done, total -> onProgress(file, done, total) }
+        }
+    }
+
+    fun deleteMossModels() = runMossModelTask("删除 MOSS 模型") {
+        withContext(Dispatchers.IO) { mossRepository.delete() }
+    }
+
+    fun downloadWanModels() {
+        ModelDownloadManager.enqueue(
+            context = getApplication(),
+            id = "builtin-video:wan22",
+            title = "Wan2.2 视频模型",
+            onSuccess = { refreshAllModelStatuses() }
+        ) { onProgress ->
+            wanRepository.download { file, done, total -> onProgress(file, done, total) }
+        }
+    }
+
+    fun verifyWanModels() = runPackagedModelTask("校验 Wan2.2 视频模型", VideoBackend.LocalWan) { taskId ->
+        wanRepository.verify { file ->
+            updateTask(TaskDomain.Model, taskId) { it.copy(progress = null, status = "校验 $file") }
+        }
+    }
+
+    fun deleteWanModels() = runPackagedModelTask("删除 Wan2.2 视频模型", VideoBackend.LocalWan) {
+        withContext(Dispatchers.IO) { wanRepository.delete() }
+    }
+
+    fun downloadYue2Models() {
+        ModelDownloadManager.enqueue(
+            context = getApplication(),
+            id = "builtin-music:yue2",
+            title = "YuE2-3B 音乐模型",
+            onSuccess = { refreshAllModelStatuses() }
+        ) { onProgress ->
+            yue2Repository.download { file, done, total -> onProgress(file, done, total) }
+        }
+    }
+
+    fun verifyYue2Models() = runPackagedModelTask("校验 YuE2 音乐模型", VideoBackend.LocalYue2) { taskId ->
+        yue2Repository.verify { file ->
+            updateTask(TaskDomain.Model, taskId) { it.copy(progress = null, status = "校验 $file") }
+        }
+    }
+
+    fun deleteYue2Models() = runPackagedModelTask("删除 YuE2 音乐模型", VideoBackend.LocalYue2) {
+        withContext(Dispatchers.IO) { yue2Repository.delete() }
+    }
+
+    private fun runPackagedModelTask(initialStatus: String, backend: VideoBackend, action: suspend (String) -> Unit) {
+        if (rejectIfBusy(TaskDomain.Model)) return
+        val taskId = UUID.randomUUID().toString()
+        viewModelScope.launch {
+            if (!beginTask(TaskDomain.Model, taskId, backend = backend, status = initialStatus)) return@launch
+            val result = runCatching { action(taskId) }
+            val wan = withContext(Dispatchers.IO) { wanRepository.status() }
+            val yue2 = withContext(Dispatchers.IO) { yue2Repository.status() }
+            _state.update { it.copy(wanModelStatus = wan, yue2ModelStatus = yue2) }
+            result.onSuccess {
+                finishTask(TaskDomain.Model, taskId) { it.copy(status = "完成", error = null) }
+            }.onFailure { error ->
+                val message = error.message ?: error.toString()
+                finishTask(TaskDomain.Model, taskId, alert = message) { it.copy(status = "操作失败", error = message) }
             }
         }
     }
@@ -962,6 +1129,19 @@ class QwenViewModel(
         it.copy(mossSettings = settings)
     }
 
+    fun updateCustomSdSettings(transform: (CustomSdSettings) -> CustomSdSettings) = _state.update {
+        it.copy(customSdSettings = transform(it.customSdSettings))
+    }
+
+    fun selectCustomImageModel(modelId: String) = _state.update { state ->
+        val model = state.customImageModels.firstOrNull { it.id == modelId } ?: return@update state
+        state.copy(
+            imageBackend = ImageGenerationBackend.CustomSd,
+            customSdSettings = CustomSdSettings.defaultsFor(model, state.customSdSettings),
+            tasks = state.tasks.updateTask(TaskDomain.Image) { it.copy(error = null) }
+        )
+    }
+
     fun enqueue() {
         val current = _state.value
         val job = when (current.imageBackend) {
@@ -1005,6 +1185,33 @@ class QwenViewModel(
                     settings = displaySettings,
                     backend = current.imageBackend,
                     mossSettings = settings
+                )
+            }
+            ImageGenerationBackend.CustomSd -> {
+                val sd = current.customSdSettings
+                val model = current.customImageModels.firstOrNull { it.id == sd.modelId }
+                if (model == null) {
+                    showTaskError(TaskDomain.Image, "请先在模型页搜索并下载一个图像模型")
+                    return
+                }
+                runCatching { sd.validate() }.onFailure { error ->
+                    showTaskError(TaskDomain.Image, error.message ?: "参数无效")
+                    return
+                }
+                val displaySettings = GenerationSettings(
+                    prompt = sd.prompt,
+                    negativePrompt = sd.negativePrompt,
+                    steps = sd.steps,
+                    seed = sd.seed.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                    width = sd.width,
+                    height = sd.height
+                )
+                GenerationJob(
+                    id = UUID.randomUUID().toString(),
+                    settings = displaySettings,
+                    backend = ImageGenerationBackend.CustomSd,
+                    customModelId = model.id,
+                    customModelName = model.name
                 )
             }
         }
@@ -1058,6 +1265,7 @@ class QwenViewModel(
             when (job.backend) {
                 ImageGenerationBackend.QwenLocal -> engine?.cancel()
                 ImageGenerationBackend.MossLocal -> localMossEngine.cancelGeneration()
+                ImageGenerationBackend.CustomSd -> localSdImageEngine.cancelGeneration()
             }
             updateTask(TaskDomain.Image, id) { it.copy(status = "正在取消，将在当前计算阶段结束后停止") }
         }
@@ -1106,8 +1314,12 @@ class QwenViewModel(
     fun exportPreset(): String = _state.value.settings.toJson().toString(2)
 
     private suspend fun runJob(job: GenerationJob) {
-        if (job.backend.isMoss) {
+        if (job.backend == ImageGenerationBackend.MossLocal) {
             runMossJob(job)
+            return
+        }
+        if (job.backend == ImageGenerationBackend.CustomSd) {
+            runCustomSdJob(job)
             return
         }
         if (_state.value.jobs.firstOrNull { it.id == job.id }?.state != "queued") return
@@ -1292,6 +1504,75 @@ class QwenViewModel(
         }
     }
 
+    private suspend fun runCustomSdJob(job: GenerationJob) {
+        if (_state.value.jobs.firstOrNull { it.id == job.id }?.state != "queued") return
+        val modelId = job.customModelId
+        if (modelId.isNullOrBlank()) {
+            updateJob(job.id) { it.copy(state = "failed", error = "缺少自定义模型 ID") }
+            return
+        }
+        if (!acquireImageTask(job.id)) return
+        updateJob(job.id) { current ->
+            if (current.state == "queued") current.copy(state = "running", progress = 0, error = null) else current
+        }
+        if (_state.value.jobs.firstOrNull { it.id == job.id }?.state != "running") {
+            finishTask(TaskDomain.Image, job.id) { it.copy(status = "图像生成已取消", error = null) }
+            return
+        }
+        val startTime = System.currentTimeMillis()
+        try {
+            if (job.id in cancelledJobIds) throw CancellationException("已取消")
+            inferenceCoordinator.evictOthers("qwen")
+            invalidateEngine()
+            val sdSnapshot = _state.value.customSdSettings
+            val settings = CustomSdSettings(
+                modelId = modelId,
+                prompt = job.settings.prompt,
+                negativePrompt = job.settings.negativePrompt,
+                width = job.settings.width,
+                height = job.settings.height,
+                steps = job.settings.steps,
+                cfg = sdSnapshot.cfg,
+                seed = job.settings.seed.toLong().coerceAtLeast(0L),
+                useOpenCl = sdSnapshot.useOpenCl
+            )
+            appendLog(TaskDomain.Image, "${job.customModelName ?: modelId} · ${settings.width}×${settings.height} · ${settings.steps} 步", job.id)
+            val result = localSdImageEngine.executeGeneration(job.id, settings, _state.value.cpuThreads) { update ->
+                handleMossUpdate(job.id, update)
+            }
+            val elapsed = System.currentTimeMillis() - startTime
+            updateJob(job.id) {
+                it.copy(
+                    state = "done",
+                    progress = 100,
+                    outputPath = result.file.absolutePath,
+                    elapsedMs = elapsed,
+                    outputWidth = result.width,
+                    outputHeight = result.height,
+                    error = null
+                )
+            }
+            finishTask(TaskDomain.Image, job.id) {
+                it.copy(progress = 100, status = "图像已保存", error = null, resultPath = result.file.absolutePath)
+            }
+        } catch (error: CancellationException) {
+            val scopeCancelled = !currentCoroutineContext().isActive
+            appendLog(TaskDomain.Image, "图像任务已取消", job.id)
+            updateJob(job.id) { it.copy(state = "cancelled", error = "用户取消") }
+            finishTask(TaskDomain.Image, job.id) { it.copy(status = "图像生成已取消", error = null) }
+            if (scopeCancelled) throw error
+        } catch (error: Throwable) {
+            val message = error.message ?: error.toString()
+            appendLog(TaskDomain.Image, "图像生成失败：$message", job.id)
+            updateJob(job.id) { it.copy(state = "failed", error = message) }
+            finishTask(TaskDomain.Image, job.id, alert = message) {
+                it.copy(status = "图像生成失败", error = message)
+            }
+        } finally {
+            cancelledJobIds -= job.id
+        }
+    }
+
     private fun handleMossUpdate(jobId: String, update: com.tiggy.qwenimage.engine.EngineUpdate) {
         updateTask(TaskDomain.Image, jobId) {
             it.copy(progress = update.progress?.let { value -> (value * 100).toInt() }, status = update.stage)
@@ -1384,6 +1665,7 @@ class QwenViewModel(
             if (owner != null) inferenceCoordinator.release("qwen:$owner")
         }, "qwen-engine-close").start()
         localMossEngine.close()
+        localSdImageEngine.close()
         musicEngine.close()
         videoEngine.close()
         super.onCleared()

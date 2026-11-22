@@ -134,8 +134,8 @@ fun MusicWorkspace(
 ) {
     val settings = state.musicSettings
     val task = state.musicTask
-    // Stats model files, so check once per visit and after each job rather than on every recomposition.
-    val missing = remember(task.running) { viewModel.musicMissingComponents() }
+    // Stats model files, so check once per visit and after each job or download rather than on every recomposition.
+    val missing = remember(task.running, state.yue2ModelStatus) { viewModel.musicMissingComponents() }
     val ready = missing.isEmpty()
     var sheet by remember { mutableStateOf<MusicSheet?>(null) }
     var scoreTrack by remember { mutableStateOf<MusicTrack?>(null) }
@@ -249,13 +249,14 @@ fun MusicWorkspace(
 
 @Composable
 private fun MusicModelNote(missing: List<String>, onModels: () -> Unit) {
+    val pkg = LocalContext.current.packageName
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("本机 YuE2 模型未就绪", color = OmniColors.Dim, style = MaterialTheme.typography.labelMedium)
-            TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 48.dp)) { Text("模型") }
+            TextButton(onClick = onModels, modifier = Modifier.heightIn(min = 48.dp)) { Text("前往下载") }
         }
         Text(
-            "缺少：${missing.joinToString("、")}\n放入 Android/data/com.tiggy.qwenimage/files/models/yue2",
+            "缺少：${missing.joinToString("、")}\n可在「模型」页直接下载，或放入 Android/data/$pkg/files/models/yue2",
             color = OmniColors.Dim,
             style = MaterialTheme.typography.labelSmall,
             textAlign = TextAlign.Center
