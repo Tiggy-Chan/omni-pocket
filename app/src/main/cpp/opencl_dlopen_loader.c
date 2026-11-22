@@ -5,6 +5,7 @@
 #include <android/log.h>
 #include <dlfcn.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stddef.h>
 
 // Lightweight runtime OpenCL loader for Android.
@@ -44,8 +45,15 @@ static void* resolve_cl(const char* name) {
 
 #define LOAD_CL_FN(ret, name, args)                                        \
     typedef ret (CL_API_CALL *pfn_##name) args;                            \
-    static pfn_##name fn = NULL;                                           \
-    if (fn == NULL) fn = (pfn_##name)resolve_cl(#name);
+    static _Atomic(void*) cached_fn = NULL;                                \
+    pfn_##name fn = (pfn_##name)atomic_load_explicit(&cached_fn, memory_order_acquire); \
+    if (fn == NULL) {                                                      \
+        void* resolved = resolve_cl(#name);                                \
+        if (resolved != NULL) {                                            \
+            atomic_store_explicit(&cached_fn, resolved, memory_order_release); \
+            fn = (pfn_##name)resolved;                                     \
+        }                                                                  \
+    }
 
 CL_API_ENTRY cl_int CL_API_CALL clGetPlatformIDs(
     cl_uint num_entries, cl_platform_id* platforms, cl_uint* num_platforms) {

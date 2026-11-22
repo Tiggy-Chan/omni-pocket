@@ -204,8 +204,8 @@ struct LlamaChatSession::Impl {
     llama_model* model = nullptr;
     llama_context* context = nullptr;
     const llama_vocab* vocab = nullptr;
-    int contextTokens = 4096;
-    int trainContextTokens = 0;
+    std::atomic<int> contextTokens{4096};
+    std::atomic<int> trainContextTokens{0};
     int threadCount = 4;
     std::string conversationId;
     bool thinking = false;
@@ -504,11 +504,11 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
 }
 
 int LlamaChatSession::EffectiveContextTokens() const {
-    return impl_->contextTokens;
+    return impl_->contextTokens.load(std::memory_order_relaxed);
 }
 
 int LlamaChatSession::ModelTrainContextTokens() const {
-    return impl_->trainContextTokens;
+    return impl_->trainContextTokens.load(std::memory_order_relaxed);
 }
 
 LlamaChatResult LlamaChatSession::Generate(
