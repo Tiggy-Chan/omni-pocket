@@ -7,25 +7,26 @@ Omni Pocket is an Android studio for on-device text conversations, structured de
 ## Capabilities & Local Runtimes
 
 - **Conversation (`对话`)**:
-  - **Built-in MNN**: pinned `taobao-mnn` Qwen3.5 0.8B / 2B / 4B packages running on `libMNN.so`.
-  - **Hugging Face GGUF & MNN Hub**: bundled `llama.cpp` (`-O3`, `armv8.2-a+dotprod`) runs arbitrary single-file GGUF chat models (Qwen2.5/3/3.5, Gemma 2/3, Llama 3, DeepSeek-R1-Distill, Phi, MiniCPM, etc.) searched and downloaded directly inside the app, alongside community MNN bundles.
-  - Supports streaming output, separated `<think>` reasoning, configurable CPU threads, context window (2048–8192), max output tokens (512–2048), KV prefix reuse, copy, and regeneration.
+  - **Built-in MNN**: pinned `taobao-mnn` Qwen3.5 0.8B / 2B / 4B packages running on `libMNN.so` (CPU or optional OpenCL GPU with automatic CPU fallback).
+  - **Hugging Face GGUF & MNN Hub**: bundled `llama.cpp` (`-O3`, `armv8.2-a+dotprod`, optional `ggml-vulkan` GPU offload, Flash Attention, and FP16 / Q8_0 / Q4_0 KV cache quantization) runs arbitrary single-file GGUF chat models (Qwen2.5/3/3.5, Gemma 2/3, Llama 3, DeepSeek-R1-Distill, Phi, MiniCPM, etc.) searched and downloaded directly inside the app, alongside community MNN bundles.
+  - Supports streaming output, separated `<think>` reasoning, **customizable max context window (`512–131072` tokens, clamped to each model's training window)**, customizable max output tokens (`128–32768`), Temperature / Top-P / Repeat Penalty sliders, custom System Prompt, KV prefix reuse, copy, and regeneration.
 - **Decision (`决策`)**:
-  - Runs [`baselabs/elephant-1`](https://huggingface.co/baselabs/elephant-1) (`prithivMLmods/elephant-1-GGUF` Q4_K_M, 5.63 GB) via `llama.cpp` with block-bidirectional full-attention masks, returning option probabilities and confidence for `choice`, `noul`, and `score` questions.
+  - Runs [`baselabs/elephant-1`](https://huggingface.co/baselabs/elephant-1) (`prithivMLmods/elephant-1-GGUF` Q4_K_M, 5.63 GB) via `llama.cpp` with block-bidirectional full-attention masks and configurable CPU threads, returning option probabilities and confidence for `choice`, `noul`, and `score` questions.
   - Can be downloaded directly in the app (bundled metadata assets + pinned GGUF via Hugging Face / `hf-mirror`) or pushed over USB.
 - **Image (`图像`)**:
   - **Qwen-Image-2.1**: MNN with CPU int4 text/vision encoding and OpenCL DiT inference (text-to-image, 1–2 reference image editing, real/Tiny VAE, official 8-step Turbo).
-  - **MOSS-Image SFT**: unified `libsd_cli.so` (`stable-diffusion.cpp`) with long prompts and native JSON layouts (`abs_centralized` / `yxyx`).
-  - **Community Single-File Diffusion**: download single-file `.safetensors` / `.gguf` / `.ckpt` checkpoints (e.g., SD 1.5, SDXL, SDXL-Turbo) from Hugging Face / `hf-mirror` and run them locally via `libsd_cli.so` (CPU or optional OpenCL GPU).
+  - **MOSS-Image SFT**: unified `libsd_cli.so` (`stable-diffusion.cpp`) with long prompts, native JSON layouts (`abs_centralized` / `yxyx`), optional OpenCL GPU acceleration, and VAE tiling.
+  - **Community Diffusion (Single-File & Modular)**: search and download SD 1.5 / SDXL / SDXL-Turbo single-file checkpoints **as well as modular Z-Image-Turbo and FLUX.2-Klein-4B GGUF weights** (automatically downloading/reusing shared Qwen3-4B text encoders and FLUX VAE companions), with selectable samplers (`Euler`, `Euler a`, `DPM++ 2M`, `LCM`, `Heun`), OpenCL GPU toggle, and VAE tiling.
 - **Music (`音乐`)**:
-  - `libyue2_cli.so` ([audio.cpp](https://github.com/0xShug0/audio.cpp), CPU `armv8.2-a+dotprod`) runs YuE2-3B Q4_0 with its VAE, producing 48 kHz stereo WAV and optional ABC score. Downloadable directly in the Models page (CC BY-NC 4.0 weights, not bundled in the APK).
+  - Unified `libyue2_cli.so` ([audio.cpp](https://github.com/0xShug0/audio.cpp), CPU `armv8.2-a+dotprod` + **Vulkan GPU** backend) supports **four on-device music families**: built-in **YuE2-3B** (48 kHz WAV + optional ABC score) plus downloadable **ACE-Step 1.5 Turbo/Base**, **HeartMuLa 3B**, and **Stable Audio 3 Small/Medium** single-file GGUF models from Hugging Face / `hf-mirror`.
 - **Video (`视频`)**:
-  - Unified `libsd_cli.so` (built with `SD_WEBM=ON`, OpenCL + CPU hybrid `diffusion=GPUOpenCL,te=CPU,vae=CPU`) runs Wan2.2-TI2V-5B-Turbo GGUF DiT, UMT5 text encoder, and TAE decoder for text-to-video and first-frame image-to-video (`.webm`, up to 25 frames at 480×832). Downloadable directly in the Models page.
+  - Unified `libsd_cli.so` (`SD_WEBM=ON`, OpenCL + CPU hybrid `diffusion=GPUOpenCL,te=CPU,vae=CPU`, keeping VAE on CPU to avoid corruption) runs built-in **Wan2.2-TI2V-5B-Turbo** as well as downloadable community **Wan2.2-5B** and **Wan2.1-1.3B** GGUF DiT weights (automatically reusing shared UMT5-XXL + TAE companions) with selectable resolutions, `4n+1` frame counts (`5–41`), steps (`1–12`), CFG, negative prompt, and VAE tiling.
 
-## Model Hub, Mirror Switching & Background Downloads
+## Model Hub, Capability Reference & Background Downloads
 
 - **Hugging Face & `hf-mirror` support**: open **模型 → 切换源** (or **设置 → 模型下载镜像**) to switch between `Hugging Face (https://huggingface.co)`, `HF-Mirror (https://hf-mirror.com)`, or a custom HTTPS mirror, set an optional Access Token for gated repositories, and test latency. China (`CN`) locales default to `HF-Mirror`.
-- **In-app discovery**: open **模型 → 发现模型** to search Hugging Face / `hf-mirror` by category (`GGUF 对话`, `MNN 对话`, `图像模型`) or enter an exact `owner/repo`, inspect file sizes, quantization tags, and RAM recommendations, and download with one tap.
+- **Multi-modality discovery**: open **模型 → 发现模型** to search Hugging Face / `hf-mirror` across all 5 categories (`GGUF 对话`, `MNN 对话`, `图像`, `视频`, `音乐`) or enter an exact `owner/repo`, inspect file sizes, quantization retention hints, shared companions, and live on-device RAM suitability before downloading.
+- **Evidence-graded capability reference (`能力参考`)**: compares on-device base model families across Chat, Decision, Image, Music, and Video with explicit source attribution (`公开独立榜单` / `官方技术报告` / `端侧专项参考`), maps third-party quantized community repositories back to their base family, never fabricates scores for uncataloged repos, and evaluates real-time RAM suitability against the phone's hardware.
 - **Reliable foreground downloads**: multi-GB downloads run via `ModelDownloadService` (`dataSync` foreground service) with live speed/progress notifications, HTTP `Range` resume, strict `Content-Range` validation, and SHA-256 / LFS OID verification.
 
 ## Build & Test
