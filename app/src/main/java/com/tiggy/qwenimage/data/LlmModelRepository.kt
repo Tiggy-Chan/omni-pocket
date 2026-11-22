@@ -8,15 +8,15 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileOutputStream
 import java.io.InputStream
-import java.net.HttpURLConnection
-import java.net.URL
 import java.security.MessageDigest
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 
-class LlmModelRepository(private val context: Context) {
+class LlmModelRepository(
+    private val context: Context,
+    private val hubPreferences: HubPreferences = HubPreferences.get(context)
+) {
     val root = File(context.getExternalFilesDir(null) ?: context.filesDir, "models/llm")
     val catalog: List<LlmModelSpec> by lazy {
         context.assets.open("llm_models.json").use { input ->
@@ -43,19 +43,22 @@ class LlmModelRepository(private val context: Context) {
             verified -> "本机可用"
             present == spec.artifacts.size -> "需要校验"
             present > 0 -> "$present/${spec.artifacts.size} 个文件"
-            else -> if (spec.localOnly) "等待电脑导入" else "未下载"
+            else -> "未下载"
         }
         return LlmModelStatus(spec, directory, present, verified, message)
     }
 
     suspend fun download(id: String, onProgress: (LlmDownloadProgress) -> Unit) = withContext(Dispatchers.IO) {
         val spec = model(id)
-        require(!spec.localOnly) { "此模型需要从电脑转换并通过 USB 导入" }
+        if (spec.kind == LlmModelKind.Decision) {
+            downloadDecision(spec, onProgress)
+            return@withContext
+        }
         recoverBackup(spec)
-        val directory = directory(id)
         val staging = File(root, ".${spec.id}.downloading")
         check(staging.isDirectory || staging.mkdirs()) { "无法创建模型暂存目录" }
         val operation = coroutineContext
+        val hubSettings = hubPreferences.current()
         val remaining = spec.artifacts.sumOf { artifact ->
             val target = File(staging, artifact.path)
             val part = File(target.path + ".part")
@@ -76,9 +79,62 @@ class LlmModelRepository(private val context: Context) {
             onProgress(LlmDownloadProgress(spec.id, artifact.path, completed, total, false))
             val target = File(staging, artifact.path)
             if (!matches(target, artifact, operation)) {
-                downloadArtifact(artifact, target, operation) { done ->
+                downloadArtifact(artifact.url, artifact, target, hubSettings, operation) { done ->
                     onProgress(LlmDownloadProgress(spec.id, artifact.path, completed + done, total, false))
                 }
+            }
+            completed += artifact.size
+            onProgress(LlmDownloadProgress(spec.id, artifact.path, completed, total, false))
+        }
+        val manifest = File(staging, "manifest.json")
+        val temporary = File(staging, "manifest.json.tmp")
+        temporary.writeText(LlmCatalog.manifest(spec))
+        check(temporary.renameTo(manifest)) { "无法保存模型清单" }
+        verifyDirectory(staging, spec, operation)
+        activate(staging, spec)
+        onProgress(LlmDownloadProgress(spec.id, "校验完成", total, total, true))
+    }
+
+    /**
+     * Downloads Elephant-1 9B directly on-device: copies the 4 deterministic small metadata JSONs
+     * bundled in assets/elephant-1/ and fetches the pinned Q4_K_M GGUF via the configured Hub mirror.
+     */
+    private suspend fun downloadDecision(spec: LlmModelSpec, onProgress: (LlmDownloadProgress) -> Unit) {
+        recoverBackup(spec)
+        val staging = File(root, ".${spec.id}.downloading")
+        check(staging.isDirectory || staging.mkdirs()) { "无法创建决策模型暂存目录" }
+        val operation = coroutineContext
+        val hubSettings = hubPreferences.current()
+        val weightsArtifact = spec.artifacts.single { it.path == LlmModelSpec.DECISION_WEIGHTS }
+        val weightsTarget = File(staging, weightsArtifact.path)
+        val part = File(weightsTarget.path + ".part")
+        val identity = File(weightsTarget.path + ".resume")
+        val remaining = when {
+            matches(weightsTarget, weightsArtifact, operation) -> 0L
+            part.isFile && part.length() <= weightsArtifact.size &&
+                runCatching { identity.readText() }.getOrNull() == weightsArtifact.sha256 -> weightsArtifact.size - part.length()
+            else -> weightsArtifact.size
+        }
+        val available = StatFs(staging.path).availableBytes
+        check(available >= remaining + RESERVE_BYTES) { "空间不足，请至少预留下载空间和 512MB 余量" }
+
+        val total = spec.totalBytes
+        var completed = 0L
+        for (artifact in spec.artifacts) {
+            operation.ensureActive()
+            val target = File(staging, artifact.path)
+            if (artifact.path == LlmModelSpec.DECISION_WEIGHTS) {
+                onProgress(LlmDownloadProgress(spec.id, artifact.path, completed, total, false))
+                if (!matches(target, artifact, operation)) {
+                    downloadArtifact(ELEPHANT_GGUF_URL, artifact, target, hubSettings, operation) { done ->
+                        onProgress(LlmDownloadProgress(spec.id, artifact.path, completed + done, total, false))
+                    }
+                }
+            } else {
+                context.assets.open("elephant-1/${artifact.path}").use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+                check(matches(target, artifact, operation)) { "内置决策元数据 ${artifact.path} 校验失败" }
             }
             completed += artifact.size
             onProgress(LlmDownloadProgress(spec.id, artifact.path, completed, total, false))
@@ -107,9 +163,11 @@ class LlmModelRepository(private val context: Context) {
         File(root, ".${model(id).id}.downloading").deleteRecursively()
     }
 
-    private suspend fun downloadArtifact(
+    private fun downloadArtifact(
+        url: String,
         artifact: LlmModelArtifact,
         target: File,
+        hubSettings: HubSettings,
         operation: CoroutineContext,
         progress: (Long) -> Unit
     ) {
@@ -120,7 +178,7 @@ class LlmModelRepository(private val context: Context) {
             check(part.delete()) { "无法清理失效的续传文件" }
         }
         identity.writeText(artifact.sha256)
-        LlmHttp.download(artifact.url, part, artifact.size, operation, progress)
+        LlmHttp.download(url, part, artifact.size, operation, hubSettings, progress)
         if (!matches(part, artifact, operation)) {
             part.delete()
             identity.delete()
@@ -186,6 +244,8 @@ class LlmModelRepository(private val context: Context) {
 
     private companion object {
         const val RESERVE_BYTES = 512L * 1024 * 1024
+        const val ELEPHANT_GGUF_URL =
+            "https://huggingface.co/prithivMLmods/elephant-1-GGUF/resolve/77d938a13309d7b3da168d87abf5589f9329b122/elephant-1.Q4_K_M.gguf"
     }
 }
 
@@ -203,53 +263,17 @@ internal object LlmHttp {
         part: File,
         size: Long,
         operation: CoroutineContext,
+        hubSettings: HubSettings = HubSettings(mode = HubMirrorMode.Official),
         progress: (Long) -> Unit
     ) {
-        var have = if (part.isFile) part.length() else 0L
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 30_000
-            readTimeout = 60_000
-            instanceFollowRedirects = true
-            setRequestProperty("Accept-Encoding", "identity")
-            if (have > 0) setRequestProperty("Range", "bytes=$have-")
-        }
-        try {
-            val response = connection.responseCode
-            require(response == HttpURLConnection.HTTP_OK || (have > 0 && response == HttpURLConnection.HTTP_PARTIAL)) {
-                "下载失败：HTTP $response"
-            }
-            if (response == HttpURLConnection.HTTP_PARTIAL) {
-                val range = Regex("bytes (\\d+)-(\\d+)/(\\d+|\\*)")
-                    .matchEntire(connection.getHeaderField("Content-Range").orEmpty())
-                require(range != null) { "服务器缺少有效的 Content-Range" }
-                val end = range.groupValues[2].toLong()
-                val total = range.groupValues[3]
-                require(range.groupValues[1].toLong() == have && end >= have && end < size &&
-                    (total == "*" || total.toLong() == size)) { "服务器返回了错误的续传范围" }
-            }
-            val append = response == HttpURLConnection.HTTP_PARTIAL && have > 0
-            if (!append) have = 0L
-            progress(have)
-            connection.inputStream.use { input ->
-                FileOutputStream(part, append).use { output ->
-                    val buffer = ByteArray(1024 * 1024)
-                    var received = have
-                    while (true) {
-                        operation.ensureActive()
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        if (count == 0) continue
-                        check(received + count <= size) { "下载内容超过清单大小" }
-                        output.write(buffer, 0, count)
-                        received += count
-                        progress(received)
-                    }
-                }
-            }
-            check(part.length() == size) { "下载不完整，可继续重试" }
-        } finally {
-            connection.disconnect()
-        }
+        ResumableHttpDownloader.download(
+            url = url,
+            part = part,
+            expectedSize = size,
+            operation = operation,
+            hubSettings = hubSettings,
+            maxAttempts = if (url.startsWith("http://127.0.0.1")) 1 else 3
+        ) { done, _ -> progress(done) }
     }
 }
 

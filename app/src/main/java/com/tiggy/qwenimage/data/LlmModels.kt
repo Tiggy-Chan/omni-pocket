@@ -155,7 +155,7 @@ data class LlmConversation(
 ) {
     init {
         require(id.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "会话 ID 无效" }
-        require(title.length <= 120 && modelId.matches(Regex("[A-Za-z0-9_.-]{1,80}"))) { "会话信息无效" }
+        require(title.length <= 120 && modelId.matches(Regex("[A-Za-z0-9_.:-]{1,120}"))) { "会话信息无效" }
         require(messages.size <= 500 && messages.all { it.content.length + it.reasoning.length <= 1_000_000 }) {
             "会话内容超出存储上限"
         }

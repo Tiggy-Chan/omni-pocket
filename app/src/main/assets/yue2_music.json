@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "modelId": "yue2-3b-q4_0-v1",
+  "files": [
+    {
+      "path": "sidecars/yue2-generation-config.json",
+      "size": 466,
+      "sha256": "203830cebde6e3644eb291925362990d198e66c3b6006cd11f1aaa21904bcc61",
+      "url": "https://huggingface.co/audio-cpp/Yue2-3B-GGUF/resolve/main/sidecars/yue2-generation-config.json"
+    },
+    {
+      "path": "sidecars/yue2-model-config.json",
+      "size": 959,
+      "sha256": "ad3477bbef890bf98ae196c1e4b44779494a6231c4ab66f32708eabadf265329",
+      "url": "https://huggingface.co/audio-cpp/Yue2-3B-GGUF/resolve/main/sidecars/yue2-model-config.json"
+    },
+    {
+      "path": "sidecars/yue2-qwen.tiktoken",
+      "size": 2561218,
+      "sha256": "b2b1b8dfb5cc5f024bafc373121c6aba3f66f9a5a0269e243470a1de16a33186",
+      "url": "https://huggingface.co/audio-cpp/Yue2-3B-GGUF/resolve/main/sidecars/yue2-qwen.tiktoken"
+    },
+    {
+      "path": "sidecars/yue2-vae-config.json",
+      "size": 1378,
+      "sha256": "f0191bb9694009956de44e0c361a6f1334760be4c8f848e599bde242a54a0970",
+      "url": "https://huggingface.co/audio-cpp/Yue2-3B-GGUF/resolve/main/sidecars/yue2-vae-config.json"
+    },
+    {
+      "path": "yue2-vae-f16.gguf",
+      "size": 265218656,
+      "sha256": "d4f4a05d8f291ae820cd1e43609da3fa91b56465810091a2b08c3350b751719d",
+      "url": "https://huggingface.co/audio-cpp/Yue2-3B-GGUF/resolve/main/yue2-vae-f16.gguf"
+    },
+    {
+      "path": "yue2-3b-q4_0.gguf",
+      "size": 2665641504,
+      "sha256": "b80215b59a7fe41a4c76b6163c0ae1031672f892b5951d66fefaa2053a815029",
+      "url": "https://huggingface.co/audio-cpp/Yue2-3B-GGUF/resolve/main/yue2-3b-q4_0.gguf"
+    }
+  ]
+}

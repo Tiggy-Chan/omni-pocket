@@ -1,0 +1,22 @@
+{
+  "model": {
+    "repo": "baselabs/elephant-1",
+    "revision": "b3f8a93462fb1051a9de031e94a7ff380e254072",
+    "license": "MIT"
+  },
+  "graph": {
+    "repo": "taobao-mnn/Qwen3.5-9B-MNN",
+    "revision": "149e1e052267ffa377b87e3bb0ddb75f46217a9a"
+  },
+  "quantization": {
+    "repo": "prithivMLmods/elephant-1-GGUF",
+    "revision": "77d938a13309d7b3da168d87abf5589f9329b122",
+    "method": "Q4_K_M",
+    "official": false
+  },
+  "protocol": {
+    "repo": "OmniJev/OneJev",
+    "revision": "81ce62f1597c91e46767d4d02d6ac2e18534fe94",
+    "license": "Apache-2.0"
+  }
+}

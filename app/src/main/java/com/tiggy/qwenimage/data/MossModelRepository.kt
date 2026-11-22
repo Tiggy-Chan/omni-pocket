@@ -26,7 +26,10 @@ data class MossModelStatus(
     val message: String
 )
 
-class MossModelRepository(private val context: Context) {
+class MossModelRepository(
+    private val context: Context,
+    private val hubPreferences: HubPreferences = HubPreferences.get(context)
+) {
     val modelDir: File = File(context.getExternalFilesDir(null) ?: context.filesDir, "models/moss_image")
 
     fun status(): MossModelStatus {
@@ -147,6 +150,13 @@ class MossModelRepository(private val context: Context) {
         verifyDirectory(modelDir, manifest, onProgress)
     }
 
+    fun delete() {
+        if (modelDir.exists()) check(modelDir.deleteRecursively()) { "无法删除 MOSS 模型" }
+        File(modelDir.parentFile, "${modelDir.name}.downloading").deleteRecursively()
+        File(modelDir.parentFile, "${modelDir.name}.importing").deleteRecursively()
+        File(modelDir.parentFile, "${modelDir.name}.backup").deleteRecursively()
+    }
+
     private suspend fun verifyDirectory(
         root: File,
         manifest: MossModelManifest,
@@ -227,44 +237,19 @@ class MossModelRepository(private val context: Context) {
             }
             check(part.delete()) { "无法清理校验失败的模型文件" }
         }
-        var have = part.length()
-        val connection = open(artifact.url)
-        try {
-            if (have > 0) connection.setRequestProperty("Range", "bytes=$have-")
-            val response = connection.responseCode
-            require(response == HttpURLConnection.HTTP_OK || (have > 0 && response == HttpURLConnection.HTTP_PARTIAL)) {
-                "${artifact.path} HTTP $response"
-            }
-            if (response == HttpURLConnection.HTTP_PARTIAL) validateContentRange(connection, have, artifact.size)
-            val append = response == HttpURLConnection.HTTP_PARTIAL && have > 0
-            if (!append) have = 0
-            var done = have
-            progress(done)
-            connection.inputStream.use { input ->
-                FileOutputStream(part, append).use { output ->
-                    val buffer = ByteArray(BUFFER_SIZE)
-                    while (true) {
-                        operationContext.ensureActive()
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        if (count == 0) continue
-                        check(done + count <= artifact.size) { "文件超过清单大小" }
-                        output.write(buffer, 0, count)
-                        done += count
-                        progress(done)
-                    }
-                }
-            }
-            check(done == artifact.size) { "${artifact.path} 下载不完整，可继续重试" }
-            if (!matches(part, artifact, operationContext)) {
-                part.delete()
-                identity.delete()
-                error("${artifact.path} SHA-256 校验失败，请重新下载")
-            }
-            replaceWithPart(part, target, identity)
-        } finally {
-            connection.disconnect()
+        ResumableHttpDownloader.download(
+            url = artifact.url,
+            part = part,
+            expectedSize = artifact.size,
+            operation = operationContext,
+            hubSettings = hubPreferences.current()
+        ) { done, _ -> progress(done) }
+        if (!matches(part, artifact, operationContext)) {
+            part.delete()
+            identity.delete()
+            error("${artifact.path} SHA-256 校验失败，请重新下载")
         }
+        replaceWithPart(part, target, identity)
     }
 
     private fun validateContentRange(connection: HttpURLConnection, start: Long, size: Long) {

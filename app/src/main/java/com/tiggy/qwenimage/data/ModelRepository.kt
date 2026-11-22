@@ -17,7 +17,10 @@ import java.security.MessageDigest
 import kotlin.coroutines.coroutineContext
 
 /** Only verified manifests become active. Failed imports/downloads retain the previous model. */
-class ModelRepository(private val context: Context) {
+class ModelRepository(
+    private val context: Context,
+    private val hubPreferences: HubPreferences = HubPreferences.get(context)
+) {
     val modelDir = File(context.getExternalFilesDir(null) ?: context.filesDir, "models/qwen_image21_uc_q4km")
     private val preferences = context.getSharedPreferences("model-source", Context.MODE_PRIVATE)
     var sourceRepo: String
@@ -119,6 +122,13 @@ class ModelRepository(private val context: Context) {
         verifyDirectory(modelDir, manifest, onProgress)
     }
 
+    fun delete() {
+        if (modelDir.exists()) check(modelDir.deleteRecursively()) { "无法删除 Qwen 模型" }
+        File(modelDir.parentFile, "${modelDir.name}.downloading").deleteRecursively()
+        File(modelDir.parentFile, "${modelDir.name}.importing").deleteRecursively()
+        File(modelDir.parentFile, "${modelDir.name}.backup").deleteRecursively()
+    }
+
     private suspend fun verifyDirectory(root: File, manifest: ModelManifest, onProgress: (String) -> Unit) {
         for (a in manifest.artifacts) {
             coroutineContext.ensureActive()
@@ -154,13 +164,8 @@ class ModelRepository(private val context: Context) {
     }
 
     private fun fetchJson(url: String): JSONObject {
-        val c = open(url)
-        try {
-            check(c.responseCode == 200) { "模型清单 HTTP ${c.responseCode}" }
-            val text = c.inputStream.use { it.bufferedReader().readText() }
-            require(text.length <= 256 * 1024) { "模型清单过大" }
-            return JSONObject(text)
-        } finally { c.disconnect() }
+        val text = ResumableHttpDownloader.fetchText(url, hubPreferences.current(), maxBytes = 256 * 1024)
+        return JSONObject(text)
     }
 
     private suspend fun downloadOne(url: String, artifact: ModelArtifact, target: File, progress: (Long) -> Unit) {
@@ -172,32 +177,15 @@ class ModelRepository(private val context: Context) {
         if (part.length() == artifact.size && matches(part, artifact)) {
             target.delete(); check(part.renameTo(target)); identity.delete(); return
         }
-        var have = part.length()
-        val c = open(url)
-        try {
-            if (have > 0) c.setRequestProperty("Range", "bytes=$have-")
-            val response = c.responseCode
-            require(response == 200 || response == 206) { "${artifact.path} HTTP $response" }
-            if (response == 206) require(c.getHeaderField("Content-Range")?.startsWith("bytes $have-") == true) { "服务器返回错误的续传范围" }
-            val append = response == 206 && have > 0
-            if (!append) have = 0
-            var done = have
-            c.inputStream.use { input ->
-                part.outputStream(append).use { output ->
-                    val buffer = ByteArray(1 shl 20)
-                    while (true) {
-                        coroutineContext.ensureActive()
-                        val n = input.read(buffer)
-                        if (n <= 0) break
-                        check(done + n <= artifact.size) { "文件超过清单大小" }
-                        output.write(buffer, 0, n); done += n
-                        progress(done)
-                    }
-                }
-            }
-            if (!matches(part, artifact)) { part.delete(); error("${artifact.path} 校验失败，请重新下载") }
-            target.delete(); check(part.renameTo(target)); identity.delete()
-        } finally { c.disconnect() }
+        ResumableHttpDownloader.download(
+            url = url,
+            part = part,
+            expectedSize = artifact.size,
+            operation = coroutineContext,
+            hubSettings = hubPreferences.current()
+        ) { done, _ -> progress(done) }
+        if (!matches(part, artifact)) { part.delete(); error("${artifact.path} 校验失败，请重新下载") }
+        target.delete(); check(part.renameTo(target)); identity.delete()
     }
 
     private fun File.outputStream(append: Boolean) = java.io.FileOutputStream(this, append)
@@ -214,10 +202,8 @@ class ModelRepository(private val context: Context) {
         connectTimeout = 30_000; readTimeout = 60_000
         setRequestProperty("Accept-Encoding", "identity"); instanceFollowRedirects = true
     }
-    private fun endpoint(repo: String, revision: String, path: String): String {
-        fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
-        return "https://huggingface.co/$repo/resolve/${enc(revision)}/${path.split('/').joinToString("/") { enc(it) }}"
-    }
+    private fun endpoint(repo: String, revision: String, path: String): String =
+        HubUrlRewriter.resolveFileUrl(repo, revision, path, hubPreferences.current())
     private fun safeChild(root: File, path: String): File {
         require(ModelManifest.validPath(path))
         val target = File(root, path).canonicalFile

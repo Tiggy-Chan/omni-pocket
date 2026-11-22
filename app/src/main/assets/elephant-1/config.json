@@ -1,0 +1,38 @@
+{
+  "max_new_tokens": 0,
+  "llm_model": "llm.mnn",
+  "llm_weight": "llm.mnn.weight",
+  "backend_type": "cpu",
+  "thread_num": 4,
+  "precision": "normal",
+  "memory": "low",
+  "sampler_type": "mixed",
+  "mixed_samplers": [
+    "penalty",
+    "topK",
+    "topP",
+    "min_p",
+    "temperature"
+  ],
+  "penalty": 1.1,
+  "temperature": 1.0,
+  "topP": 0.95,
+  "topK": 20,
+  "min_p": 0,
+  "mllm": {
+    "backend_type": "cpu",
+    "thread_num": 4,
+    "precision": "normal",
+    "memory": "low"
+  },
+  "jinja": {
+    "context": {
+      "enable_thinking": false
+    }
+  },
+  "max_all_tokens": 16384,
+  "use_mmap": true,
+  "use_cached_mmap": false,
+  "kvcache_mmap": true,
+  "block_size": 0
+}
