@@ -49,6 +49,11 @@ public:
     LlamaChatSession(const LlamaChatSession&) = delete;
     LlamaChatSession& operator=(const LlamaChatSession&) = delete;
 
+    // Configure writable kernel cache directory (used by ggml-opencl) before backend init.
+    static void SetKernelCacheDir(const std::string& cacheDir);
+    static bool HasRuntimeGpuDevice();
+    static std::string RuntimeGpuDeviceName();
+
     // kvQuantMode: 0 = F16, 1 = Q8_0, 2 = Q4_0; gpuLayers: 0 = CPU only, >0 = offload layers if GPU backend exists.
     bool Load(const std::string& modelPath, int threadCount, int contextTokens, std::string& error,
               int kvQuantMode = 0, int gpuLayers = 0);

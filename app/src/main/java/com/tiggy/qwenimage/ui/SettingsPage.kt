@@ -329,9 +329,11 @@ fun SettingsPage(
                             trailing = { Switch(checked = llmState.mnnUseOpenCl, onCheckedChange = null) }
                         )
                         SettingRow(
-                            title = "GGUF Vulkan GPU 卸载",
-                            detail = if (llmState.ggufGpuAvailable) "将 GGUF 模型层卸载到手机 Vulkan GPU"
-                            else "当前构建未启用 Vulkan 后端，自动使用 CPU",
+                            title = "GGUF OpenCL GPU 卸载",
+                            detail = if (llmState.ggufGpuAvailable) {
+                                val gpuTag = llmState.ggufGpuDeviceName.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty()
+                                "将 GGUF 模型层卸载到手机 OpenCL GPU$gpuTag；建议搭配 FP16 KV，异常时自动回退 CPU"
+                            } else "当前设备未检测到可用 OpenCL GPU，自动使用 CPU",
                             onClick = if (llmState.ggufGpuAvailable) ({ llmViewModel.setGgufUseVulkanGpu(!llmState.ggufUseVulkanGpu) }) else null,
                             trailing = {
                                 Switch(

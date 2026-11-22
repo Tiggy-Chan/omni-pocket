@@ -3,9 +3,13 @@
 #include "ggml-backend.h"
 #include "llama.h"
 
+#include <android/log.h>
+
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <filesystem>
 #include <limits>
 #include <mutex>
@@ -15,8 +19,47 @@
 namespace omni {
 namespace {
 
+constexpr char kLogTag[] = "OmniLlamaChat";
 constexpr char kReplacement[] = "\xEF\xBF\xBD";
 constexpr int32_t kBatchSize = 512;
+
+void LlamaAndroidLog(ggml_log_level level, const char* text, void*) {
+    if (text == nullptr || text[0] == '\0') return;
+    if (level == GGML_LOG_LEVEL_ERROR) {
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "%s", text);
+    } else if (level == GGML_LOG_LEVEL_WARN) {
+        __android_log_print(ANDROID_LOG_WARN, kLogTag, "%s", text);
+    } else if (level == GGML_LOG_LEVEL_INFO &&
+               (std::strstr(text, "ggml_opencl") != nullptr || std::strstr(text, "ggml_vulkan") != nullptr)) {
+        __android_log_print(ANDROID_LOG_INFO, kLogTag, "%s", text);
+    }
+}
+
+void EnsureLlamaRuntimeInitialized() {
+    static std::once_flag backendOnce;
+    std::call_once(backendOnce, [] {
+        llama_log_set(LlamaAndroidLog, nullptr);
+        ggml_backend_load_all();
+    });
+}
+
+struct BatchGuard {
+    llama_batch batch;
+    explicit BatchGuard(int32_t nTokens) : batch(llama_batch_init(nTokens, 0, 1)) {}
+    ~BatchGuard() { llama_batch_free(batch); }
+    BatchGuard(const BatchGuard&) = delete;
+    BatchGuard& operator=(const BatchGuard&) = delete;
+};
+
+struct SamplerGuard {
+    llama_sampler* sampler;
+    explicit SamplerGuard(llama_sampler* s) : sampler(s) {}
+    ~SamplerGuard() {
+        if (sampler != nullptr) llama_sampler_free(sampler);
+    }
+    SamplerGuard(const SamplerGuard&) = delete;
+    SamplerGuard& operator=(const SamplerGuard&) = delete;
+};
 
 int64_t NowUs() {
     return std::chrono::duration_cast<std::chrono::microseconds>(
@@ -284,38 +327,82 @@ struct LlamaChatSession::Impl {
     }
 
     bool DecodeTokens(const llama_token* tokens, size_t count, int32_t startPos, std::string& error) {
-        llama_batch batch = llama_batch_init(kBatchSize, 0, 1);
-        size_t offset = 0;
-        while (offset < count) {
-            if (cancelled.load()) {
-                llama_batch_free(batch);
-                return false;
+        try {
+            BatchGuard guard(kBatchSize);
+            llama_batch& batch = guard.batch;
+            size_t offset = 0;
+            while (offset < count) {
+                if (cancelled.load()) {
+                    return false;
+                }
+                const size_t chunk = std::min<size_t>(static_cast<size_t>(kBatchSize), count - offset);
+                batch.n_tokens = static_cast<int32_t>(chunk);
+                for (size_t i = 0; i < chunk; ++i) {
+                    batch.token[i] = tokens[offset + i];
+                    batch.pos[i] = startPos + static_cast<int32_t>(offset + i);
+                    batch.n_seq_id[i] = 1;
+                    batch.seq_id[i][0] = 0;
+                    batch.logits[i] = (offset + i == count - 1) ? 1 : 0;
+                }
+                const int status = llama_decode(context, batch);
+                if (cancelled.load()) {
+                    return false;
+                }
+                if (status != 0) {
+                    error = "GGUF 推理前向计算失败（状态码 " + std::to_string(status) + "）";
+                    return false;
+                }
+                offset += chunk;
             }
-            const size_t chunk = std::min<size_t>(static_cast<size_t>(kBatchSize), count - offset);
-            batch.n_tokens = static_cast<int32_t>(chunk);
-            for (size_t i = 0; i < chunk; ++i) {
-                batch.token[i] = tokens[offset + i];
-                batch.pos[i] = startPos + static_cast<int32_t>(offset + i);
-                batch.n_seq_id[i] = 1;
-                batch.seq_id[i][0] = 0;
-                batch.logits[i] = (offset + i == count - 1) ? 1 : 0;
-            }
-            const int status = llama_decode(context, batch);
-            if (cancelled.load()) {
-                llama_batch_free(batch);
-                return false;
-            }
-            if (status != 0) {
-                llama_batch_free(batch);
-                error = "GGUF 推理前向计算失败（状态码 " + std::to_string(status) + "）";
-                return false;
-            }
-            offset += chunk;
+            return true;
+        } catch (const std::exception& e) {
+            __android_log_print(ANDROID_LOG_ERROR, kLogTag, "DecodeTokens exception: %s", e.what());
+            error = std::string("GGUF 后端计算异常：") + e.what();
+            return false;
+        } catch (...) {
+            __android_log_print(ANDROID_LOG_ERROR, kLogTag, "DecodeTokens unknown native exception");
+            error = "GGUF 后端发生未知计算异常";
+            return false;
         }
-        llama_batch_free(batch);
-        return true;
     }
 };
+
+void LlamaChatSession::SetKernelCacheDir(const std::string& cacheDir) {
+    if (cacheDir.empty()) return;
+    std::error_code ec;
+    std::filesystem::create_directories(cacheDir, ec);
+    setenv("GGML_OPENCL_KERNEL_CACHE_DIR", cacheDir.c_str(), 1);
+}
+
+std::string LlamaChatSession::RuntimeGpuDeviceName() {
+#if defined(OMNI_LLAMA_HAS_OPENCL) || defined(OMNI_LLAMA_HAS_VULKAN)
+    try {
+        EnsureLlamaRuntimeInitialized();
+        const size_t count = ggml_backend_dev_count();
+        for (size_t i = 0; i < count; ++i) {
+            ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+            if (dev == nullptr) continue;
+            const auto type = ggml_backend_dev_type(dev);
+            if (type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
+                const char* desc = ggml_backend_dev_description(dev);
+                const char* name = ggml_backend_dev_name(dev);
+                if (desc != nullptr && desc[0] != '\0') return std::string(desc);
+                if (name != nullptr && name[0] != '\0') return std::string(name);
+                return "OpenCL GPU";
+            }
+        }
+    } catch (const std::exception& e) {
+        __android_log_print(ANDROID_LOG_WARN, kLogTag, "GPU probe exception: %s", e.what());
+    } catch (...) {
+        __android_log_print(ANDROID_LOG_WARN, kLogTag, "GPU probe unknown exception");
+    }
+#endif
+    return {};
+}
+
+bool LlamaChatSession::HasRuntimeGpuDevice() {
+    return !RuntimeGpuDeviceName().empty();
+}
 
 LlamaChatSession::LlamaChatSession() : impl_(std::make_unique<Impl>()) {}
 LlamaChatSession::~LlamaChatSession() {
@@ -338,71 +425,82 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
         error = "GGUF 模型文件不存在";
         return false;
     }
-    impl_->Clear();
-    static std::once_flag backendOnce;
-    std::call_once(backendOnce, [] { ggml_backend_load_all(); });
-
-    auto modelParams = llama_model_default_params();
-    modelParams.n_gpu_layers = std::max(0, gpuLayers);
-    modelParams.load_mode = LLAMA_LOAD_MODE_MMAP;
-    modelParams.progress_callback = [](float, void* data) -> bool {
-        return !static_cast<std::atomic<bool>*>(data)->load();
-    };
-    modelParams.progress_callback_user_data = &impl_->cancelled;
-
-    impl_->model = llama_model_load_from_file(modelPath.c_str(), modelParams);
-    if (impl_->model == nullptr) {
-        error = impl_->cancelled.load() ? "模型加载已取消" : "GGUF 模型加载失败，请检查文件完整性和可用内存";
-        return false;
-    }
-    impl_->vocab = llama_model_get_vocab(impl_->model);
-    if (impl_->vocab == nullptr) {
-        error = "GGUF 词表无效";
+    try {
         impl_->Clear();
-        return false;
-    }
+        EnsureLlamaRuntimeInitialized();
 
-    const int trainCtx = llama_model_n_ctx_train(impl_->model);
-    impl_->trainContextTokens = trainCtx;
-    const int effectiveCtx = trainCtx > 0 ? std::min(contextTokens, std::max(512, trainCtx)) : contextTokens;
+        auto modelParams = llama_model_default_params();
+        modelParams.n_gpu_layers = std::max(0, gpuLayers);
+        modelParams.load_mode = LLAMA_LOAD_MODE_MMAP;
+        modelParams.progress_callback = [](float, void* data) -> bool {
+            return !static_cast<std::atomic<bool>*>(data)->load();
+        };
+        modelParams.progress_callback_user_data = &impl_->cancelled;
 
-    auto ctxParams = llama_context_default_params();
-    ctxParams.n_ctx = static_cast<uint32_t>(effectiveCtx);
-    ctxParams.n_batch = static_cast<uint32_t>(kBatchSize);
-    ctxParams.n_ubatch = static_cast<uint32_t>(kBatchSize);
-    ctxParams.n_threads = threadCount;
-    ctxParams.n_threads_batch = threadCount;
-    ctxParams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
-    if (kvQuantMode == 1) {
-        ctxParams.type_k = GGML_TYPE_Q8_0;
-        ctxParams.type_v = GGML_TYPE_Q8_0;
-    } else if (kvQuantMode == 2) {
-        ctxParams.type_k = GGML_TYPE_Q4_0;
-        ctxParams.type_v = GGML_TYPE_Q4_0;
-    }
-    ctxParams.offload_kqv = gpuLayers > 0;
-    ctxParams.op_offload = gpuLayers > 0;
-    ctxParams.abort_callback = [](void* data) -> bool {
-        return static_cast<std::atomic<bool>*>(data)->load();
-    };
-    ctxParams.abort_callback_data = &impl_->cancelled;
+        impl_->model = llama_model_load_from_file(modelPath.c_str(), modelParams);
+        if (impl_->model == nullptr) {
+            error = impl_->cancelled.load() ? "模型加载已取消" : "GGUF 模型加载失败，请检查文件完整性和可用内存";
+            return false;
+        }
+        impl_->vocab = llama_model_get_vocab(impl_->model);
+        if (impl_->vocab == nullptr) {
+            error = "GGUF 词表无效";
+            impl_->Clear();
+            return false;
+        }
 
-    impl_->context = llama_init_from_model(impl_->model, ctxParams);
-    if (impl_->context == nullptr && kvQuantMode != 0) {
-        // Some hybrid/SSM architectures only support F16 KV cache; retry cleanly with default F16.
-        ctxParams.type_k = GGML_TYPE_F16;
-        ctxParams.type_v = GGML_TYPE_F16;
+        const int trainCtx = llama_model_n_ctx_train(impl_->model);
+        impl_->trainContextTokens = trainCtx;
+        const int effectiveCtx = trainCtx > 0 ? std::min(contextTokens, std::max(512, trainCtx)) : contextTokens;
+
+        auto ctxParams = llama_context_default_params();
+        ctxParams.n_ctx = static_cast<uint32_t>(effectiveCtx);
+        ctxParams.n_batch = static_cast<uint32_t>(kBatchSize);
+        ctxParams.n_ubatch = static_cast<uint32_t>(kBatchSize);
+        ctxParams.n_threads = threadCount;
+        ctxParams.n_threads_batch = threadCount;
+        ctxParams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+        if (kvQuantMode == 1) {
+            ctxParams.type_k = GGML_TYPE_Q8_0;
+            ctxParams.type_v = GGML_TYPE_Q8_0;
+        } else if (kvQuantMode == 2) {
+            ctxParams.type_k = GGML_TYPE_Q4_0;
+            ctxParams.type_v = GGML_TYPE_Q4_0;
+        }
+        ctxParams.offload_kqv = gpuLayers > 0;
+        ctxParams.op_offload = gpuLayers > 0;
+        ctxParams.abort_callback = [](void* data) -> bool {
+            return static_cast<std::atomic<bool>*>(data)->load();
+        };
+        ctxParams.abort_callback_data = &impl_->cancelled;
+
         impl_->context = llama_init_from_model(impl_->model, ctxParams);
-    }
-    if (impl_->context == nullptr) {
-        error = "无法创建 " + std::to_string(effectiveCtx) + " token 推理上下文，可用内存不足";
+        if (impl_->context == nullptr && kvQuantMode != 0) {
+            // Some hybrid/SSM architectures only support F16 KV cache; retry cleanly with default F16.
+            ctxParams.type_k = GGML_TYPE_F16;
+            ctxParams.type_v = GGML_TYPE_F16;
+            impl_->context = llama_init_from_model(impl_->model, ctxParams);
+        }
+        if (impl_->context == nullptr) {
+            error = "无法创建 " + std::to_string(effectiveCtx) + " token 推理上下文，可用内存不足";
+            impl_->Clear();
+            return false;
+        }
+        llama_set_causal_attn(impl_->context, true);
+        impl_->contextTokens = effectiveCtx;
+        impl_->threadCount = threadCount;
+        return true;
+    } catch (const std::exception& e) {
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Load exception: %s", e.what());
         impl_->Clear();
+        error = std::string("GGUF 模型加载异常：") + e.what();
+        return false;
+    } catch (...) {
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Load unknown native exception");
+        impl_->Clear();
+        error = "GGUF 模型加载发生未知异常";
         return false;
     }
-    llama_set_causal_attn(impl_->context, true);
-    impl_->contextTokens = effectiveCtx;
-    impl_->threadCount = threadCount;
-    return true;
 }
 
 int LlamaChatSession::EffectiveContextTokens() const {
@@ -501,7 +599,8 @@ LlamaChatResult LlamaChatSession::Generate(
     impl_->kvTokens = promptTokens;
 
     auto chainParams = llama_sampler_chain_default_params();
-    llama_sampler* sampler = llama_sampler_chain_init(chainParams);
+    SamplerGuard samplerGuard(llama_sampler_chain_init(chainParams));
+    llama_sampler* sampler = samplerGuard.sampler;
     const float clampedTemp = std::clamp(request.temperature, 0.0f, 2.0f);
     const float clampedTopP = std::clamp(request.topP, 0.05f, 1.0f);
     const int clampedTopK = std::clamp(request.topK, 1, 200);
@@ -541,51 +640,58 @@ LlamaChatResult LlamaChatSession::Generate(
         "<|im_end|>", "<|eot_id|>", "<end_of_turn>", "<|endoftext|>", "<|end|>", "</s>"
     };
 
-    while (!impl_->cancelled.load() && generated < request.maxNewTokens && currentPos < impl_->contextTokens) {
-        const llama_token nextToken = llama_sampler_sample(sampler, impl_->context, -1);
-        if (llama_vocab_is_eog(impl_->vocab, nextToken)) {
-            hitEog = true;
-            break;
-        }
-        const std::string specialPiece = impl_->TokenToPiece(nextToken, /*special=*/true);
-        bool hitStopText = false;
-        for (const char* marker : kStopMarkers) {
-            if (specialPiece == marker) {
-                hitStopText = true;
+    try {
+        while (!impl_->cancelled.load() && generated < request.maxNewTokens && currentPos < impl_->contextTokens) {
+            const llama_token nextToken = llama_sampler_sample(sampler, impl_->context, -1);
+            if (llama_vocab_is_eog(impl_->vocab, nextToken)) {
+                hitEog = true;
                 break;
             }
-        }
-        if (hitStopText) {
-            hitEog = true;
-            break;
-        }
-        const std::string piece = (specialPiece == "<think>" || specialPiece == "</think>")
-            ? specialPiece
-            : impl_->TokenToPiece(nextToken, /*special=*/false);
-        if (!piece.empty()) {
-            if (!emitter.Feed(piece.data(), piece.size())) {
-                stoppedByCallback = true;
-                impl_->cancelled.store(true);
+            const std::string specialPiece = impl_->TokenToPiece(nextToken, /*special=*/true);
+            bool hitStopText = false;
+            for (const char* marker : kStopMarkers) {
+                if (specialPiece == marker) {
+                    hitStopText = true;
+                    break;
+                }
+            }
+            if (hitStopText) {
+                hitEog = true;
                 break;
             }
-        }
-        ++generated;
-        // Stop BEFORE pushing to kvTokens if we won't decode this final token into KV memory,
-        // keeping impl_->kvTokens strictly identical to the tokens actually stored in the KV cache.
-        if (generated >= request.maxNewTokens || currentPos + 1 >= impl_->contextTokens) break;
+            const std::string piece = (specialPiece == "<think>" || specialPiece == "</think>")
+                ? specialPiece
+                : impl_->TokenToPiece(nextToken, /*special=*/false);
+            if (!piece.empty()) {
+                if (!emitter.Feed(piece.data(), piece.size())) {
+                    stoppedByCallback = true;
+                    impl_->cancelled.store(true);
+                    break;
+                }
+            }
+            ++generated;
+            // Stop BEFORE pushing to kvTokens if we won't decode this final token into KV memory,
+            // keeping impl_->kvTokens strictly identical to the tokens actually stored in the KV cache.
+            if (generated >= request.maxNewTokens || currentPos + 1 >= impl_->contextTokens) break;
 
-        if (!impl_->DecodeTokens(&nextToken, 1, currentPos, decodeError)) {
-            if (!impl_->cancelled.load()) {
-                result.error = decodeError;
+            if (!impl_->DecodeTokens(&nextToken, 1, currentPos, decodeError)) {
+                if (!impl_->cancelled.load()) {
+                    result.error = decodeError;
+                }
+                break;
             }
-            break;
+            impl_->kvTokens.push_back(nextToken);
+            ++currentPos;
         }
-        impl_->kvTokens.push_back(nextToken);
-        ++currentPos;
+    } catch (const std::exception& e) {
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Generate exception: %s", e.what());
+        result.error = std::string("GGUF 生成异常：") + e.what();
+    } catch (...) {
+        __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Generate unknown native exception");
+        result.error = "GGUF 生成发生未知异常";
     }
 
     result.decodeUs = std::max<int64_t>(0, NowUs() - decodeStart);
-    llama_sampler_free(sampler);
 
     emitter.Finish(impl_->cancelled.load() || stoppedByCallback);
     result.text = emitter.text();

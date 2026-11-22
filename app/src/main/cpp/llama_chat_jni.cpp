@@ -125,13 +125,20 @@ JNIEXPORT jobject JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_n
     return value;
 }
 
+JNIEXPORT void JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeSetCacheDir(
+    JNIEnv* env, jclass, jstring cacheDir) {
+    omni::LlamaChatSession::SetKernelCacheDir(StringValue(env, cacheDir));
+}
+
 JNIEXPORT jboolean JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeHasGpuBackend(
     JNIEnv*, jclass) {
-#ifdef OMNI_LLAMA_HAS_VULKAN
-    return JNI_TRUE;
-#else
-    return JNI_FALSE;
-#endif
+    return omni::LlamaChatSession::HasRuntimeGpuDevice() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeGpuDeviceName(
+    JNIEnv* env, jclass) {
+    const std::string name = omni::LlamaChatSession::RuntimeGpuDeviceName();
+    return env->NewStringUTF(name.c_str());
 }
 
 JNIEXPORT void JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeCancel(

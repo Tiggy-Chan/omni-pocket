@@ -8,7 +8,7 @@ Omni Pocket is an Android studio for on-device text conversations, structured de
 
 - **Conversation (`对话`)**:
   - **Built-in MNN**: pinned `taobao-mnn` Qwen3.5 0.8B / 2B / 4B packages running on `libMNN.so` (CPU or optional OpenCL GPU with automatic CPU fallback).
-  - **Hugging Face GGUF & MNN Hub**: bundled `llama.cpp` (`-O3`, `armv8.2-a+dotprod`, optional `ggml-vulkan` GPU offload, Flash Attention, and FP16 / Q8_0 / Q4_0 KV cache quantization) runs arbitrary single-file GGUF chat models (Qwen2.5/3/3.5, Gemma 2/3, Llama 3, DeepSeek-R1-Distill, Phi, MiniCPM, etc.) searched and downloaded directly inside the app, alongside community MNN bundles.
+  - **Hugging Face GGUF & MNN Hub**: bundled `llama.cpp` (`-O3`, `armv8.2-a+dotprod`, optional `ggml-opencl` GPU offload loaded dynamically via `dlopen` with automatic CPU fallback, Flash Attention, and FP16 / Q8_0 / Q4_0 KV cache quantization) runs arbitrary single-file GGUF chat models (Qwen2.5/3/3.5, Gemma 2/3, Llama 3, DeepSeek-R1-Distill, Phi, MiniCPM, etc.) searched and downloaded directly inside the app, alongside community MNN bundles.
   - Supports streaming output, separated `<think>` reasoning, **customizable max context window (`512–131072` tokens, clamped to each model's training window)**, customizable max output tokens (`128–32768`), Temperature / Top-P / Repeat Penalty sliders, custom System Prompt, KV prefix reuse, copy, and regeneration.
 - **Decision (`决策`)**:
   - Runs [`baselabs/elephant-1`](https://huggingface.co/baselabs/elephant-1) (`prithivMLmods/elephant-1-GGUF` Q4_K_M, 5.63 GB) via `llama.cpp` with block-bidirectional full-attention masks and configurable CPU threads, returning option probabilities and confidence for `choice`, `noul`, and `score` questions.

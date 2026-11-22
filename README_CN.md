@@ -8,7 +8,7 @@ Omni Pocket 是一个全端本地运行的 Android 多模态 AI 创作与对话�
 
 - **对话（Conversation）**：
   - **内置 MNN 模型**：固定版本 `taobao-mnn` Qwen3.5 0.8B / 2B / 4B，通过 `libMNN.so` 运行（支持 CPU 与可选 OpenCL GPU 加速，初始化失败自动回退 CPU）。
-  - **Hugging Face 社区 GGUF / MNN 模型**：基于内置 `llama.cpp`（`-O3`、`armv8.2-a+dotprod`、可选 `ggml-vulkan` GPU 卸载、Flash Attention 与 `FP16 / Q8_0 / Q4_0` KV 缓存量化）直接运行从 Hugging Face / `hf-mirror` 搜索下载的任意单文件 GGUF 对话模型（Qwen2.5/3/3.5、Gemma 2/3、Llama 3、DeepSeek-R1-Distill、Phi、MiniCPM 等），也支持社区 MNN 转换包。
+  - **Hugging Face 社区 GGUF / MNN 模型**：基于内置 `llama.cpp`（`-O3`、`armv8.2-a+dotprod`、可选 `ggml-opencl` GPU 卸载且通过 `dlopen` 动态加载并支持异常自动回退 CPU、Flash Attention 与 `FP16 / Q8_0 / Q4_0` KV 缓存量化）直接运行从 Hugging Face / `hf-mirror` 搜索下载的任意单文件 GGUF 对话模型（Qwen2.5/3/3.5、Gemma 2/3、Llama 3、DeepSeek-R1-Distill、Phi、MiniCPM 等），也支持社区 MNN 转换包。
   - 支持流式输出、`<think>` 深度思考折叠展示、**自由自定义最大上下文窗口（`512–131072` tokens，自动对齐模型训练窗口上限）**、自定义单次最大输出（`128–32768`）、Temperature / Top-P / Repeat Penalty 采样调节、自定义系统提示词、KV 前缀复用、复制与重新生成。
 - **决策（Decision）**：
   - 通过 `llama.cpp` 运行 [`baselabs/elephant-1`](https://huggingface.co/baselabs/elephant-1)（`prithivMLmods/elephant-1-GGUF` Q4_K_M，5.63 GB），采用块双向全注意力掩码并支持在设置中调节 CPU 线程，对选择（choice）、判断（noul）、评分（score）输出概率分布与置信度。

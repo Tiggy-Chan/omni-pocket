@@ -14,33 +14,33 @@ set(LLAMA_SUBPROCESS OFF CACHE BOOL "" FORCE)
 set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
 set(GGML_BACKEND_DL OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
-set(GGML_OPENCL OFF CACHE BOOL "" FORCE)
+set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
 set(GGML_METAL OFF CACHE BOOL "" FORCE)
 
-# Auto-enable universal Android Vulkan GPU acceleration when Vulkan-Headers + SPIRV-Headers
-# (prepared by scripts/build_yue2_android.sh into build/vulkan-deps) and NDK glslc are present.
-set(OMNI_VULKAN_DEPS "${CMAKE_CURRENT_LIST_DIR}/../../../../build/vulkan-deps")
-find_program(OMNI_NDK_GLSLC NAMES glslc
-    HINTS
-        "${ANDROID_NDK}/shader-tools/darwin-x86_64"
-        "${ANDROID_NDK}/shader-tools/linux-x86_64"
-        "${ANDROID_NDK}/shader-tools/windows-x86_64"
-    NO_CMAKE_FIND_ROOT_PATH
-)
-set(OMNI_LLAMA_VULKAN OFF)
-if (EXISTS "${OMNI_VULKAN_DEPS}/include/vulkan/vulkan.hpp"
-    AND EXISTS "${OMNI_VULKAN_DEPS}/share/cmake/SPIRV-Headers/SPIRV-HeadersConfig.cmake"
-    AND OMNI_NDK_GLSLC)
-    set(OMNI_LLAMA_VULKAN ON)
-    set(GGML_VULKAN ON CACHE BOOL "" FORCE)
-    set(Vulkan_INCLUDE_DIR "${OMNI_VULKAN_DEPS}/include" CACHE PATH "" FORCE)
-    set(Vulkan_GLSLC_EXECUTABLE "${OMNI_NDK_GLSLC}" CACHE FILEPATH "" FORCE)
-    set(SPIRV-Headers_DIR "${OMNI_VULKAN_DEPS}/share/cmake/SPIRV-Headers" CACHE PATH "" FORCE)
-    list(PREPEND CMAKE_PREFIX_PATH "${OMNI_VULKAN_DEPS}")
-    message(STATUS "Omni Pocket: enabling ggml-vulkan GPU backend for llama.cpp (glslc=${OMNI_NDK_GLSLC})")
+# Auto-enable OpenCL 3.0 GPU offload for GGUF chat when Khronos OpenCL headers
+# (staged by scripts/build_sd_android.sh into build/sd-android/deps/opencl-headers-src) are present.
+# Uses a lightweight dlopen shim (opencl_dlopen_loader.c) instead of DT_NEEDED: libOpenCL.so so
+# libomni_decision.so loads cleanly on every Android device (including emulators without OpenCL),
+# and keeps GGML_OPENCL_USE_ADRENO_KERNELS=OFF so standard OpenCL 3.0 kernels run reliably across
+# Adreno, Mali, and Xclipse without GPU hangs.
+set(OMNI_OPENCL_HEADERS "${CMAKE_CURRENT_LIST_DIR}/../../../../build/sd-android/deps/opencl-headers-src")
+set(OMNI_LLAMA_OPENCL OFF)
+if (EXISTS "${OMNI_OPENCL_HEADERS}/CL/cl.h")
+    set(OMNI_LLAMA_OPENCL ON)
+    add_library(omni_opencl_loader STATIC opencl_dlopen_loader.c)
+    target_include_directories(omni_opencl_loader PRIVATE "${OMNI_OPENCL_HEADERS}")
+    target_link_libraries(omni_opencl_loader PRIVATE dl log)
+    set(GGML_OPENCL ON CACHE BOOL "" FORCE)
+    set(GGML_OPENCL_EMBED_KERNELS ON CACHE BOOL "" FORCE)
+    set(GGML_OPENCL_USE_ADRENO_KERNELS OFF CACHE BOOL "" FORCE)
+    set(GGML_OPENCL_PROFILING OFF CACHE BOOL "" FORCE)
+    set(GGML_OPENCL_TARGET_VERSION 300 CACHE STRING "" FORCE)
+    set(OpenCL_INCLUDE_DIR "${OMNI_OPENCL_HEADERS}" CACHE PATH "" FORCE)
+    set(OpenCL_LIBRARY "omni_opencl_loader" CACHE STRING "" FORCE)
+    message(STATUS "Omni Pocket: enabling ggml-opencl GPU backend for llama.cpp (dlopen loader)")
 else()
-    set(GGML_VULKAN OFF CACHE BOOL "" FORCE)
-    message(STATUS "Omni Pocket: building llama.cpp CPU-only (run scripts/build_yue2_android.sh to stage Vulkan headers)")
+    set(GGML_OPENCL OFF CACHE BOOL "" FORCE)
+    message(STATUS "Omni Pocket: building llama.cpp CPU-only (run scripts/build_sd_android.sh to stage OpenCL headers)")
 endif()
 
 # Without an explicit arch the quantized dot-product kernels are compiled out. Every phone with the
@@ -52,9 +52,8 @@ add_subdirectory("${LLAMA_SOURCE}" llama.cpp)
 foreach(target ggml-base ggml-cpu ggml llama)
     target_compile_options(${target} PRIVATE -O3)
 endforeach()
-if (TARGET ggml-vulkan)
-    target_compile_options(ggml-vulkan PRIVATE -O3)
-    target_include_directories(ggml-vulkan PRIVATE "${OMNI_VULKAN_DEPS}/include")
+if (TARGET ggml-opencl)
+    target_compile_options(ggml-opencl PRIVATE -O3)
 endif()
 
 add_library(omni_llm SHARED
@@ -87,10 +86,12 @@ target_include_directories(omni_decision PRIVATE
     "${LLAMA_SOURCE}/vendor/nlohmann"
 )
 target_compile_features(omni_decision PRIVATE cxx_std_17)
-if (OMNI_LLAMA_VULKAN)
-    target_compile_definitions(omni_decision PRIVATE OMNI_LLAMA_HAS_VULKAN=1)
+if (OMNI_LLAMA_OPENCL)
+    target_compile_definitions(omni_decision PRIVATE OMNI_LLAMA_HAS_OPENCL=1)
+    target_link_libraries(omni_decision PRIVATE llama ggml omni_opencl_loader android log)
+else()
+    target_link_libraries(omni_decision PRIVATE llama ggml android log)
 endif()
-target_link_libraries(omni_decision PRIVATE llama ggml android log)
 target_link_options(omni_decision PRIVATE
     "LINKER:--version-script=${CMAKE_CURRENT_LIST_DIR}/omni_decision.map"
 )

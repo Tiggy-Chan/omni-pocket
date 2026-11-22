@@ -83,6 +83,7 @@ data class LlmUiState(
     val ggufKvPrecision: KvCachePrecision = KvCachePrecision.Fp16,
     val ggufUseVulkanGpu: Boolean = false,
     val ggufGpuAvailable: Boolean = false,
+    val ggufGpuDeviceName: String = "",
     val loadedEffectiveContext: Int = 0,
     val loadedTrainContext: Int = 0,
     val phase: LlmPhase = LlmPhase.Idle,
@@ -127,7 +128,8 @@ class LlmViewModel(
                 KvCachePrecision.valueOf(prefs.getString("ggufKvPrecision", KvCachePrecision.Fp16.name).orEmpty())
             }.getOrDefault(KvCachePrecision.Fp16),
             ggufUseVulkanGpu = prefs.getBoolean("ggufUseVulkanGpu", false),
-            ggufGpuAvailable = LocalLlamaChatEngine.hasGpuBackend()
+            ggufGpuAvailable = false,
+            ggufGpuDeviceName = ""
         )
     )
     val state: StateFlow<LlmUiState> = _state.asStateFlow()
@@ -145,6 +147,18 @@ class LlmViewModel(
             mnnEngine.unload()
             llamaEngine.unload()
             _state.update { it.copy(loadedModelId = null) }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            LocalLlamaChatEngine.configureCacheDir(File(application.cacheDir, "llama-opencl-cache"))
+            val gpuName = LocalLlamaChatEngine.gpuDeviceName()
+            val available = gpuName.isNotBlank()
+            _state.update { current ->
+                current.copy(
+                    ggufGpuAvailable = available,
+                    ggufGpuDeviceName = gpuName,
+                    ggufUseVulkanGpu = current.ggufUseVulkanGpu && available
+                )
+            }
         }
         viewModelScope.launch {
             val restored = withContext(Dispatchers.IO) { runCatching { store.load() } }
@@ -452,15 +466,30 @@ class LlmViewModel(
                             mnnEngine.unload()
                             activeBackend = ChatEngineBackend.LlamaGguf
                             if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
-                            val gpuLayers = if (snapshot.ggufUseVulkanGpu && snapshot.ggufGpuAvailable) 99 else 0
-                            val error = llamaEngine.load(
+                            val requestedGpuLayers = if (snapshot.ggufUseVulkanGpu && snapshot.ggufGpuAvailable) 99 else 0
+                            var activeGpuLayers = requestedGpuLayers
+                            var fellBackToCpu = false
+                            var error = llamaEngine.load(
                                 modelFile = entry,
                                 modelKey = "${hubModel.id}:${hubModel.installedAt}",
                                 threads = threads,
                                 contextTokens = contextTokens,
                                 kvPrecision = snapshot.ggufKvPrecision,
-                                gpuLayers = gpuLayers
+                                gpuLayers = activeGpuLayers
                             )
+                            if (error != null && activeGpuLayers > 0 && !cancelRequested) {
+                                llamaEngine.unload()
+                                activeGpuLayers = 0
+                                fellBackToCpu = true
+                                error = llamaEngine.load(
+                                    modelFile = entry,
+                                    modelKey = "${hubModel.id}:${hubModel.installedAt}",
+                                    threads = threads,
+                                    contextTokens = contextTokens,
+                                    kvPrecision = snapshot.ggufKvPrecision,
+                                    gpuLayers = 0
+                                )
+                            }
                             if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
                             check(error == null) { error.orEmpty() }
                             val effectiveCtx = llamaEngine.effectiveContextTokens.takeIf { it > 0 } ?: contextTokens
@@ -470,11 +499,12 @@ class LlmViewModel(
                                     loadedModelId = modelId,
                                     loadedEffectiveContext = effectiveCtx,
                                     loadedTrainContext = llamaEngine.modelTrainContextTokens,
-                                    phase = LlmPhase.Generating
+                                    phase = LlmPhase.Generating,
+                                    alert = if (fellBackToCpu) "OpenCL GPU 初始化失败，已自动回退到 CPU 运行" else it.alert
                                 )
                             }
                             var raw = ""
-                            llamaEngine.generate(conversationId, messages, maxNewTokens, conversation.thinking, sampling) { chunk ->
+                            var nativeResult = llamaEngine.generate(conversationId, messages, maxNewTokens, conversation.thinking, sampling) { chunk ->
                                 raw += chunk
                                 if (activeConversationId == conversationId && activeMessageId == messageId) {
                                     // GGUF emits explicit <think> tags when thinking is active; never implicitly treat plain replies as thinking.
@@ -482,6 +512,38 @@ class LlmViewModel(
                                     true
                                 } else false
                             }
+                            // If OpenCL compute fails during first decode before emitting any text,
+                            // reload cleanly on CPU and retry once so GPU driver quirks never break chat.
+                            if (nativeResult.finish == 3 && raw.isEmpty() && activeGpuLayers > 0 && !cancelRequested) {
+                                llamaEngine.unload()
+                                val cpuErr = llamaEngine.load(
+                                    modelFile = entry,
+                                    modelKey = "${hubModel.id}:${hubModel.installedAt}",
+                                    threads = threads,
+                                    contextTokens = contextTokens,
+                                    kvPrecision = snapshot.ggufKvPrecision,
+                                    gpuLayers = 0
+                                )
+                                if (cpuErr == null && !cancelRequested) {
+                                    val cpuEffectiveCtx = llamaEngine.effectiveContextTokens.takeIf { it > 0 } ?: contextTokens
+                                    val cpuMaxNewTokens = snapshot.maxNewTokens.coerceAtMost((cpuEffectiveCtx - 256).coerceAtLeast(128))
+                                    _state.update {
+                                        it.copy(
+                                            loadedEffectiveContext = cpuEffectiveCtx,
+                                            loadedTrainContext = llamaEngine.modelTrainContextTokens,
+                                            alert = "OpenCL GPU 推理失败，已自动回退到 CPU 运行"
+                                        )
+                                    }
+                                    nativeResult = llamaEngine.generate(conversationId, messages, cpuMaxNewTokens, conversation.thinking, sampling) { chunk ->
+                                        raw += chunk
+                                        if (activeConversationId == conversationId && activeMessageId == messageId) {
+                                            updateMessage(conversationId, messageId, raw, LlmMessageStatus.Streaming, implicitThinking = false)
+                                            true
+                                        } else false
+                                    }
+                                }
+                            }
+                            nativeResult
                         }
                         HubModelType.MnnChat -> {
                             llamaEngine.unload()

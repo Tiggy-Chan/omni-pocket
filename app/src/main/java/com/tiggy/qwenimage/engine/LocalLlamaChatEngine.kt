@@ -114,9 +114,20 @@ class LocalLlamaChatEngine : AutoCloseable {
     companion object {
         init { System.loadLibrary("omni_decision") }
 
+        fun configureCacheDir(cacheDir: File) {
+            runCatching {
+                cacheDir.mkdirs()
+                nativeSetCacheDir(cacheDir.absolutePath)
+            }
+        }
+
         fun hasGpuBackend(): Boolean = runCatching { nativeHasGpuBackend() }.getOrDefault(false)
 
+        fun gpuDeviceName(): String = runCatching { nativeGpuDeviceName().orEmpty() }.getOrDefault("")
+
+        @JvmStatic private external fun nativeSetCacheDir(cacheDir: String)
         @JvmStatic private external fun nativeHasGpuBackend(): Boolean
+        @JvmStatic private external fun nativeGpuDeviceName(): String?
         @JvmStatic private external fun nativeCreate(): Long
         @JvmStatic private external fun nativeLoad(
             handle: Long, modelPath: String, threads: Int, contextTokens: Int, kvQuantMode: Int, gpuLayers: Int
