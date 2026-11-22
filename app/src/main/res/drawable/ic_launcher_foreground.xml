@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Recessed pocket back collar -->
+    <path
+        android:pathData="M32.2,51.4 A4.6,4.6 0 0,1 36.8,46.8 L71.2,46.8 A4.6,4.6 0 0,1 75.8,51.4 L75.8,59 A17.5,17.5 0 0,1 58.3,76.5 L49.7,76.5 A17.5,17.5 0 0,1 32.2,59 Z"
+        android:strokeWidth="0.72">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="54"
+                android:startY="46.8"
+                android:endX="54"
+                android:endY="60">
+                <item android:offset="0.0" android:color="#E82C354A" />
+                <item android:offset="0.35" android:color="#F210141D" />
+                <item android:offset="1.0" android:color="#F5090B11" />
+            </gradient>
+        </aapt:attr>
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="54"
+                android:startY="46.8"
+                android:endX="54"
+                android:endY="56">
+                <item android:offset="0.0" android:color="#54FFFFFF" />
+                <item android:offset="1.0" android:color="#00FFFFFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Satin ceramic cobalt sphere ("Omni") -->
+    <path android:pathData="M54,29.7 A15.8,15.8 0 1,0 54,61.3 A15.8,15.8 0 1,0 54,29.7 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="49"
+                android:centerY="39.2"
+                android:gradientRadius="29">
+                <item android:offset="0.0" android:color="#FFB8D3FF" />
+                <item android:offset="0.24" android:color="#FF7CA5FF" />
+                <item android:offset="0.60" android:color="#FF3A6FE0" />
+                <item android:offset="0.86" android:color="#FF2249AA" />
+                <item android:offset="1.0" android:color="#FF173482" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Delicate upper-left Fresnel sheen on orb -->
+    <path
+        android:pathData="M54,30.2 A15.3,15.3 0 1,0 54,60.8 A15.3,15.3 0 1,0 54,30.2 Z"
+        android:strokeWidth="1.0">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="38.2"
+                android:startY="29.7"
+                android:endX="69.8"
+                android:endY="61.3">
+                <item android:offset="0.0" android:color="#76EEF6FF" />
+                <item android:offset="0.42" android:color="#178CB4FF" />
+                <item android:offset="1.0" android:color="#003A6FE0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Soft grounding shadow beneath pocket -->
+    <path android:pathData="M31,56.5 A5.5,5.5 0 0,1 36.5,51 Q54,53.6 71.5,51 A5.5,5.5 0 0,1 77,56.5 L77,62 A18.5,18.5 0 0,1 58.5,80.5 L49.5,80.5 A18.5,18.5 0 0,1 31,62 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="54"
+                android:startY="56"
+                android:endX="54"
+                android:endY="81">
+                <item android:offset="0.0" android:color="#1A020409" />
+                <item android:offset="1.0" android:color="#6E020409" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Smoked frosted-glass pocket ("Pocket") -->
+    <path android:pathData="M31,54.5 A5.5,5.5 0 0,1 36.5,49 Q54,51.6 71.5,49 A5.5,5.5 0 0,1 77,54.5 L77,60 A18.5,18.5 0 0,1 58.5,78.5 L49.5,78.5 A18.5,18.5 0 0,1 31,60 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="54"
+                android:startY="49"
+                android:endX="54"
+                android:endY="78.5">
+                <item android:offset="0.0" android:color="#E3364056" />
+                <item android:offset="0.46" android:color="#EB222938" />
+                <item android:offset="1.0" android:color="#F5191F2C" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Clipped cobalt light refraction + frosted glass sheen inside pocket -->
+    <group>
+        <clip-path android:pathData="M31,54.5 A5.5,5.5 0 0,1 36.5,49 Q54,51.6 71.5,49 A5.5,5.5 0 0,1 77,54.5 L77,60 A18.5,18.5 0 0,1 58.5,78.5 L49.5,78.5 A18.5,18.5 0 0,1 31,60 Z" />
+
+        <path android:pathData="M30,48h48v32h-48z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="radial"
+                    android:centerX="54"
+                    android:centerY="49.4"
+                    android:gradientRadius="19.5">
+                    <item android:offset="0.0" android:color="#BA76A6FF" />
+                    <item android:offset="0.40" android:color="#6B447AF0" />
+                    <item android:offset="0.76" android:color="#212C56BC" />
+                    <item android:offset="1.0" android:color="#001C2848" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <path android:pathData="M30,48h48v32h-48z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="31"
+                    android:startY="49"
+                    android:endX="77"
+                    android:endY="78.5">
+                    <item android:offset="0.0" android:color="#45F2F7FF" />
+                    <item android:offset="0.45" android:color="#1FE2ECFC" />
+                    <item android:offset="1.0" android:color="#2BC6D6F2" />
+                </gradient>
+            </aapt:attr>
+        </path>
+    </group>
+
+    <!-- Curved specular glass bezel rim -->
+    <path
+        android:pathData="M31,54.5 A5.5,5.5 0 0,1 36.5,49 Q54,51.6 71.5,49 A5.5,5.5 0 0,1 77,54.5 L77,60 A18.5,18.5 0 0,1 58.5,78.5 L49.5,78.5 A18.5,18.5 0 0,1 31,60 Z"
+        android:strokeWidth="1.15">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="54"
+                android:startY="49"
+                android:endX="54"
+                android:endY="78.5">
+                <item android:offset="0.0" android:color="#EDFFFFFF" />
+                <item android:offset="0.22" android:color="#8FDEEAFE" />
+                <item android:offset="0.66" android:color="#4FB0C2E2" />
+                <item android:offset="1.0" android:color="#6BCCDAF6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

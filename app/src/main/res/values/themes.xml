@@ -1,7 +1,7 @@
 <resources>
     <style name="Theme.QwenImage" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#C5AEFF</item>
+        <item name="android:colorAccent">#7AA2FF</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:statusBarColor">@android:color/transparent</item>

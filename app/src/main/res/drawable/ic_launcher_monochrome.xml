@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Upper sphere rising out of the pocket (separated by clean negative-space curve) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M38.24,46.65 A15.8,15.8 0 1,1 69.76,46.65 Q54,48.75 38.24,46.65 Z" />
+
+    <!-- Pocket silhouette -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M31,54.5 A5.5,5.5 0 0,1 36.5,49 Q54,51.6 71.5,49 A5.5,5.5 0 0,1 77,54.5 L77,60 A18.5,18.5 0 0,1 58.5,78.5 L49.5,78.5 A18.5,18.5 0 0,1 31,60 Z" />
+</vector>

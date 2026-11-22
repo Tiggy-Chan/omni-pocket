@@ -1,6 +1,12 @@
-# Omni Pocket
+<p align="center">
+  <img src="docs/assets/logo.svg" width="96" height="96" alt="Omni Pocket Logo" />
+</p>
 
-[English](README.md) | [简体中文](README_CN.md)
+<h1 align="center">Omni Pocket</h1>
+
+<p align="center">
+  <a href="README.md">English</a> | <a href="README_CN.md">简体中文</a>
+</p>
 
 Omni Pocket 是一个全端本地运行的 Android 多模态 AI 创作与对话应用（支持 `arm64-v8a`、Android 9 / API 28+）。对话、决策、图像、音乐、视频全部在手机本机推理，无需工作站或云端服务。
 

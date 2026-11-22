@@ -1,12 +1,15 @@
 package com.tiggy.qwenimage.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -49,13 +52,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tiggy.qwenimage.LlmPhase
 import com.tiggy.qwenimage.LlmUiState
 import com.tiggy.qwenimage.LlmViewModel
+import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.AppDomain
 import com.tiggy.qwenimage.data.LlmConversation
 
@@ -99,6 +105,8 @@ fun OmniSidebar(
             .padding(horizontal = 12.dp)
     ) {
         Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OmniBrandMark(modifier = Modifier.size(28.dp))
+            Spacer(Modifier.width(10.dp))
             Text("Omni Pocket", color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
         }
         Surface(
@@ -216,6 +224,27 @@ private fun SidebarRow(
                 fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal, modifier = Modifier.weight(1f))
             if (running) RunningDot()
         }
+    }
+}
+
+@Composable
+private fun OmniBrandMark(modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(7.dp)
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .border(0.5.dp, OmniColors.Line, shape)
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_launcher_background),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize().scale(1.5f)
+        )
+        Image(
+            painter = painterResource(R.drawable.ic_launcher_foreground),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize().scale(1.5f)
+        )
     }
 }
 

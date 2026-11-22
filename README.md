@@ -1,6 +1,12 @@
-# Omni Pocket
+<p align="center">
+  <img src="docs/assets/logo.svg" width="96" height="96" alt="Omni Pocket Logo" />
+</p>
 
-[English](README.md) | [简体中文](README_CN.md)
+<h1 align="center">Omni Pocket</h1>
+
+<p align="center">
+  <a href="README.md">English</a> | <a href="README_CN.md">简体中文</a>
+</p>
 
 Omni Pocket is an Android studio for on-device text conversations, structured decisions, and image, music, and video generation. Every model runs locally on the phone (`arm64-v8a`, Android 9 / API 28+); inference needs no workstation or cloud server.
 
