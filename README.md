@@ -20,8 +20,8 @@ Omni Pocket is an Android studio for on-device text conversations, structured de
   - **Hugging Face GGUF & MNN Hub**: bundled `llama.cpp` (`-O3`, `armv8.2-a+dotprod`, optional `ggml-opencl` GPU offload loaded dynamically via `dlopen` with automatic CPU fallback, Flash Attention, and FP16 / Q8_0 / Q4_0 KV cache quantization) runs arbitrary single-file GGUF chat models (Qwen2.5/3/3.5, Gemma 2/3, Llama 3, DeepSeek-R1-Distill, Phi, MiniCPM, etc.) searched and downloaded directly inside the app, alongside community MNN bundles.
   - Supports streaming output, separated `<think>` reasoning, **customizable max context window (`512–131072` tokens, clamped to each model's training window)**, customizable max output tokens (`128–32768`), Temperature / Top-P / Repeat Penalty sliders, custom System Prompt, KV prefix reuse, copy, and regeneration.
 - **Decision (`决策`)**:
-  - Runs [`baselabs/elephant-1`](https://huggingface.co/baselabs/elephant-1) (`prithivMLmods/elephant-1-GGUF` Q4_K_M, 5.63 GB) via `llama.cpp` with block-bidirectional full-attention masks and configurable CPU threads, returning option probabilities and confidence for `choice`, `noul`, and `score` questions.
-  - Can be downloaded directly in the app (bundled metadata assets + pinned GGUF via Hugging Face / `hf-mirror`) or pushed over USB.
+  - Runs built-in [`baselabs/elephant-1`](https://huggingface.co/baselabs/elephant-1) (`Q4_K_M`, block-bidirectional full-attention) and community single-file Decision GGUFs (**OneJev 1.6 0.8B / 4B / 9B** and **Elephant-1** quantizations via `qev-labels-v2`) locally on `llama.cpp` with configurable CPU threads, returning calibrated option probabilities and confidence for `choice`, `noul`, and `score` questions.
+  - Download directly in **Models → Local** or **Models → Discover → Decision** via Hugging Face / `hf-mirror`, or push over USB.
 - **Image (`图像`)**:
   - **Qwen-Image-2.1**: MNN with CPU int4 text/vision encoding and OpenCL DiT inference (text-to-image, 1–2 reference image editing, real/Tiny VAE, official 8-step Turbo).
   - **MOSS-Image SFT**: unified `libsd_cli.so` (`stable-diffusion.cpp`) with long prompts, native JSON layouts (`abs_centralized` / `yxyx`), optional OpenCL GPU acceleration, and VAE tiling.
@@ -34,8 +34,8 @@ Omni Pocket is an Android studio for on-device text conversations, structured de
 ## Model Hub, Capability Reference & Background Downloads
 
 - **Hugging Face & `hf-mirror` support**: open **模型 → 切换源** (or **设置 → 模型下载镜像**) to switch between `Hugging Face (https://huggingface.co)`, `HF-Mirror (https://hf-mirror.com)`, or a custom HTTPS mirror, set an optional Access Token for gated repositories, and test latency. China (`CN`) locales default to `HF-Mirror`.
-- **Multi-modality discovery**: open **模型 → 发现模型** to search Hugging Face / `hf-mirror` across all 5 categories (`GGUF 对话`, `MNN 对话`, `图像`, `视频`, `音乐`) or enter an exact `owner/repo`, inspect file sizes, quantization retention hints, shared companions, and live on-device RAM suitability before downloading.
-- **Evidence-graded capability reference (`能力参考`)**: compares on-device base model families across Chat, Decision, Image, Music, and Video with explicit source attribution (`公开独立榜单` / `官方技术报告` / `端侧专项参考`), maps third-party quantized community repositories back to their base family, never fabricates scores for uncataloged repos, and evaluates real-time RAM suitability against the phone's hardware.
+- **Multi-modality discovery & local filtering**: filter **Models → Local** by modality (`All` / `Chat` / `Decision` / `Image` / `Music` / `Video`), or open **Models → Discover** to search Hugging Face / `hf-mirror` across all 6 categories (`GGUF Chat`, `MNN Chat`, `Decision`, `Image`, `Video`, `Music`) or enter an exact `owner/repo` to inspect file sizes, quantization retention hints, shared companions, and real-time RAM suitability before downloading.
+- **Live leaderboards & on-device capability reference (`能力参考`)**: fetches live public leaderboards directly from [Artificial Analysis](https://artificialanalysis.ai/) across all 5 modalities (`Open Weights LLMs`, `Decision Index v2.1`, `Image T2I`, `Video T2V`, `Music Vocals / Instrumental`), alongside [Jev Decision Index](https://huggingface.co/spaces/multimodalart/jev-decision-index) and [Hugging Face Open LLM Leaderboard (≤10B)](https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard), with explicit upstream source attribution, disk caching, offline fallback to our curated on-device guide, and 1-tap Hugging Face discovery.
 - **Reliable foreground downloads**: multi-GB downloads run via `ModelDownloadService` (`dataSync` foreground service) with live speed/progress notifications, HTTP `Range` resume, strict `Content-Range` validation, and SHA-256 / LFS OID verification.
 - **14 Languages, Tabbed Settings & About**: automatically follows your system language with instant live switching across 14 languages (`English`, `简体中文`, `繁體中文`, `日本語`, `한국어`, `Deutsch`, `Français`, `Español`, `Italiano`, `Português (Brasil)`, `Русский`, `Nederlands`, `Polski`, `Türkçe`), clean tabbed Settings (`General` / `Chat` / `Decision` / `Image` / `Video` / `Music`), and an in-app **About** page.
 
@@ -120,7 +120,7 @@ bash scripts/test_decision_host.sh
 
 ## Support the Author
 
-If Omni Pocket helps you, please consider giving this repository a **Star** on GitHub ([`Tiggy-Chan/omni-pocket`](https://github.com/Tiggy-Chan/omni-pocket)) — and feel free to check out my other open-source project [`ClawKiller`](https://github.com/Tiggy-Chan/ClawKiller).
+If Omni Pocket helps you, please consider giving this repository a **Star** on GitHub ([`Tiggy-Chan/omni-pocket`](https://github.com/Tiggy-Chan/omni-pocket)).
 
 Omni Pocket is free, open-source, and runs offline on your phone. If you'd like to support ongoing development, you can buy the author a coffee via WeChat Pay or Alipay:
 

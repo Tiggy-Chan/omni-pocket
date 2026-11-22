@@ -100,8 +100,14 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
         )
     }
 
+    val conversationTitle = when (val t = conversation?.title) {
+        null -> tr(R.string.nav_chat)
+        "新对话" -> tr(R.string.sidebar_new_chat)
+        else -> t
+    }
+
     WorkspaceScaffold(
-        title = conversation?.title ?: tr(R.string.nav_chat),
+        title = conversationTitle,
         subtitle = modelName,
         onMenu = onMenu,
         actions = {
@@ -319,7 +325,7 @@ private fun ModelPicker(
             state.chatModels.forEach { choice ->
                 SettingRow(
                     title = choice.name,
-                    detail = choice.detail,
+                    detail = choice.localizedDetail(),
                     modifier = Modifier.alpha(if (choice.ready) 1f else 0.55f),
                     onClick = if (choice.ready) ({ onSelect(choice.id) }) else null,
                     trailing = {

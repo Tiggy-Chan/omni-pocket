@@ -76,7 +76,6 @@ import kotlinx.coroutines.withContext
 private const val AUTHOR_NAME = "Tiggy-Chan"
 private const val AUTHOR_GITHUB_URL = "https://github.com/Tiggy-Chan"
 private const val OMNI_REPO_URL = "https://github.com/Tiggy-Chan/omni-pocket"
-private const val CLAWKILLER_REPO_URL = "https://github.com/Tiggy-Chan/ClawKiller"
 
 private enum class SponsorChannel(@DrawableRes val qrRes: Int, val fileName: String) {
     WeChat(R.drawable.donate_wechat, "omni-pocket-wechat-pay.png"),
@@ -228,23 +227,6 @@ fun AboutPage(onMenu: (() -> Unit)?) {
                                     }
                                 }
                             }
-
-                            HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
-
-                            // ClawKiller link
-                            SettingRow(
-                                title = tr(R.string.about_other_project),
-                                detail = tr(R.string.about_clawkiller_desc),
-                                onClick = { openUrl(CLAWKILLER_REPO_URL) },
-                                trailing = {
-                                    Icon(
-                                        Icons.AutoMirrored.Outlined.OpenInNew,
-                                        contentDescription = null,
-                                        tint = OmniColors.Muted,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            )
                         }
                     }
                 }

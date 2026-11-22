@@ -1,11 +1,13 @@
 package com.tiggy.qwenimage.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
+import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -33,18 +35,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -68,12 +68,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.annotation.StringRes
 import com.tiggy.qwenimage.DecisionPhase
 import com.tiggy.qwenimage.DecisionViewModel
 import com.tiggy.qwenimage.LlmViewModel
@@ -90,18 +94,43 @@ import com.tiggy.qwenimage.data.GenerationBackend
 import com.tiggy.qwenimage.data.HfRepoOption
 import com.tiggy.qwenimage.data.HfRepoSummary
 import com.tiggy.qwenimage.data.HubMirrorMode
+import com.tiggy.qwenimage.data.HubModelType
 import com.tiggy.qwenimage.data.HubSearchCategory
 import com.tiggy.qwenimage.data.InstalledHubModel
+import com.tiggy.qwenimage.data.LiveBoardSource
+import com.tiggy.qwenimage.data.LiveChatTier
+import com.tiggy.qwenimage.data.LiveLeaderboardClient
+import com.tiggy.qwenimage.data.LiveLeaderboardEntry
+import com.tiggy.qwenimage.data.LiveLeaderboardSnapshot
+import com.tiggy.qwenimage.data.LiveMusicTrack
 import com.tiggy.qwenimage.data.LlmModelStatus
 import com.tiggy.qwenimage.data.ModelBenchmarkCatalog
 import com.tiggy.qwenimage.data.ModelBenchmarkEntry
 import com.tiggy.qwenimage.data.formatBytesCompact
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 private enum class ModelsPageTab(@StringRes val labelRes: Int) {
     Installed(R.string.models_tab_local),
     Discover(R.string.models_tab_discover),
     Reference(R.string.models_tab_benchmarks)
+}
+
+private enum class LocalModelFilter(@StringRes val labelRes: Int) {
+    All(R.string.models_filter_all),
+    Chat(R.string.nav_chat),
+    Decision(R.string.nav_decision),
+    Image(R.string.nav_image),
+    Music(R.string.nav_music),
+    Video(R.string.nav_video)
+}
+
+private enum class ReferenceSourceTab(@StringRes val labelRes: Int) {
+    ArtificialAnalysis(R.string.ref_source_aa),
+    JevDecisionIndex(R.string.ref_source_jev),
+    HfOpenLlm(R.string.ref_source_hf_llm),
+    OnDeviceGuide(R.string.ref_source_edge)
 }
 
 private enum class BuiltInDeleteTarget(val label: String) {
@@ -112,7 +141,33 @@ private enum class BuiltInDeleteTarget(val label: String) {
     Wan("Wan2.2")
 }
 
-/** Unified model management and Hugging Face / hf-mirror discovery page. */
+private fun HubModelType.matchesFilter(filter: LocalModelFilter): Boolean = when (filter) {
+    LocalModelFilter.All -> true
+    LocalModelFilter.Chat -> this == HubModelType.GgufChat || this == HubModelType.MnnChat
+    LocalModelFilter.Decision -> this == HubModelType.DecisionGguf
+    LocalModelFilter.Image -> this == HubModelType.SdImage
+    LocalModelFilter.Music -> this == HubModelType.MusicAudio
+    LocalModelFilter.Video -> this == HubModelType.VideoWan
+}
+
+private fun availableReferenceSources(modality: BenchmarkModality): List<ReferenceSourceTab> = when (modality) {
+    BenchmarkModality.Chat -> listOf(
+        ReferenceSourceTab.ArtificialAnalysis,
+        ReferenceSourceTab.HfOpenLlm,
+        ReferenceSourceTab.OnDeviceGuide
+    )
+    BenchmarkModality.Decision -> listOf(
+        ReferenceSourceTab.ArtificialAnalysis,
+        ReferenceSourceTab.JevDecisionIndex,
+        ReferenceSourceTab.OnDeviceGuide
+    )
+    BenchmarkModality.Image, BenchmarkModality.Music, BenchmarkModality.Video -> listOf(
+        ReferenceSourceTab.ArtificialAnalysis,
+        ReferenceSourceTab.OnDeviceGuide
+    )
+}
+
+/** Unified model management, Hugging Face / hf-mirror discovery, and live leaderboards page. */
 @Composable
 fun ModelsPage(
     state: QwenUiState,
@@ -142,8 +197,20 @@ fun ModelsPage(
         }
     }
 
+    val openUrl: (String) -> Unit = { url ->
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
     var tab by rememberSaveable { mutableStateOf(ModelsPageTab.Installed) }
+    var localFilter by rememberSaveable { mutableStateOf(LocalModelFilter.All) }
     var benchmarkModality by rememberSaveable { mutableStateOf(BenchmarkModality.Chat) }
+    var refSource by rememberSaveable { mutableStateOf(ReferenceSourceTab.ArtificialAnalysis) }
+    var chatTier by rememberSaveable { mutableStateOf(LiveChatTier.Tiny) }
+    var musicTrack by rememberSaveable { mutableStateOf(LiveMusicTrack.Vocals) }
+    var openWeightsOnly by rememberSaveable { mutableStateOf(false) }
+
     var deleteChat by remember { mutableStateOf<LlmModelStatus?>(null) }
     var deleteHubModel by remember { mutableStateOf<InstalledHubModel?>(null) }
     var deleteBuiltIn by remember { mutableStateOf<BuiltInDeleteTarget?>(null) }
@@ -151,17 +218,40 @@ fun ModelsPage(
     var sourceOpen by rememberSaveable { mutableStateOf(false) }
     var elephantManualOpen by rememberSaveable { mutableStateOf(false) }
 
+    // Keep refSource valid when switching modalities.
+    val validSources = remember(benchmarkModality) { availableReferenceSources(benchmarkModality) }
+    val activeRefSource = if (refSource in validSources) refSource else validSources.first()
+
     val qwenFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) viewModel.importModels(uri)
     }
     val mossFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) viewModel.importMossModels(uri)
     }
+
     LaunchedEffect(Unit) {
         viewModel.refreshAllModelStatuses()
         llmViewModel.refreshModels()
         decisionViewModel.refreshModel()
         hubViewModel.refreshStorage()
+    }
+
+    // Automatically load the active live leaderboard when Reference tab is visible.
+    LaunchedEffect(tab, activeRefSource, benchmarkModality, chatTier, musicTrack) {
+        if (tab == ModelsPageTab.Reference && activeRefSource != ReferenceSourceTab.OnDeviceGuide) {
+            val liveSource = when (activeRefSource) {
+                ReferenceSourceTab.ArtificialAnalysis -> LiveBoardSource.ArtificialAnalysis
+                ReferenceSourceTab.JevDecisionIndex -> LiveBoardSource.JevDecisionIndex
+                ReferenceSourceTab.HfOpenLlm -> LiveBoardSource.HfOpenLlm
+                ReferenceSourceTab.OnDeviceGuide -> return@LaunchedEffect
+            }
+            hubViewModel.loadLiveLeaderboard(
+                source = liveSource,
+                modality = benchmarkModality,
+                chatTier = chatTier,
+                musicTrack = musicTrack
+            )
+        }
     }
 
     val downloads = hubState.downloads
@@ -235,9 +325,27 @@ fun ModelsPage(
 
                 when (tab) {
                     ModelsPageTab.Installed -> {
-                        if (hubState.installedModels.isNotEmpty()) {
-                            item(key = "hub-installed-label") { SectionLabel(tr(R.string.common_community_downloaded), Modifier.padding(top = 12.dp)) }
-                            items(hubState.installedModels, key = { "hub-${it.id}" }) { model ->
+                        item(key = "local-modality-filter") {
+                            LazyRow(
+                                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(LocalModelFilter.entries) { filter ->
+                                    ComposerChip(
+                                        label = localized.getString(filter.labelRes),
+                                        onClick = { localFilter = filter },
+                                        selected = localFilter == filter
+                                    )
+                                }
+                            }
+                        }
+
+                        val filteredHub = hubState.installedModels.filter { it.type.matchesFilter(localFilter) }
+                        if (filteredHub.isNotEmpty()) {
+                            item(key = "hub-installed-label") {
+                                SectionLabel(tr(R.string.common_community_downloaded), Modifier.padding(top = 12.dp))
+                            }
+                            items(filteredHub, key = { "hub-${it.id}" }) { model ->
                                 ModelRow(
                                     name = model.name,
                                     status = "${model.type.localizedLabel()} · ${formatBytesCompact(model.totalBytes)} · ${model.repo}",
@@ -250,104 +358,225 @@ fun ModelsPage(
                             }
                         }
 
-                        item(key = "chat-label") { SectionLabel(tr(R.string.models_sec_chat_builtin), Modifier.padding(top = 16.dp)) }
-                        items(llmState.models, key = { "chat-${it.spec.id}" }) { status ->
-                            val dlId = "builtin-llm:${status.spec.id}"
-                            val queued = downloads.isPendingOrActive(dlId)
-                            val complete = status.present == status.spec.artifacts.size
-                            ModelRow(
-                                name = status.spec.name,
-                                status = if (status.ready) tr(R.string.models_verified_size, formatBytesCompact(status.spec.totalBytes))
-                                else "${status.message} · ${formatBytesCompact(status.spec.totalBytes)}",
-                                ready = status.ready,
-                                trailing = {
-                                    when {
-                                        queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
-                                        status.ready -> ModelButton(tr(R.string.common_delete), { deleteChat = status }, enabled = !llmState.busy, danger = true)
-                                        complete -> ModelButton(tr(R.string.common_verify), { llmViewModel.verifyModel(status.spec.id) }, enabled = !llmState.busy)
-                                        else -> ModelButton(tr(R.string.common_download), {
-                                            requestNotificationPermissionIfNeeded()
-                                            llmViewModel.downloadModel(status.spec.id)
-                                        })
-                                    }
-                                }
-                            )
-                        }
-
-                        item(key = "decision-label") { SectionLabel(tr(R.string.models_sec_decision_builtin), Modifier.padding(top = 16.dp)) }
-                        item(key = "decision") {
-                            val model = decisionState.model
-                            val dlId = "builtin-decision:elephant-1"
-                            val queued = downloads.isPendingOrActive(dlId)
-                            if (model == null) {
-                                Text(
-                                    tr(R.string.models_reading_status),
-                                    color = OmniColors.Muted,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.padding(vertical = 16.dp)
-                                )
-                            } else {
-                                val complete = model.present == model.spec.artifacts.size
+                        if (localFilter == LocalModelFilter.All || localFilter == LocalModelFilter.Chat) {
+                            item(key = "chat-label") { SectionLabel(tr(R.string.models_sec_chat_builtin), Modifier.padding(top = 16.dp)) }
+                            items(llmState.models, key = { "chat-${it.spec.id}" }) { status ->
+                                val dlId = "builtin-llm:${status.spec.id}"
+                                val queued = downloads.isPendingOrActive(dlId)
+                                val complete = status.present == status.spec.artifacts.size
                                 ModelRow(
-                                    name = model.spec.name,
-                                    status = if (model.ready) tr(R.string.models_verified_size, formatBytesCompact(model.spec.totalBytes))
-                                    else "${model.message} · ${formatBytesCompact(model.spec.totalBytes)}",
-                                    ready = model.ready,
+                                    name = status.spec.name,
+                                    status = status.localizedStatus(),
+                                    ready = status.ready,
                                     trailing = {
                                         when {
                                             queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
-                                            model.ready -> ModelButton(
-                                                tr(R.string.common_delete),
-                                                { deleteBuiltIn = BuiltInDeleteTarget.Decision },
-                                                enabled = !decisionState.busy,
-                                                danger = true
-                                            )
-                                            complete -> ModelButton(tr(R.string.common_verify), decisionViewModel::verifyModel, enabled = !decisionState.busy)
+                                            status.ready -> ModelButton(tr(R.string.common_delete), { deleteChat = status }, enabled = !llmState.busy, danger = true)
+                                            complete -> ModelButton(tr(R.string.common_verify), { llmViewModel.verifyModel(status.spec.id) }, enabled = !llmState.busy)
                                             else -> ModelButton(tr(R.string.common_download), {
                                                 requestNotificationPermissionIfNeeded()
-                                                decisionViewModel.downloadModel()
+                                                llmViewModel.downloadModel(status.spec.id)
+                                            })
+                                        }
+                                    }
+                                )
+                            }
+                        }
+
+                        if (localFilter == LocalModelFilter.All || localFilter == LocalModelFilter.Decision) {
+                            item(key = "decision-label") { SectionLabel(tr(R.string.models_sec_decision_builtin), Modifier.padding(top = 16.dp)) }
+                            item(key = "decision") {
+                                val model = decisionState.model
+                                val dlId = "builtin-decision:elephant-1"
+                                val queued = downloads.isPendingOrActive(dlId)
+                                if (model == null) {
+                                    Text(
+                                        tr(R.string.models_reading_status),
+                                        color = OmniColors.Muted,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.padding(vertical = 16.dp)
+                                    )
+                                } else {
+                                    val complete = model.present == model.spec.artifacts.size
+                                    ModelRow(
+                                        name = model.spec.name,
+                                        status = model.localizedStatus(),
+                                        ready = model.ready,
+                                        trailing = {
+                                            when {
+                                                queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
+                                                model.ready -> ModelButton(
+                                                    tr(R.string.common_delete),
+                                                    { deleteBuiltIn = BuiltInDeleteTarget.Decision },
+                                                    enabled = !decisionState.busy,
+                                                    danger = true
+                                                )
+                                                complete -> ModelButton(tr(R.string.common_verify), decisionViewModel::verifyModel, enabled = !decisionState.busy)
+                                                else -> ModelButton(tr(R.string.common_download), {
+                                                    requestNotificationPermissionIfNeeded()
+                                                    decisionViewModel.downloadModel()
+                                                })
+                                            }
+                                        },
+                                        below = {
+                                            if (decisionState.busy) {
+                                                Text(
+                                                    when (decisionState.phase) {
+                                                        DecisionPhase.Verifying -> tr(R.string.decision_verifying)
+                                                        DecisionPhase.Loading -> tr(R.string.chat_loading_model)
+                                                        DecisionPhase.Computing -> tr(R.string.models_inferring)
+                                                        DecisionPhase.Idle -> ""
+                                                    },
+                                                    color = OmniColors.Muted,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    modifier = Modifier.padding(bottom = 6.dp)
+                                                )
+                                            }
+                                            decisionState.error?.let {
+                                                Text(
+                                                    it,
+                                                    color = OmniColors.Danger,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    modifier = Modifier.padding(bottom = 6.dp)
+                                                )
+                                            }
+                                            if (!model.ready) {
+                                                TextButton(onClick = { elephantManualOpen = !elephantManualOpen }) {
+                                                    Text(
+                                                        if (elephantManualOpen) tr(R.string.models_usb_hide) else tr(R.string.models_usb_import_hint),
+                                                        color = OmniColors.Dim,
+                                                        style = MaterialTheme.typography.labelMedium
+                                                    )
+                                                }
+                                                if (elephantManualOpen) {
+                                                    SelectionContainer(Modifier.padding(bottom = 8.dp)) {
+                                                        Text(
+                                                            "scripts/prepare_elephant_model.sh\nscripts/push_llm_models.sh elephant-1",
+                                                            color = OmniColors.Ink,
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            fontFamily = FontFamily.Monospace,
+                                                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                                                .background(OmniColors.Field).padding(12.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        if (localFilter == LocalModelFilter.All || localFilter == LocalModelFilter.Image) {
+                            item(key = "image-label") { SectionLabel(tr(R.string.models_sec_image_builtin), Modifier.padding(top = 16.dp)) }
+                            item(key = "moss") {
+                                val dlId = "builtin-image:moss"
+                                val queued = downloads.isPendingOrActive(dlId)
+                                ModelRow(
+                                    name = "MOSS-Image",
+                                    status = mossStatus?.localizedStatus() ?: tr(R.string.common_not_downloaded),
+                                    ready = mossStatus?.ready == true,
+                                    trailing = {
+                                        when {
+                                            queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
+                                            mossStatus?.ready == true -> ModelButton(
+                                                tr(R.string.common_delete),
+                                                { deleteBuiltIn = BuiltInDeleteTarget.Moss },
+                                                enabled = !modelBusy,
+                                                danger = true
+                                            )
+                                            else -> ModelButton(tr(R.string.common_download), {
+                                                requestNotificationPermissionIfNeeded()
+                                                viewModel.downloadMossModels()
                                             })
                                         }
                                     },
                                     below = {
-                                        if (decisionState.busy) {
-                                            Text(
-                                                when (decisionState.phase) {
-                                                    DecisionPhase.Verifying -> tr(R.string.decision_verifying)
-                                                    DecisionPhase.Loading -> tr(R.string.chat_loading_model)
-                                                    DecisionPhase.Computing -> tr(R.string.models_inferring)
-                                                    DecisionPhase.Idle -> ""
-                                                },
-                                                color = OmniColors.Muted,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                modifier = Modifier.padding(bottom = 6.dp)
+                                        if (showModelTask && mossTaskActive) TaskLine(modelTask, modifier = Modifier.padding(bottom = 4.dp))
+                                        Row(Modifier.padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            ModelButton(tr(R.string.models_import_dir), { mossFolderPicker.launch(null) }, enabled = !modelBusy, modifier = Modifier.weight(1f))
+                                            ModelButton(
+                                                tr(R.string.common_verify),
+                                                viewModel::verifyMossModels,
+                                                enabled = !modelBusy && mossStatus?.let { it.total > 0 && it.present == it.total } == true,
+                                                modifier = Modifier.weight(1f)
                                             )
                                         }
-                                        decisionState.error?.let {
-                                            Text(
-                                                it,
-                                                color = OmniColors.Danger,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                modifier = Modifier.padding(bottom = 6.dp)
+                                    }
+                                )
+                            }
+                            item(key = "qwen") {
+                                val dlId = "builtin-image:qwen"
+                                val queued = downloads.isPendingOrActive(dlId)
+                                ModelRow(
+                                    name = "Qwen-Image 2.1",
+                                    status = qwenStatus?.localizedStatus() ?: tr(R.string.common_not_downloaded),
+                                    ready = qwenStatus?.ready == true,
+                                    trailing = {
+                                        if (qwenStatus?.ready == true) {
+                                            ModelButton(
+                                                tr(R.string.common_delete),
+                                                { deleteBuiltIn = BuiltInDeleteTarget.Qwen },
+                                                enabled = !modelBusy,
+                                                danger = true
                                             )
                                         }
-                                        if (!model.ready) {
-                                            TextButton(onClick = { elephantManualOpen = !elephantManualOpen }) {
-                                                Text(
-                                                    if (elephantManualOpen) tr(R.string.models_usb_hide) else tr(R.string.models_usb_import_hint),
-                                                    color = OmniColors.Dim,
-                                                    style = MaterialTheme.typography.labelMedium
+                                    },
+                                    below = {
+                                        if (showModelTask && !mossTaskActive) TaskLine(modelTask, modifier = Modifier.padding(bottom = 4.dp))
+                                        if (qwenStatus?.ready == true) {
+                                            ModelButton(
+                                                tr(R.string.models_check_engine),
+                                                viewModel::checkRuntime,
+                                                enabled = !modelBusy
+                                            )
+                                        }
+                                        SettingRow(
+                                            title = tr(R.string.models_source_repo),
+                                            detail = state.repo.ifBlank { tr(R.string.models_repo_unset) },
+                                            onClick = { sourceOpen = !sourceOpen },
+                                            trailing = {
+                                                Icon(
+                                                    if (sourceOpen) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                                                    if (sourceOpen) tr(R.string.models_collapse_source) else tr(R.string.models_expand_source),
+                                                    tint = OmniColors.Dim
                                                 )
                                             }
-                                            if (elephantManualOpen) {
-                                                SelectionContainer(Modifier.padding(bottom = 8.dp)) {
-                                                    Text(
-                                                        "scripts/prepare_elephant_model.sh\nscripts/push_llm_models.sh elephant-1",
-                                                        color = OmniColors.Ink,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        fontFamily = FontFamily.Monospace,
-                                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                                                            .background(OmniColors.Field).padding(12.dp)
+                                        )
+                                        if (sourceOpen) {
+                                            Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                                OmniTextField(
+                                                    value = state.repo,
+                                                    onValueChange = viewModel::setRepo,
+                                                    label = "Hugging Face owner/repo",
+                                                    placeholder = tr(R.string.models_repo_placeholder),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                                OmniTextField(
+                                                    value = state.revision,
+                                                    onValueChange = viewModel::setRevision,
+                                                    label = "Revision",
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    if (queued) {
+                                                        ModelButton(tr(R.string.models_cancel_download), { hubViewModel.cancelQueuedDownload(dlId) }, modifier = Modifier.weight(1f))
+                                                    } else {
+                                                        ModelButton(
+                                                            tr(R.string.common_download),
+                                                            {
+                                                                requestNotificationPermissionIfNeeded()
+                                                                viewModel.downloadModels()
+                                                            },
+                                                            enabled = state.repo.isNotBlank(),
+                                                            modifier = Modifier.weight(1f)
+                                                        )
+                                                    }
+                                                    ModelButton(
+                                                        tr(R.string.models_import_short),
+                                                        { qwenFolderPicker.launch(null) },
+                                                        enabled = !modelBusy,
+                                                        modifier = Modifier.weight(1f)
                                                     )
                                                 }
                                             }
@@ -357,191 +586,78 @@ fun ModelsPage(
                             }
                         }
 
-                        item(key = "image-label") { SectionLabel(tr(R.string.models_sec_image_builtin), Modifier.padding(top = 16.dp)) }
-                        item(key = "moss") {
-                            val dlId = "builtin-image:moss"
-                            val queued = downloads.isPendingOrActive(dlId)
-                            ModelRow(
-                                name = "MOSS-Image",
-                                status = mossStatus?.message ?: tr(R.string.common_not_downloaded),
-                                ready = mossStatus?.ready == true,
-                                trailing = {
-                                    when {
-                                        queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
-                                        mossStatus?.ready == true -> ModelButton(
-                                            tr(R.string.common_delete),
-                                            { deleteBuiltIn = BuiltInDeleteTarget.Moss },
-                                            enabled = !modelBusy,
-                                            danger = true
-                                        )
-                                        else -> ModelButton(tr(R.string.common_download), {
-                                            requestNotificationPermissionIfNeeded()
-                                            viewModel.downloadMossModels()
-                                        })
-                                    }
-                                },
-                                below = {
-                                    if (showModelTask && mossTaskActive) TaskLine(modelTask, modifier = Modifier.padding(bottom = 4.dp))
-                                    Row(Modifier.padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        ModelButton(tr(R.string.models_import_dir), { mossFolderPicker.launch(null) }, enabled = !modelBusy, modifier = Modifier.weight(1f))
-                                        ModelButton(
-                                            tr(R.string.common_verify),
-                                            viewModel::verifyMossModels,
-                                            enabled = !modelBusy && mossStatus?.let { it.total > 0 && it.present == it.total } == true,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    }
-                                }
-                            )
-                        }
-                        item(key = "qwen") {
-                            val dlId = "builtin-image:qwen"
-                            val queued = downloads.isPendingOrActive(dlId)
-                            ModelRow(
-                                name = "Qwen-Image 2.1",
-                                status = qwenStatus?.message ?: tr(R.string.common_not_downloaded),
-                                ready = qwenStatus?.ready == true,
-                                trailing = {
-                                    if (qwenStatus?.ready == true) {
-                                        ModelButton(
-                                            tr(R.string.common_delete),
-                                            { deleteBuiltIn = BuiltInDeleteTarget.Qwen },
-                                            enabled = !modelBusy,
-                                            danger = true
-                                        )
-                                    }
-                                },
-                                below = {
-                                    if (showModelTask && !mossTaskActive) TaskLine(modelTask, modifier = Modifier.padding(bottom = 4.dp))
-                                    if (qwenStatus?.ready == true) {
-                                        ModelButton(
-                                            tr(R.string.models_check_engine),
-                                            viewModel::checkRuntime,
-                                            enabled = !modelBusy
-                                        )
-                                    }
-                                    SettingRow(
-                                        title = tr(R.string.models_source_repo),
-                                        detail = state.repo.ifBlank { tr(R.string.models_repo_unset) },
-                                        onClick = { sourceOpen = !sourceOpen },
-                                        trailing = {
-                                            Icon(
-                                                if (sourceOpen) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
-                                                if (sourceOpen) tr(R.string.models_collapse_source) else tr(R.string.models_expand_source),
-                                                tint = OmniColors.Dim
-                                            )
-                                        }
-                                    )
-                                    if (sourceOpen) {
-                                        Column(Modifier.padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                            OmniTextField(
-                                                value = state.repo,
-                                                onValueChange = viewModel::setRepo,
-                                                label = "Hugging Face owner/repo",
-                                                placeholder = tr(R.string.models_repo_placeholder),
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                            OmniTextField(
-                                                value = state.revision,
-                                                onValueChange = viewModel::setRevision,
-                                                label = "Revision",
-                                                modifier = Modifier.fillMaxWidth()
-                                            )
-                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                if (queued) {
-                                                    ModelButton(tr(R.string.models_cancel_download), { hubViewModel.cancelQueuedDownload(dlId) }, modifier = Modifier.weight(1f))
-                                                } else {
-                                                    ModelButton(
-                                                        tr(R.string.common_download),
-                                                        {
-                                                            requestNotificationPermissionIfNeeded()
-                                                            viewModel.downloadModels()
-                                                        },
-                                                        enabled = state.repo.isNotBlank(),
-                                                        modifier = Modifier.weight(1f)
-                                                    )
+                        if (localFilter == LocalModelFilter.All || localFilter == LocalModelFilter.Music) {
+                            item(key = "music-label") { SectionLabel(tr(R.string.models_sec_music_builtin), Modifier.padding(top = 16.dp)) }
+                            item(key = "yue2") {
+                                val dlId = "builtin-music:yue2"
+                                val queued = downloads.isPendingOrActive(dlId)
+                                val ready = yue2Status?.ready == true
+                                ModelRow(
+                                    name = "YuE2-3B",
+                                    status = yue2Status?.localizedStatus() ?: "~2.9 GB",
+                                    ready = ready,
+                                    trailing = {
+                                        when {
+                                            queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
+                                            ready -> {
+                                                if (yue2Status?.verified != true) {
+                                                    ModelButton(tr(R.string.common_verify), viewModel::verifyYue2Models, enabled = !modelBusy)
                                                 }
-                                                ModelButton(
-                                                    tr(R.string.models_import_short),
-                                                    { qwenFolderPicker.launch(null) },
-                                                    enabled = !modelBusy,
-                                                    modifier = Modifier.weight(1f)
-                                                )
+                                                ModelButton(tr(R.string.common_delete), { deleteBuiltIn = BuiltInDeleteTarget.Yue2 }, enabled = !modelBusy, danger = true)
                                             }
+                                            else -> ModelButton(tr(R.string.common_download), {
+                                                requestNotificationPermissionIfNeeded()
+                                                viewModel.downloadYue2Models()
+                                            })
                                         }
+                                    },
+                                    below = {
+                                        Text(
+                                            tr(R.string.models_cc_by_nc_note),
+                                            color = OmniColors.Dim,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
                                     }
-                                }
-                            )
+                                )
+                            }
                         }
 
-                        item(key = "music-label") { SectionLabel(tr(R.string.models_sec_music_builtin), Modifier.padding(top = 16.dp)) }
-                        item(key = "yue2") {
-                            val dlId = "builtin-music:yue2"
-                            val queued = downloads.isPendingOrActive(dlId)
-                            val ready = yue2Status?.ready == true
-                            ModelRow(
-                                name = "YuE2-3B",
-                                status = yue2Status?.let { "${it.message} · ${formatBytesCompact(it.totalBytes)}" } ?: "~2.9 GB",
-                                ready = ready,
-                                trailing = {
-                                    when {
-                                        queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
-                                        ready -> {
-                                            if (yue2Status?.verified != true) {
-                                                ModelButton(tr(R.string.common_verify), viewModel::verifyYue2Models, enabled = !modelBusy)
+                        if (localFilter == LocalModelFilter.All || localFilter == LocalModelFilter.Video) {
+                            item(key = "video-label") { SectionLabel(tr(R.string.models_sec_video_builtin), Modifier.padding(top = 16.dp)) }
+                            item(key = "wan22") {
+                                val dlId = "builtin-video:wan22"
+                                val queued = downloads.isPendingOrActive(dlId)
+                                val ready = wanStatus?.ready == true
+                                ModelRow(
+                                    name = "Wan2.2 Turbo",
+                                    status = wanStatus?.localizedStatus() ?: "~5.9 GB",
+                                    ready = ready,
+                                    trailing = {
+                                        when {
+                                            queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
+                                            ready -> {
+                                                if (wanStatus?.verified != true) {
+                                                    ModelButton(tr(R.string.common_verify), viewModel::verifyWanModels, enabled = !modelBusy)
+                                                }
+                                                ModelButton(tr(R.string.common_delete), { deleteBuiltIn = BuiltInDeleteTarget.Wan }, enabled = !modelBusy, danger = true)
                                             }
-                                            ModelButton(tr(R.string.common_delete), { deleteBuiltIn = BuiltInDeleteTarget.Yue2 }, enabled = !modelBusy, danger = true)
+                                            else -> ModelButton(tr(R.string.common_download), {
+                                                requestNotificationPermissionIfNeeded()
+                                                viewModel.downloadWanModels()
+                                            })
                                         }
-                                        else -> ModelButton(tr(R.string.common_download), {
-                                            requestNotificationPermissionIfNeeded()
-                                            viewModel.downloadYue2Models()
-                                        })
+                                    },
+                                    below = {
+                                        Text(
+                                            tr(R.string.models_wan_note),
+                                            color = OmniColors.Dim,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
                                     }
-                                },
-                                below = {
-                                    Text(
-                                        tr(R.string.models_cc_by_nc_note),
-                                        color = OmniColors.Dim,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(bottom = 8.dp)
-                                    )
-                                }
-                            )
-                        }
-
-                        item(key = "video-label") { SectionLabel(tr(R.string.models_sec_video_builtin), Modifier.padding(top = 16.dp)) }
-                        item(key = "wan22") {
-                            val dlId = "builtin-video:wan22"
-                            val queued = downloads.isPendingOrActive(dlId)
-                            val ready = wanStatus?.ready == true
-                            ModelRow(
-                                name = "Wan2.2 Turbo",
-                                status = wanStatus?.let { "${it.message} · ${formatBytesCompact(it.totalBytes)}" } ?: "~5.9 GB",
-                                ready = ready,
-                                trailing = {
-                                    when {
-                                        queued -> ModelButton(tr(R.string.common_cancel), { hubViewModel.cancelQueuedDownload(dlId) })
-                                        ready -> {
-                                            if (wanStatus?.verified != true) {
-                                                ModelButton(tr(R.string.common_verify), viewModel::verifyWanModels, enabled = !modelBusy)
-                                            }
-                                            ModelButton(tr(R.string.common_delete), { deleteBuiltIn = BuiltInDeleteTarget.Wan }, enabled = !modelBusy, danger = true)
-                                        }
-                                        else -> ModelButton(tr(R.string.common_download), {
-                                            requestNotificationPermissionIfNeeded()
-                                            viewModel.downloadWanModels()
-                                        })
-                                    }
-                                },
-                                below = {
-                                    Text(
-                                        tr(R.string.models_wan_note),
-                                        color = OmniColors.Dim,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        modifier = Modifier.padding(bottom = 8.dp)
-                                    )
-                                }
-                            )
+                                )
+                            }
                         }
                     }
 
@@ -560,6 +676,14 @@ fun ModelsPage(
                                         )
                                     }
                                 }
+                                if (hubState.category == HubSearchCategory.DecisionGguf) {
+                                    Text(
+                                        tr(R.string.decision_discover_note),
+                                        color = OmniColors.Dim,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        modifier = Modifier.padding(horizontal = 2.dp)
+                                    )
+                                }
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     val submitSearch = {
                                         if (!hubState.searching && hubState.query.isNotBlank()) {
@@ -572,7 +696,7 @@ fun ModelsPage(
                                         value = hubState.query,
                                         onValueChange = hubViewModel::updateQuery,
                                         label = tr(R.string.models_search_placeholder),
-                                        placeholder = hubState.category.hint,
+                                        placeholder = hubState.category.localizedHint(),
                                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                                         keyboardActions = KeyboardActions(onSearch = { submitSearch() }),
                                         trailingIcon = if (hubState.query.isNotEmpty()) ({
@@ -588,8 +712,12 @@ fun ModelsPage(
                                         enabled = !hubState.searching && hubState.query.isNotBlank()
                                     )
                                 }
-                                hubState.searchError?.let {
-                                    Text(it, color = OmniColors.Danger, style = MaterialTheme.typography.bodySmall)
+                                hubState.searchErrorDetail?.let { detail ->
+                                    Text(
+                                        tr(R.string.hub_search_failed_fmt, detail),
+                                        color = OmniColors.Danger,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
                                 }
                                 SectionLabel(
                                     if (hubState.showingRecommendations) tr(R.string.models_starter_header)
@@ -615,11 +743,25 @@ fun ModelsPage(
                     }
 
                     ModelsPageTab.Reference -> {
+                        val liveSourceEnum = when (activeRefSource) {
+                            ReferenceSourceTab.ArtificialAnalysis -> LiveBoardSource.ArtificialAnalysis
+                            ReferenceSourceTab.JevDecisionIndex -> LiveBoardSource.JevDecisionIndex
+                            ReferenceSourceTab.HfOpenLlm -> LiveBoardSource.HfOpenLlm
+                            ReferenceSourceTab.OnDeviceGuide -> null
+                        }
+                        val activeBoardId = liveSourceEnum?.let {
+                            LiveLeaderboardClient.boardId(it, benchmarkModality, chatTier, musicTrack)
+                        }
+                        val liveSnap = activeBoardId?.let { hubState.liveBoards[it] }
+                        val liveLoading = activeBoardId != null && activeBoardId in hubState.liveLoading
+                        val liveError = activeBoardId?.let { hubState.liveErrors[it] }
+
                         item(key = "ref-header") {
                             Column(
                                 Modifier.padding(top = 12.dp, bottom = 8.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
+                                // Modality row
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     items(BenchmarkModality.entries) { modality ->
                                         ComposerChip(
@@ -629,28 +771,183 @@ fun ModelsPage(
                                         )
                                     }
                                 }
-                                ContentCard(title = tr(R.string.bench_guide_title)) {
-                                    val hwNote = hubState.deviceHardware?.localizedSummary()?.let {
-                                        tr(R.string.bench_device_prefix, it)
-                                    }.orEmpty()
-                                    Text(
-                                        tr(R.string.bench_guide_body, hwNote),
-                                        color = OmniColors.Muted,
-                                        style = MaterialTheme.typography.bodySmall
+                                // Source selector row (Artificial Analysis live / secondary live boards / On-Device Guide)
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    items(validSources) { src ->
+                                        ComposerChip(
+                                            label = localized.getString(src.labelRes),
+                                            onClick = { refSource = src },
+                                            selected = activeRefSource == src
+                                        )
+                                    }
+                                }
+                                // Contextual sub-filters for live boards
+                                if (activeRefSource == ReferenceSourceTab.ArtificialAnalysis && benchmarkModality == BenchmarkModality.Chat) {
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(LiveChatTier.entries) { tier ->
+                                            val labelRes = when (tier) {
+                                                LiveChatTier.Tiny -> R.string.ref_tier_tiny
+                                                LiveChatTier.Small -> R.string.ref_tier_small
+                                                LiveChatTier.AllOpen -> R.string.ref_tier_all_open
+                                            }
+                                            ComposerChip(
+                                                label = localized.getString(labelRes),
+                                                onClick = { chatTier = tier },
+                                                selected = chatTier == tier
+                                            )
+                                        }
+                                    }
+                                } else if (activeRefSource == ReferenceSourceTab.ArtificialAnalysis && benchmarkModality == BenchmarkModality.Music) {
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(LiveMusicTrack.entries) { track ->
+                                            val labelRes = when (track) {
+                                                LiveMusicTrack.Vocals -> R.string.ref_music_vocals
+                                                LiveMusicTrack.Instrumental -> R.string.ref_music_inst
+                                            }
+                                            ComposerChip(
+                                                label = localized.getString(labelRes),
+                                                onClick = { musicTrack = track },
+                                                selected = musicTrack == track
+                                            )
+                                        }
+                                    }
+                                } else if (activeRefSource == ReferenceSourceTab.ArtificialAnalysis &&
+                                    (benchmarkModality == BenchmarkModality.Image ||
+                                        benchmarkModality == BenchmarkModality.Video ||
+                                        benchmarkModality == BenchmarkModality.Decision) ||
+                                    activeRefSource == ReferenceSourceTab.JevDecisionIndex
+                                ) {
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        item {
+                                            ComposerChip(
+                                                label = tr(R.string.ref_filter_open_only),
+                                                onClick = { openWeightsOnly = !openWeightsOnly },
+                                                selected = openWeightsOnly
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (liveSourceEnum != null) {
+                                    LiveBoardAttributionCard(
+                                        source = liveSourceEnum,
+                                        sourceUrl = liveSnap?.sourceUrl ?: LiveLeaderboardClient.sourcePageUrl(
+                                            liveSourceEnum, benchmarkModality, chatTier, musicTrack
+                                        ),
+                                        snapshot = liveSnap,
+                                        loading = liveLoading,
+                                        device = hubState.deviceHardware,
+                                        onRefresh = {
+                                            hubViewModel.loadLiveLeaderboard(
+                                                source = liveSourceEnum,
+                                                modality = benchmarkModality,
+                                                chatTier = chatTier,
+                                                musicTrack = musicTrack,
+                                                forceRefresh = true
+                                            )
+                                        },
+                                        onOpenSite = openUrl
                                     )
+                                } else {
+                                    ContentCard(title = tr(R.string.bench_guide_title)) {
+                                        val hwNote = hubState.deviceHardware?.localizedSummary()?.let {
+                                            tr(R.string.bench_device_prefix, it)
+                                        }.orEmpty()
+                                        Text(
+                                            tr(R.string.bench_guide_body, hwNote),
+                                            color = OmniColors.Muted,
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
                                 }
                             }
                         }
-                        val entries = ModelBenchmarkCatalog.byModality(benchmarkModality)
-                        itemsIndexed(entries, key = { _, entry -> "bench-${entry.id}" }) { index, entry ->
-                            BenchmarkReferenceRow(
-                                rank = index + 1,
-                                entry = entry,
-                                device = hubState.deviceHardware,
-                                onInspect = if (entry.recommendedRepo != null && entry.searchCategory != null) {
-                                    { hubViewModel.openRepoInCategory(entry.recommendedRepo, entry.searchCategory) }
-                                } else null
-                            )
+
+                        if (liveSourceEnum != null) {
+                            when {
+                                liveLoading && liveSnap == null -> {
+                                    item(key = "live-loading") {
+                                        Row(
+                                            Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            CircularProgressIndicator(Modifier.size(20.dp), color = OmniColors.Accent, strokeWidth = 2.dp)
+                                            Spacer(Modifier.width(10.dp))
+                                            Text(tr(R.string.ref_loading), color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                    }
+                                }
+                                liveSnap != null -> {
+                                    val showOpenToggle = (activeRefSource == ReferenceSourceTab.ArtificialAnalysis &&
+                                        (benchmarkModality == BenchmarkModality.Image ||
+                                            benchmarkModality == BenchmarkModality.Video ||
+                                            benchmarkModality == BenchmarkModality.Decision)) ||
+                                        activeRefSource == ReferenceSourceTab.JevDecisionIndex
+                                    val displayed = if (showOpenToggle && openWeightsOnly) {
+                                        liveSnap.entries.filter { it.openWeights }
+                                    } else {
+                                        liveSnap.entries
+                                    }
+                                    itemsIndexed(
+                                        displayed,
+                                        key = { idx, item -> "live-${liveSnap.boardId}-$idx-${item.name}" }
+                                    ) { idx, entry ->
+                                        LiveLeaderboardRow(
+                                            displayRank = if (showOpenToggle && openWeightsOnly) idx + 1 else entry.rank,
+                                            entry = entry,
+                                            device = hubState.deviceHardware,
+                                            onDownloadRepo = if (entry.huggingFaceRepo != null && entry.searchCategory != null) {
+                                                { hubViewModel.openRepoInCategory(entry.huggingFaceRepo, entry.searchCategory) }
+                                            } else null,
+                                            onSearchHf = if (entry.huggingFaceRepo == null && entry.openWeights &&
+                                                entry.searchQuery != null && entry.searchCategory != null
+                                            ) {
+                                                {
+                                                    hubViewModel.searchInCategory(entry.searchQuery, entry.searchCategory)
+                                                    tab = ModelsPageTab.Discover
+                                                }
+                                            } else null
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    if (liveError != null) {
+                                        item(key = "live-error") {
+                                            Text(
+                                                tr(R.string.ref_error_fallback, liveError),
+                                                color = OmniColors.Warning,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                modifier = Modifier.padding(vertical = 8.dp)
+                                            )
+                                        }
+                                    }
+                                    // Graceful offline fallback to curated on-device catalog
+                                    val fallbackEntries = ModelBenchmarkCatalog.byModality(benchmarkModality)
+                                    itemsIndexed(fallbackEntries, key = { _, entry -> "fallback-${entry.id}" }) { index, entry ->
+                                        BenchmarkReferenceRow(
+                                            rank = index + 1,
+                                            entry = entry,
+                                            device = hubState.deviceHardware,
+                                            onInspect = if (entry.recommendedRepo != null && entry.searchCategory != null) {
+                                                { hubViewModel.openRepoInCategory(entry.recommendedRepo, entry.searchCategory) }
+                                            } else null
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            val entries = ModelBenchmarkCatalog.byModality(benchmarkModality)
+                            itemsIndexed(entries, key = { _, entry -> "bench-${entry.id}" }) { index, entry ->
+                                BenchmarkReferenceRow(
+                                    rank = index + 1,
+                                    entry = entry,
+                                    device = hubState.deviceHardware,
+                                    onInspect = if (entry.recommendedRepo != null && entry.searchCategory != null) {
+                                        { hubViewModel.openRepoInCategory(entry.recommendedRepo, entry.searchCategory) }
+                                    } else null
+                                )
+                            }
                         }
                     }
                 }
@@ -689,6 +986,7 @@ fun ModelsPage(
             onConfirm = {
                 hubViewModel.deleteInstalled(model.id) {
                     llmViewModel.unloadIfLoadedSync(model.id)
+                    decisionViewModel.unloadIfLoadedSync(model.id)
                 }
                 deleteHubModel = null
             },
@@ -711,6 +1009,136 @@ fun ModelsPage(
             },
             onDismiss = { deleteBuiltIn = null }
         )
+    }
+}
+
+@Composable
+private fun LiveBoardAttributionCard(
+    source: LiveBoardSource,
+    sourceUrl: String,
+    snapshot: LiveLeaderboardSnapshot?,
+    loading: Boolean,
+    device: DeviceHardwareSnapshot?,
+    onRefresh: () -> Unit,
+    onOpenSite: (String) -> Unit
+) {
+    val timeLabel = remember(snapshot?.fetchedAtMs) {
+        snapshot?.fetchedAtMs?.takeIf { it > 0L }?.let { ts ->
+            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ts))
+        }
+    }
+    val statusText = when {
+        snapshot == null -> ""
+        snapshot.stale && timeLabel != null -> tr(R.string.ref_stale_cache, timeLabel)
+        snapshot.fromCache && timeLabel != null -> tr(R.string.ref_cached_updated, timeLabel)
+        timeLabel != null -> tr(R.string.ref_live_updated, timeLabel)
+        else -> ""
+    }
+    ContentCard(
+        title = tr(R.string.ref_attribution_prefix, source.displayName),
+        trailing = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onRefresh, enabled = !loading, modifier = Modifier.size(36.dp)) {
+                    if (loading) {
+                        CircularProgressIndicator(Modifier.size(16.dp), color = OmniColors.Accent, strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Outlined.Refresh, tr(R.string.ref_refresh), tint = OmniColors.Muted, modifier = Modifier.size(18.dp))
+                    }
+                }
+                IconButton(onClick = { onOpenSite(sourceUrl) }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.AutoMirrored.Outlined.OpenInNew, tr(R.string.ref_open_source_site), tint = OmniColors.Accent, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+    ) {
+        val metaLine = buildList {
+            if (statusText.isNotBlank()) add(statusText)
+            device?.localizedSummary()?.let(::add)
+        }.joinToString(" · ")
+        if (metaLine.isNotBlank()) {
+            Text(metaLine, color = OmniColors.Muted, style = MaterialTheme.typography.labelSmall)
+        }
+        Text(
+            sourceUrl.removePrefix("https://"),
+            color = OmniColors.Dim,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.clickable { onOpenSite(sourceUrl) }
+        )
+    }
+}
+
+@Composable
+private fun LiveLeaderboardRow(
+    displayRank: Int,
+    entry: LiveLeaderboardEntry,
+    device: DeviceHardwareSnapshot?,
+    onDownloadRepo: (() -> Unit)?,
+    onSearchHf: (() -> Unit)?
+) {
+    val fit = remember(entry.estimatedBytes, entry.openWeights, device) {
+        if (entry.openWeights && entry.estimatedBytes != null && device != null) {
+            ModelBenchmarkCatalog.evaluateDeviceFit(entry.estimatedBytes, device)
+        } else null
+    }
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 11.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Text(
+                "$displayRank",
+                color = OmniColors.Dim,
+                style = MaterialTheme.typography.labelLarge,
+                modifier = Modifier.width(26.dp).padding(top = 2.dp)
+            )
+            Column(Modifier.weight(1f).padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        entry.name,
+                        color = OmniColors.Ink,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (entry.openWeights) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = OmniColors.AccentSoft
+                        ) {
+                            Text(
+                                tr(R.string.ref_open_weights_badge),
+                                color = OmniColors.Accent,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+                val metrics = listOf(entry.primaryMetricLabel, entry.secondaryMetricLabel)
+                    .filter { it.isNotBlank() }.joinToString(" · ")
+                Text(metrics, color = OmniColors.Accent, style = MaterialTheme.typography.labelMedium)
+                val metaParts = buildList {
+                    if (entry.creator.isNotBlank()) add(entry.creator)
+                    fit?.let { add(it.localizedLabel()) }
+                }
+                if (metaParts.isNotEmpty()) {
+                    Text(
+                        metaParts.joinToString(" · "),
+                        color = if (fit != null) deviceFitColor(fit) else OmniColors.Muted,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+            when {
+                onDownloadRepo != null -> ModelButton(tr(R.string.models_view_downloads), onDownloadRepo)
+                onSearchHf != null -> ModelButton(tr(R.string.ref_search_hf), onSearchHf)
+            }
+        }
+        HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
     }
 }
 
@@ -782,6 +1210,7 @@ private fun HubRepoRow(repo: HfRepoSummary, onClick: () -> Unit) {
     val trusted = remember(repo.author) { ModelBenchmarkCatalog.isTrustedPackager(repo.author) }
     val authorText = if (trusted) tr(R.string.models_trusted_packager, repo.author) else repo.author
     val downloadsText = if (repo.downloads > 0L) tr(R.string.models_downloads_count, formatCount(repo.downloads)) else null
+    val summaryText = repo.localizedSummary()
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
             Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(vertical = 10.dp),
@@ -805,7 +1234,7 @@ private fun HubRepoRow(repo: HfRepoSummary, onClick: () -> Unit) {
                 val meta = buildList {
                     add(authorText)
                     downloadsText?.let(::add)
-                    if (repo.summary.isNotBlank()) add(repo.summary)
+                    if (summaryText.isNotBlank()) add(summaryText)
                 }.joinToString(" · ")
                 Text(meta, color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (benchmark != null) {
@@ -861,7 +1290,7 @@ private fun BenchmarkReferenceRow(
                 val scores = listOf(entry.primaryScoreLabel, entry.secondaryScoreLabel)
                     .filter { it.isNotBlank() }.joinToString(" · ")
                 Text(scores, color = OmniColors.Accent, style = MaterialTheme.typography.labelMedium)
-                Text(entry.strengths, color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
+                Text(entry.localizedStrengths(), color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
                 val fitText = ramFit?.let { " · ${it.localizedLabel()}" }.orEmpty()
                 Text(
                     tr(R.string.bench_rec_line, entry.recommendedQuant, entry.minRamGb, fitText),
@@ -920,6 +1349,9 @@ private fun HubRepoFilesSheet(
                     Text(tr(R.string.models_loading_files), color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
                 }
             }
+            state.repoEmptyCategory != null -> {
+                Text(state.repoEmptyCategory.localizedEmptyMessage(), color = OmniColors.Danger, style = MaterialTheme.typography.bodySmall)
+            }
             state.repoError != null -> {
                 Text(state.repoError, color = OmniColors.Danger, style = MaterialTheme.typography.bodySmall)
             }
@@ -941,7 +1373,9 @@ private fun HubRepoFilesSheet(
                             filesCountText?.let(::add)
                         }.joinToString(" · ")
                         val fitLabel = fit.localizedLabel()
-                        val quantText = quantHint?.let { tr(R.string.models_quant_retention, it.retentionPercent, it.note) }
+                        val quantText = quantHint?.let { tr(R.string.models_quant_retention, it.retentionPercent, it.localizedNote()) }
+                        val companionNote = option.localizedCompanionSummary()
+                        val splitWarn = option.localizedSplitWarning()
                         Column(Modifier.fillMaxWidth()) {
                             Row(
                                 Modifier.fillMaxWidth().padding(vertical = 10.dp),
@@ -949,7 +1383,7 @@ private fun HubRepoFilesSheet(
                             ) {
                                 Column(Modifier.weight(1f).padding(end = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(
-                                        option.label,
+                                        option.localizedLabel(),
                                         color = OmniColors.Ink,
                                         style = MaterialTheme.typography.bodyMedium,
                                         maxLines = 2,
@@ -958,10 +1392,10 @@ private fun HubRepoFilesSheet(
                                     Text(detail, color = OmniColors.Muted, style = MaterialTheme.typography.labelSmall)
                                     val fitLine = listOfNotNull(fitLabel, quantText).joinToString(" · ")
                                     Text(fitLine, color = deviceFitColor(fit), style = MaterialTheme.typography.labelSmall)
-                                    option.companionSummary?.let {
+                                    companionNote?.let {
                                         Text(it, color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall)
                                     }
-                                    option.splitWarning?.let {
+                                    splitWarn?.let {
                                         Text(it, color = OmniColors.Warning, style = MaterialTheme.typography.labelSmall)
                                     }
                                 }
@@ -1046,7 +1480,7 @@ fun MirrorSourceSheet(
                 )
                 state.probeResult?.let { result ->
                     Text(
-                        result.message,
+                        result.localizedMessage(),
                         color = if (result.reachable) OmniColors.Success else OmniColors.Danger,
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.weight(1f)

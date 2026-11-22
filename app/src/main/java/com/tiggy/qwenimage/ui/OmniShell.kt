@@ -161,7 +161,8 @@ fun OmniSidebar(
                     ) {
                         Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(start = 12.dp),
                             verticalAlignment = Alignment.CenterVertically) {
-                            Text(conversation.title, color = if (selected) OmniColors.Ink else OmniColors.Muted,
+                            val displayTitle = if (conversation.title == "新对话") tr(R.string.sidebar_new_chat) else conversation.title
+                            Text(displayTitle, color = if (selected) OmniColors.Ink else OmniColors.Muted,
                                 style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f))
                             if (running) RunningDot()

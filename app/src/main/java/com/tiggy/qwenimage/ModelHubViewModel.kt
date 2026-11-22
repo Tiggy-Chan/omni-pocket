@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.StatFs
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.tiggy.qwenimage.data.BenchmarkModality
 import com.tiggy.qwenimage.data.DeviceHardwareProbe
 import com.tiggy.qwenimage.data.DeviceHardwareSnapshot
 import com.tiggy.qwenimage.data.DownloadManagerState
@@ -18,6 +19,11 @@ import com.tiggy.qwenimage.data.HubSettings
 import com.tiggy.qwenimage.data.HuggingFaceHubClient
 import com.tiggy.qwenimage.data.InstalledHubModel
 import com.tiggy.qwenimage.data.InstalledHubModelsRepository
+import com.tiggy.qwenimage.data.LiveBoardSource
+import com.tiggy.qwenimage.data.LiveChatTier
+import com.tiggy.qwenimage.data.LiveLeaderboardClient
+import com.tiggy.qwenimage.data.LiveLeaderboardSnapshot
+import com.tiggy.qwenimage.data.LiveMusicTrack
 import com.tiggy.qwenimage.data.ModelDownloadManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -46,14 +52,19 @@ data class ModelHubUiState(
     val searchResults: List<HfRepoSummary> = HuggingFaceHubClient.curatedRecommendations(HubSearchCategory.GgufChat),
     val showingRecommendations: Boolean = true,
     val searchError: String? = null,
+    val searchErrorDetail: String? = null,
     val inspectedRepo: String? = null,
     val loadingRepo: Boolean = false,
     val repoOptions: List<HfRepoOption> = emptyList(),
     val repoError: String? = null,
+    val repoEmptyCategory: HubSearchCategory? = null,
     val installedModels: List<InstalledHubModel> = emptyList(),
     val downloads: DownloadManagerState = DownloadManagerState(),
     val storage: StorageSummary = StorageSummary(),
-    val deviceHardware: DeviceHardwareSnapshot? = null
+    val deviceHardware: DeviceHardwareSnapshot? = null,
+    val liveBoards: Map<String, LiveLeaderboardSnapshot> = emptyMap(),
+    val liveLoading: Set<String> = emptySet(),
+    val liveErrors: Map<String, String> = emptyMap()
 )
 
 class ModelHubViewModel(application: Application) : AndroidViewModel(application) {
@@ -71,6 +82,7 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
 
     private var searchJob: Job? = null
     private var inspectJob: Job? = null
+    private val liveJobs = mutableMapOf<String, Job>()
 
     init {
         viewModelScope.launch {
@@ -146,6 +158,7 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
                 category = category,
                 searching = false,
                 searchError = null,
+                searchErrorDetail = null,
                 searchResults = if (query.isEmpty()) HuggingFaceHubClient.curatedRecommendations(category) else emptyList(),
                 showingRecommendations = query.isEmpty()
             )
@@ -159,10 +172,28 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
             state.copy(
                 query = value,
                 searchError = null,
+                searchErrorDetail = null,
                 searchResults = if (trimmed.isEmpty()) HuggingFaceHubClient.curatedRecommendations(state.category) else state.searchResults,
                 showingRecommendations = trimmed.isEmpty()
             )
         }
+    }
+
+    fun searchInCategory(query: String, category: HubSearchCategory) {
+        searchJob?.cancel()
+        val trimmed = query.trim()
+        _state.update {
+            it.copy(
+                category = category,
+                query = trimmed,
+                searching = false,
+                searchError = null,
+                searchErrorDetail = null,
+                searchResults = if (trimmed.isEmpty()) HuggingFaceHubClient.curatedRecommendations(category) else emptyList(),
+                showingRecommendations = trimmed.isEmpty()
+            )
+        }
+        if (trimmed.isNotEmpty()) executeSearch()
     }
 
     fun executeSearch() {
@@ -174,20 +205,74 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
             return
         }
         searchJob?.cancel()
-        _state.update { it.copy(searching = true, searchError = null, showingRecommendations = false) }
+        _state.update { it.copy(searching = true, searchError = null, searchErrorDetail = null, showingRecommendations = false) }
         searchJob = viewModelScope.launch {
             try {
                 val results = HuggingFaceHubClient.search(query, snapshot.category, hubPreferences.current())
-                _state.update { it.copy(searching = false, searchResults = results, searchError = null) }
+                _state.update { it.copy(searching = false, searchResults = results, searchError = null, searchErrorDetail = null) }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
+                val detail = error.message ?: error.javaClass.simpleName
                 _state.update {
                     it.copy(
                         searching = false,
-                        searchError = "搜索失败：${error.message ?: error.javaClass.simpleName}（如在国内请切换至 HF-Mirror）"
+                        searchError = detail,
+                        searchErrorDetail = detail
                     )
                 }
+            }
+        }
+    }
+
+    fun loadLiveLeaderboard(
+        source: LiveBoardSource,
+        modality: BenchmarkModality,
+        chatTier: LiveChatTier = LiveChatTier.Tiny,
+        musicTrack: LiveMusicTrack = LiveMusicTrack.Vocals,
+        forceRefresh: Boolean = false
+    ) {
+        val boardId = LiveLeaderboardClient.boardId(source, modality, chatTier, musicTrack)
+        if (!forceRefresh && _state.value.liveBoards[boardId] != null && boardId !in _state.value.liveLoading) {
+            return
+        }
+        liveJobs[boardId]?.cancel()
+        _state.update {
+            it.copy(
+                liveLoading = it.liveLoading + boardId,
+                liveErrors = it.liveErrors - boardId
+            )
+        }
+        liveJobs[boardId] = viewModelScope.launch {
+            try {
+                val result = LiveLeaderboardClient.loadBoard(
+                    context = getApplication(),
+                    source = source,
+                    modality = modality,
+                    hubSettings = hubPreferences.current(),
+                    chatTier = chatTier,
+                    musicTrack = musicTrack,
+                    forceRefresh = forceRefresh
+                )
+                result.onSuccess { snap ->
+                    _state.update {
+                        it.copy(
+                            liveBoards = it.liveBoards + (boardId to snap),
+                            liveLoading = it.liveLoading - boardId,
+                            liveErrors = it.liveErrors - boardId
+                        )
+                    }
+                }.onFailure { err ->
+                    _state.update {
+                        it.copy(
+                            liveLoading = it.liveLoading - boardId,
+                            liveErrors = it.liveErrors + (boardId to (err.message ?: err.javaClass.simpleName))
+                        )
+                    }
+                }
+            } catch (error: CancellationException) {
+                _state.update { it.copy(liveLoading = it.liveLoading - boardId) }
+                throw error
             }
         }
     }
@@ -201,6 +286,7 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
                     query = "",
                     searching = false,
                     searchError = null,
+                    searchErrorDetail = null,
                     searchResults = HuggingFaceHubClient.curatedRecommendations(category),
                     showingRecommendations = true
                 )
@@ -217,7 +303,8 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
                 inspectedRepo = repo,
                 loadingRepo = true,
                 repoOptions = emptyList(),
-                repoError = null
+                repoError = null,
+                repoEmptyCategory = null
             )
         }
         inspectJob = viewModelScope.launch {
@@ -227,15 +314,8 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
                     it.copy(
                         loadingRepo = false,
                         repoOptions = options,
-                        repoError = if (options.isEmpty()) {
-                            when (category) {
-                                HubSearchCategory.GgufChat -> "该仓库未找到可直接加载的 GGUF 对话模型文件"
-                                HubSearchCategory.MnnChat -> "该仓库缺少 MNN 完整文件（需包含 config.json、llm_config.json、llm.mnn、llm.mnn.weight 与 tokenizer.mtok/txt）"
-                                HubSearchCategory.SdImage -> "该仓库未找到支持的图像权重（SD/SDXL 单文件，或 Z-Image / FLUX.2-Klein GGUF）"
-                                HubSearchCategory.VideoWan -> "该仓库未找到支持的 Wan2.2 / Wan2.1 GGUF 视频 DiT 权重"
-                                HubSearchCategory.MusicAudio -> "该仓库未找到支持的 audio.cpp 音乐 GGUF（YuE2 / ACE-Step / HeartMuLa / Stable Audio 3）"
-                            }
-                        } else null
+                        repoError = null,
+                        repoEmptyCategory = if (options.isEmpty()) category else null
                     )
                 }
             } catch (error: CancellationException) {
@@ -244,7 +324,8 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
                 _state.update {
                     it.copy(
                         loadingRepo = false,
-                        repoError = error.message ?: "读取仓库文件失败"
+                        repoError = error.message ?: error.javaClass.simpleName,
+                        repoEmptyCategory = null
                     )
                 }
             }
@@ -253,7 +334,15 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
 
     fun closeRepoSheet() {
         inspectJob?.cancel()
-        _state.update { it.copy(inspectedRepo = null, loadingRepo = false, repoOptions = emptyList(), repoError = null) }
+        _state.update {
+            it.copy(
+                inspectedRepo = null,
+                loadingRepo = false,
+                repoOptions = emptyList(),
+                repoError = null,
+                repoEmptyCategory = null
+            )
+        }
     }
 
     fun downloadOption(option: HfRepoOption) {

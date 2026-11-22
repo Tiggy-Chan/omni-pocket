@@ -105,7 +105,9 @@ object HubUrlRewriter {
 data class HubProbeResult(
     val reachable: Boolean,
     val latencyMs: Long,
-    val message: String
+    val message: String,
+    val httpCode: Int? = null,
+    val errorDetail: String? = null
 )
 
 object HubConnectivityChecker {
@@ -127,13 +129,14 @@ object HubConnectivityChecker {
             val code = connection.responseCode
             val latency = (System.currentTimeMillis() - start).coerceAtLeast(1L)
             if (code in 200..299) {
-                HubProbeResult(true, latency, "已连接 · ${latency} ms")
+                HubProbeResult(true, latency, "已连接 · ${latency} ms", httpCode = code)
             } else {
-                HubProbeResult(false, latency, "响应 HTTP $code")
+                HubProbeResult(false, latency, "响应 HTTP $code", httpCode = code)
             }
         } catch (error: Throwable) {
             val latency = System.currentTimeMillis() - start
-            HubProbeResult(false, latency, "连接失败：${error.message ?: error.javaClass.simpleName}")
+            val detail = error.message ?: error.javaClass.simpleName
+            HubProbeResult(false, latency, "连接失败：$detail", errorDetail = detail)
         } finally {
             connection?.disconnect()
         }
