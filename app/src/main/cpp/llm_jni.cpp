@@ -36,18 +36,18 @@ JNIEXPORT jlong JNICALL Java_com_tiggy_qwenimage_engine_LocalLlmEngine_nativeCre
 }
 
 JNIEXPORT jstring JNICALL Java_com_tiggy_qwenimage_engine_LocalLlmEngine_nativeLoad(
-    JNIEnv* env, jclass, jlong handle, jstring config, jstring cache, jint threads, jint contextTokens) {
+    JNIEnv* env, jclass, jlong handle, jstring config, jstring cache, jint threads, jint contextTokens, jboolean useOpenCl) {
     if (handle == 0) return env->NewStringUTF("LLM 会话已释放");
     std::string error;
     const bool loaded = Session(handle)->Load(StringValue(env, config), StringValue(env, cache),
-                                              threads, contextTokens, error);
+                                              threads, contextTokens, error, useOpenCl == JNI_TRUE);
     if (env->ExceptionCheck()) return nullptr;
     return loaded ? nullptr : env->NewStringUTF(error.c_str());
 }
 
 JNIEXPORT jobject JNICALL Java_com_tiggy_qwenimage_engine_LocalLlmEngine_nativeGenerate(
     JNIEnv* env, jclass, jlong handle, jstring conversationId, jobjectArray roles, jobjectArray contents,
-    jint maxNewTokens, jboolean thinking, jobject callback) {
+    jint maxNewTokens, jboolean thinking, jfloat temperature, jfloat topP, jfloat repeatPenalty, jobject callback) {
     if (handle == 0) {
         Throw(env, "模型尚未加载");
         return nullptr;
@@ -78,7 +78,15 @@ JNIEXPORT jobject JNICALL Java_com_tiggy_qwenimage_engine_LocalLlmEngine_nativeG
     env->DeleteLocalRef(callbackClass);
     if (onToken == nullptr) return nullptr;
     const auto result = Session(handle)->Generate(
-        omni::LlmRequest{StringValue(env, conversationId), messages, maxNewTokens, thinking == JNI_TRUE},
+        omni::LlmRequest{
+            StringValue(env, conversationId),
+            messages,
+            maxNewTokens,
+            thinking == JNI_TRUE,
+            temperature,
+            topP,
+            repeatPenalty
+        },
         [&](const std::string& token) -> bool {
             if (env->ExceptionCheck()) return false;
             const jstring value = env->NewStringUTF(token.c_str());

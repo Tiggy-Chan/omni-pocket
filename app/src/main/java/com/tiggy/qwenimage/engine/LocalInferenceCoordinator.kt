@@ -51,4 +51,9 @@ class LocalInferenceCoordinator {
             release(owner)
         }
     }
+
+    companion object {
+        /** Process-wide coordinator shared across ViewModels even across Activity recreations. */
+        val shared: LocalInferenceCoordinator by lazy { LocalInferenceCoordinator() }
+    }
 }

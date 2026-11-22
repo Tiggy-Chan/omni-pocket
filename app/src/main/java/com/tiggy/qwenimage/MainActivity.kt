@@ -21,7 +21,8 @@ import com.tiggy.qwenimage.ui.OmniTheme
 import com.tiggy.qwenimage.ui.QwenApp
 
 class MainActivity : ComponentActivity() {
-    private val inferenceCoordinator = LocalInferenceCoordinator()
+    private val inferenceCoordinator: LocalInferenceCoordinator
+        get() = LocalInferenceCoordinator.shared
     private val viewModel: QwenViewModel by viewModels {
         appFactory { QwenViewModel(application, inferenceCoordinator) }
     }

@@ -24,25 +24,45 @@ data class NativeLlmResult(
     val decodeUs: Long
 )
 
+data class ChatSamplingParams(
+    val temperature: Float = 0.7f,
+    val topP: Float = 0.9f,
+    val topK: Int = 40,
+    val repeatPenalty: Float = 1.1f
+)
+
+enum class KvCachePrecision(val nativeMode: Int, val label: String, val detail: String) {
+    Fp16(0, "FP16", "标准精度"),
+    Q8_0(1, "Q8_0", "约省一半 KV 内存"),
+    Q4_0(2, "Q4_0", "长上下文极致省内存")
+}
+
 class LocalLlmEngine(private val cacheDirectory: File) : AutoCloseable {
     private val execution = Mutex()
     private val lifecycle = ReentrantReadWriteLock()
     @Volatile private var handle = 0L
     private var loadedKey: String? = null
 
-    suspend fun load(config: File, modelKey: String, threads: Int, contextTokens: Int): String? =
+    suspend fun load(
+        config: File,
+        modelKey: String,
+        threads: Int,
+        contextTokens: Int,
+        useOpenCl: Boolean = false
+    ): String? =
         execution.withLock {
             withContext(Dispatchers.Default) {
-                if (handle != 0L && loadedKey == modelKey) return@withContext null
+                val effectiveKey = "$modelKey:$threads:$contextTokens:$useOpenCl"
+                if (handle != 0L && loadedKey == effectiveKey) return@withContext null
                 replaceHandle(0L)
                 val created = nativeCreate()
                 check(created != 0L) { "无法创建 LLM 会话" }
                 // Publish the handle first so cancel() can interrupt the load; only the write lock may free it.
                 replaceHandle(created)
                 val error = lifecycle.read {
-                    nativeLoad(created, config.absolutePath, cacheDirectory.absolutePath, threads, contextTokens)
+                    nativeLoad(created, config.absolutePath, cacheDirectory.absolutePath, threads, contextTokens, useOpenCl)
                 }
-                if (error != null) replaceHandle(0L) else loadedKey = modelKey
+                if (error != null) replaceHandle(0L) else loadedKey = effectiveKey
                 error
             }
         }
@@ -59,6 +79,7 @@ class LocalLlmEngine(private val cacheDirectory: File) : AutoCloseable {
         messages: List<Pair<String, String>>,
         maxNewTokens: Int,
         thinking: Boolean,
+        sampling: ChatSamplingParams = ChatSamplingParams(),
         callback: LlmStreamCallback
     ): NativeLlmResult = execution.withLock {
         withContext(Dispatchers.Default) {
@@ -66,8 +87,18 @@ class LocalLlmEngine(private val cacheDirectory: File) : AutoCloseable {
             try {
                 val current = handle
                 check(current != 0L) { "模型尚未加载" }
-                nativeGenerate(current, conversationId, messages.map { it.first }.toTypedArray(),
-                    messages.map { it.second }.toTypedArray(), maxNewTokens, thinking, callback)
+                nativeGenerate(
+                    current,
+                    conversationId,
+                    messages.map { it.first }.toTypedArray(),
+                    messages.map { it.second }.toTypedArray(),
+                    maxNewTokens,
+                    thinking,
+                    sampling.temperature,
+                    sampling.topP,
+                    sampling.repeatPenalty,
+                    callback
+                )
             } finally {
                 lifecycle.readLock().unlock()
             }
@@ -94,11 +125,12 @@ class LocalLlmEngine(private val cacheDirectory: File) : AutoCloseable {
 
         @JvmStatic private external fun nativeCreate(): Long
         @JvmStatic private external fun nativeLoad(
-            handle: Long, config: String, cache: String, threads: Int, contextTokens: Int
+            handle: Long, config: String, cache: String, threads: Int, contextTokens: Int, useOpenCl: Boolean
         ): String?
         @JvmStatic private external fun nativeGenerate(
             handle: Long, conversationId: String, roles: Array<String>, contents: Array<String>,
-            maxNewTokens: Int, thinking: Boolean, callback: LlmStreamCallback
+            maxNewTokens: Int, thinking: Boolean, temperature: Float, topP: Float, repeatPenalty: Float,
+            callback: LlmStreamCallback
         ): NativeLlmResult
         @JvmStatic private external fun nativeCancel(handle: Long)
         @JvmStatic private external fun nativeDestroy(handle: Long)

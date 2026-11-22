@@ -25,6 +25,10 @@ struct LlamaChatRequest {
     LlamaChatMessages messages;
     int maxNewTokens = 512;
     bool thinking = false;
+    float temperature = 0.7f;
+    float topP = 0.9f;
+    int topK = 40;
+    float repeatPenalty = 1.1f;
 };
 
 struct LlamaChatResult {
@@ -45,7 +49,11 @@ public:
     LlamaChatSession(const LlamaChatSession&) = delete;
     LlamaChatSession& operator=(const LlamaChatSession&) = delete;
 
-    bool Load(const std::string& modelPath, int threadCount, int contextTokens, std::string& error);
+    // kvQuantMode: 0 = F16, 1 = Q8_0, 2 = Q4_0; gpuLayers: 0 = CPU only, >0 = offload layers if GPU backend exists.
+    bool Load(const std::string& modelPath, int threadCount, int contextTokens, std::string& error,
+              int kvQuantMode = 0, int gpuLayers = 0);
+    int EffectiveContextTokens() const;
+    int ModelTrainContextTokens() const;
     LlamaChatResult Generate(const LlamaChatRequest& request,
                              const std::function<bool(const std::string&)>& onToken);
     void Cancel();

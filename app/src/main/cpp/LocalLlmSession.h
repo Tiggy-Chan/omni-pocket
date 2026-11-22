@@ -49,6 +49,9 @@ struct LlmRequest {
     ChatMessages messages;
     int maxNewTokens = 512;
     bool thinking = false;
+    float temperature = 0.7f;
+    float topP = 0.9f;
+    float repeatPenalty = 1.1f;
 };
 
 class LocalLlmSession {
@@ -59,7 +62,8 @@ public:
     LocalLlmSession& operator=(const LocalLlmSession&) = delete;
 
     bool Load(const std::string& configPath, const std::string& cachePath,
-              int threadCount, int contextTokens, std::string& error);
+              int threadCount, int contextTokens, std::string& error,
+              bool useOpenCl = false);
     LlmResult Generate(const LlmRequest& request,
                        const std::function<bool(const std::string&)>& onToken);
     void Cancel();
@@ -74,6 +78,7 @@ private:
     std::atomic<bool> cancelled_{false};
     int contextTokens_ = 4096;
     bool thinking_ = false;
+    bool activeOpenCl_ = false;
     std::string conversationId_;
 };
 

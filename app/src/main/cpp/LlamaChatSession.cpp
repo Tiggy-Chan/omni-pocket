@@ -162,6 +162,7 @@ struct LlamaChatSession::Impl {
     llama_context* context = nullptr;
     const llama_vocab* vocab = nullptr;
     int contextTokens = 4096;
+    int trainContextTokens = 0;
     int threadCount = 4;
     std::string conversationId;
     bool thinking = false;
@@ -323,12 +324,13 @@ LlamaChatSession::~LlamaChatSession() {
     impl_->Clear();
 }
 
-bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int contextTokens, std::string& error) {
+bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int contextTokens, std::string& error,
+                            int kvQuantMode, int gpuLayers) {
     std::lock_guard<std::mutex> lock(impl_->executionMutex);
     impl_->cancelled.store(false);
     error.clear();
-    if (threadCount < 1 || threadCount > 16 || contextTokens < 512 || contextTokens > 32768) {
-        error = "推理线程或上下文预算无效";
+    if (threadCount < 1 || threadCount > 16 || contextTokens < 512 || contextTokens > 131072) {
+        error = "推理线程或上下文预算无效（支持 512–131072 tokens）";
         return false;
     }
     std::error_code ec;
@@ -341,7 +343,7 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
     std::call_once(backendOnce, [] { ggml_backend_load_all(); });
 
     auto modelParams = llama_model_default_params();
-    modelParams.n_gpu_layers = 0;
+    modelParams.n_gpu_layers = std::max(0, gpuLayers);
     modelParams.load_mode = LLAMA_LOAD_MODE_MMAP;
     modelParams.progress_callback = [](float, void* data) -> bool {
         return !static_cast<std::atomic<bool>*>(data)->load();
@@ -361,6 +363,7 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
     }
 
     const int trainCtx = llama_model_n_ctx_train(impl_->model);
+    impl_->trainContextTokens = trainCtx;
     const int effectiveCtx = trainCtx > 0 ? std::min(contextTokens, std::max(512, trainCtx)) : contextTokens;
 
     auto ctxParams = llama_context_default_params();
@@ -369,14 +372,28 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
     ctxParams.n_ubatch = static_cast<uint32_t>(kBatchSize);
     ctxParams.n_threads = threadCount;
     ctxParams.n_threads_batch = threadCount;
-    ctxParams.offload_kqv = false;
-    ctxParams.op_offload = false;
+    ctxParams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+    if (kvQuantMode == 1) {
+        ctxParams.type_k = GGML_TYPE_Q8_0;
+        ctxParams.type_v = GGML_TYPE_Q8_0;
+    } else if (kvQuantMode == 2) {
+        ctxParams.type_k = GGML_TYPE_Q4_0;
+        ctxParams.type_v = GGML_TYPE_Q4_0;
+    }
+    ctxParams.offload_kqv = gpuLayers > 0;
+    ctxParams.op_offload = gpuLayers > 0;
     ctxParams.abort_callback = [](void* data) -> bool {
         return static_cast<std::atomic<bool>*>(data)->load();
     };
     ctxParams.abort_callback_data = &impl_->cancelled;
 
     impl_->context = llama_init_from_model(impl_->model, ctxParams);
+    if (impl_->context == nullptr && kvQuantMode != 0) {
+        // Some hybrid/SSM architectures only support F16 KV cache; retry cleanly with default F16.
+        ctxParams.type_k = GGML_TYPE_F16;
+        ctxParams.type_v = GGML_TYPE_F16;
+        impl_->context = llama_init_from_model(impl_->model, ctxParams);
+    }
     if (impl_->context == nullptr) {
         error = "无法创建 " + std::to_string(effectiveCtx) + " token 推理上下文，可用内存不足";
         impl_->Clear();
@@ -386,6 +403,14 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
     impl_->contextTokens = effectiveCtx;
     impl_->threadCount = threadCount;
     return true;
+}
+
+int LlamaChatSession::EffectiveContextTokens() const {
+    return impl_->contextTokens;
+}
+
+int LlamaChatSession::ModelTrainContextTokens() const {
+    return impl_->trainContextTokens;
 }
 
 LlamaChatResult LlamaChatSession::Generate(
@@ -477,15 +502,29 @@ LlamaChatResult LlamaChatSession::Generate(
 
     auto chainParams = llama_sampler_chain_default_params();
     llama_sampler* sampler = llama_sampler_chain_init(chainParams);
-    llama_sampler_chain_add(sampler, llama_sampler_init_top_k(40));
-    llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.9f, 1));
-    llama_sampler_chain_add(sampler, llama_sampler_init_min_p(0.05f, 1));
-    llama_sampler_chain_add(sampler, llama_sampler_init_penalties(
-        llama_vocab_n_tokens(impl_->vocab), 64, 1.1f, 0.0f, 0.0f));
-    llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.7f));
-    const uint32_t seed = static_cast<uint32_t>(
-        std::chrono::high_resolution_clock::now().time_since_epoch().count() & 0xFFFFFFFFu);
-    llama_sampler_chain_add(sampler, llama_sampler_init_dist(seed));
+    const float clampedTemp = std::clamp(request.temperature, 0.0f, 2.0f);
+    const float clampedTopP = std::clamp(request.topP, 0.05f, 1.0f);
+    const int clampedTopK = std::clamp(request.topK, 1, 200);
+    const float clampedPenalty = std::clamp(request.repeatPenalty, 1.0f, 2.0f);
+    if (clampedTemp <= 0.01f) {
+        if (clampedPenalty > 1.001f) {
+            llama_sampler_chain_add(sampler, llama_sampler_init_penalties(
+                llama_vocab_n_tokens(impl_->vocab), 64, clampedPenalty, 0.0f, 0.0f));
+        }
+        llama_sampler_chain_add(sampler, llama_sampler_init_greedy());
+    } else {
+        llama_sampler_chain_add(sampler, llama_sampler_init_top_k(clampedTopK));
+        llama_sampler_chain_add(sampler, llama_sampler_init_top_p(clampedTopP, 1));
+        llama_sampler_chain_add(sampler, llama_sampler_init_min_p(0.05f, 1));
+        if (clampedPenalty > 1.001f) {
+            llama_sampler_chain_add(sampler, llama_sampler_init_penalties(
+                llama_vocab_n_tokens(impl_->vocab), 64, clampedPenalty, 0.0f, 0.0f));
+        }
+        llama_sampler_chain_add(sampler, llama_sampler_init_temp(clampedTemp));
+        const uint32_t seed = static_cast<uint32_t>(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count() & 0xFFFFFFFFu);
+        llama_sampler_chain_add(sampler, llama_sampler_init_dist(seed));
+    }
 
     Utf8Emitter emitter(onToken);
     if (promptOpenedThink) {
@@ -531,7 +570,8 @@ LlamaChatResult LlamaChatSession::Generate(
             }
         }
         ++generated;
-        impl_->kvTokens.push_back(nextToken);
+        // Stop BEFORE pushing to kvTokens if we won't decode this final token into KV memory,
+        // keeping impl_->kvTokens strictly identical to the tokens actually stored in the KV cache.
         if (generated >= request.maxNewTokens || currentPos + 1 >= impl_->contextTokens) break;
 
         if (!impl_->DecodeTokens(&nextToken, 1, currentPos, decodeError)) {
@@ -540,6 +580,7 @@ LlamaChatResult LlamaChatSession::Generate(
             }
             break;
         }
+        impl_->kvTokens.push_back(nextToken);
         ++currentPos;
     }
 

@@ -35,17 +35,30 @@ JNIEXPORT jlong JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nat
 }
 
 JNIEXPORT jstring JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeLoad(
-    JNIEnv* env, jclass, jlong handle, jstring modelPath, jint threads, jint contextTokens) {
+    JNIEnv* env, jclass, jlong handle, jstring modelPath, jint threads, jint contextTokens,
+    jint kvQuantMode, jint gpuLayers) {
     if (handle == 0) return env->NewStringUTF("GGUF 对话会话已释放");
     std::string error;
-    const bool loaded = ChatSession(handle)->Load(StringValue(env, modelPath), threads, contextTokens, error);
+    const bool loaded = ChatSession(handle)->Load(
+        StringValue(env, modelPath), threads, contextTokens, error, kvQuantMode, gpuLayers);
     if (env->ExceptionCheck()) return nullptr;
     return loaded ? nullptr : env->NewStringUTF(error.c_str());
 }
 
+JNIEXPORT jint JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeEffectiveContext(
+    JNIEnv*, jclass, jlong handle) {
+    return handle != 0 ? ChatSession(handle)->EffectiveContextTokens() : 0;
+}
+
+JNIEXPORT jint JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeTrainContext(
+    JNIEnv*, jclass, jlong handle) {
+    return handle != 0 ? ChatSession(handle)->ModelTrainContextTokens() : 0;
+}
+
 JNIEXPORT jobject JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeGenerate(
     JNIEnv* env, jclass, jlong handle, jstring conversationId, jobjectArray roles, jobjectArray contents,
-    jint maxNewTokens, jboolean thinking, jobject callback) {
+    jint maxNewTokens, jboolean thinking, jfloat temperature, jfloat topP, jint topK, jfloat repeatPenalty,
+    jobject callback) {
     if (handle == 0) {
         ThrowIllegalState(env, "GGUF 模型尚未加载");
         return nullptr;
@@ -78,7 +91,16 @@ JNIEXPORT jobject JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_n
     if (onToken == nullptr) return nullptr;
 
     const auto result = ChatSession(handle)->Generate(
-        omni::LlamaChatRequest{StringValue(env, conversationId), std::move(messages), maxNewTokens, thinking == JNI_TRUE},
+        omni::LlamaChatRequest{
+            StringValue(env, conversationId),
+            std::move(messages),
+            maxNewTokens,
+            thinking == JNI_TRUE,
+            temperature,
+            topP,
+            topK,
+            repeatPenalty
+        },
         [&](const std::string& token) -> bool {
             if (env->ExceptionCheck()) return false;
             const jstring value = env->NewStringUTF(token.c_str());
@@ -101,6 +123,15 @@ JNIEXPORT jobject JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_n
     env->DeleteLocalRef(error);
     env->DeleteLocalRef(resultClass);
     return value;
+}
+
+JNIEXPORT jboolean JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeHasGpuBackend(
+    JNIEnv*, jclass) {
+#ifdef OMNI_LLAMA_HAS_VULKAN
+    return JNI_TRUE;
+#else
+    return JNI_FALSE;
+#endif
 }
 
 JNIEXPORT void JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeCancel(

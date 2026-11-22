@@ -161,8 +161,9 @@ data class LlmConversation(
         }
     }
 
-    fun modelMessages(): List<Pair<String, String>> = buildList {
-        add("system" to SYSTEM_PROMPT)
+    fun modelMessages(systemPrompt: String = SYSTEM_PROMPT): List<Pair<String, String>> = buildList {
+        val effectiveSystem = systemPrompt.trim().ifBlank { SYSTEM_PROMPT }
+        add("system" to effectiveSystem)
         val usable = messages.filter { it.status != LlmMessageStatus.Failed && it.content.isNotBlank() }
         usable.forEachIndexed { index, message ->
             if (message.role == "user") {

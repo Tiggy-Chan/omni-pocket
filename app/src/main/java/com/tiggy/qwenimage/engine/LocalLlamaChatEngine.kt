@@ -18,20 +18,37 @@ class LocalLlamaChatEngine : AutoCloseable {
     private val lifecycle = ReentrantReadWriteLock()
     @Volatile private var handle = 0L
     private var loadedKey: String? = null
+    @Volatile var effectiveContextTokens: Int = 0
+        private set
+    @Volatile var modelTrainContextTokens: Int = 0
+        private set
 
-    suspend fun load(modelFile: File, modelKey: String, threads: Int, contextTokens: Int): String? =
+    suspend fun load(
+        modelFile: File,
+        modelKey: String,
+        threads: Int,
+        contextTokens: Int,
+        kvPrecision: KvCachePrecision = KvCachePrecision.Fp16,
+        gpuLayers: Int = 0
+    ): String? =
         execution.withLock {
             withContext(Dispatchers.Default) {
-                val effectiveKey = "$modelKey:$threads:$contextTokens"
+                val effectiveKey = "$modelKey:$threads:$contextTokens:${kvPrecision.nativeMode}:$gpuLayers"
                 if (handle != 0L && loadedKey == effectiveKey) return@withContext null
                 replaceHandle(0L)
                 val created = nativeCreate()
                 check(created != 0L) { "无法创建 GGUF 对话会话" }
                 replaceHandle(created)
                 val error = lifecycle.read {
-                    nativeLoad(created, modelFile.absolutePath, threads, contextTokens)
+                    nativeLoad(created, modelFile.absolutePath, threads, contextTokens, kvPrecision.nativeMode, gpuLayers)
                 }
-                if (error != null) replaceHandle(0L) else loadedKey = effectiveKey
+                if (error != null) {
+                    replaceHandle(0L)
+                } else {
+                    loadedKey = effectiveKey
+                    effectiveContextTokens = lifecycle.read { if (handle != 0L) nativeEffectiveContext(handle) else 0 }
+                    modelTrainContextTokens = lifecycle.read { if (handle != 0L) nativeTrainContext(handle) else 0 }
+                }
                 error
             }
         }
@@ -40,6 +57,10 @@ class LocalLlamaChatEngine : AutoCloseable {
         val previous = handle
         handle = next
         loadedKey = null
+        if (next == 0L) {
+            effectiveContextTokens = 0
+            modelTrainContextTokens = 0
+        }
         if (previous != next) nativeDestroy(previous)
     }
 
@@ -48,6 +69,7 @@ class LocalLlamaChatEngine : AutoCloseable {
         messages: List<Pair<String, String>>,
         maxNewTokens: Int,
         thinking: Boolean,
+        sampling: ChatSamplingParams = ChatSamplingParams(),
         callback: LlmStreamCallback
     ): NativeLlmResult = execution.withLock {
         withContext(Dispatchers.Default) {
@@ -62,6 +84,10 @@ class LocalLlamaChatEngine : AutoCloseable {
                     messages.map { it.second }.toTypedArray(),
                     maxNewTokens,
                     thinking,
+                    sampling.temperature,
+                    sampling.topP,
+                    sampling.topK,
+                    sampling.repeatPenalty,
                     callback
                 )
             } finally {
@@ -85,16 +111,22 @@ class LocalLlamaChatEngine : AutoCloseable {
 
     override fun close() = replaceHandle(0L)
 
-    private companion object {
+    companion object {
         init { System.loadLibrary("omni_decision") }
 
+        fun hasGpuBackend(): Boolean = runCatching { nativeHasGpuBackend() }.getOrDefault(false)
+
+        @JvmStatic private external fun nativeHasGpuBackend(): Boolean
         @JvmStatic private external fun nativeCreate(): Long
         @JvmStatic private external fun nativeLoad(
-            handle: Long, modelPath: String, threads: Int, contextTokens: Int
+            handle: Long, modelPath: String, threads: Int, contextTokens: Int, kvQuantMode: Int, gpuLayers: Int
         ): String?
+        @JvmStatic private external fun nativeEffectiveContext(handle: Long): Int
+        @JvmStatic private external fun nativeTrainContext(handle: Long): Int
         @JvmStatic private external fun nativeGenerate(
             handle: Long, conversationId: String, roles: Array<String>, contents: Array<String>,
-            maxNewTokens: Int, thinking: Boolean, callback: LlmStreamCallback
+            maxNewTokens: Int, thinking: Boolean, temperature: Float, topP: Float, topK: Int, repeatPenalty: Float,
+            callback: LlmStreamCallback
         ): NativeLlmResult
         @JvmStatic private external fun nativeCancel(handle: Long)
         @JvmStatic private external fun nativeDestroy(handle: Long)

@@ -572,9 +572,6 @@ fun rememberImageBitmap(path: String?, maxDimension: Int = 1024): Bitmap? {
     val result = produceState<Bitmap?>(initialValue = null, path, maxDimension) {
         value = path?.let { withContext(Dispatchers.IO) { decodeSampledBitmap(it, maxDimension) } }
     }
-    DisposableEffect(path) {
-        onDispose { result.value?.recycle() }
-    }
     return result.value
 }
 
@@ -583,9 +580,6 @@ fun rememberUriBitmap(uri: Uri?, maxDimension: Int = 1024): Bitmap? {
     val context = androidx.compose.ui.platform.LocalContext.current
     val result = produceState<Bitmap?>(initialValue = null, uri, maxDimension) {
         value = uri?.let { withContext(Dispatchers.IO) { decodeSampledBitmap(context, it, maxDimension) } }
-    }
-    DisposableEffect(uri) {
-        onDispose { result.value?.recycle() }
     }
     return result.value
 }

@@ -207,12 +207,13 @@ bool Utf8Chunker::Finish(bool discardIncomplete) {
 }
 
 bool LocalLlmSession::Load(const std::string& configPath, const std::string& cachePath,
-                           int threadCount, int contextTokens, std::string& error) {
+                           int threadCount, int contextTokens, std::string& error,
+                           bool useOpenCl) {
     std::lock_guard<std::mutex> lock(executionMutex_);
     cancelled_.store(false);
     error.clear();
-    if (threadCount < 1 || threadCount > 16 || contextTokens < 256 || contextTokens > 16384) {
-        error = "推理线程或上下文预算无效";
+    if (threadCount < 1 || threadCount > 16 || contextTokens < 512 || contextTokens > 65536) {
+        error = "推理线程或上下文预算无效（支持 512–65536 tokens）";
         return false;
     }
     std::error_code directoryError;
@@ -221,35 +222,57 @@ bool LocalLlmSession::Load(const std::string& configPath, const std::string& cac
         error = "无法创建 LLM 缓存目录";
         return false;
     }
-    llm_.reset(MNN::Transformer::Llm::createLLM(configPath));
-    if (!llm_) {
-        error = "无法读取 LLM 配置";
-        return false;
+
+    auto tryLoadBackend = [&](const char* backendType) -> bool {
+        llm_.reset(MNN::Transformer::Llm::createLLM(configPath));
+        if (!llm_) {
+            error = "无法读取 LLM 配置";
+            return false;
+        }
+        std::ostringstream config;
+        config << "{\"backend_type\":\"" << backendType << "\",\"thread_num\":" << threadCount
+               << ",\"async\":false,\"use_mmap\":true,\"tmp_path\":" << JsonString(cachePath)
+               << ",\"max_all_tokens\":" << contextTokens
+               << ",\"presence_penalty\":1.5,\"repetition_penalty\":1.0"
+               << ",\"reuse_kv\":true,\"prompt_cache\":true}";
+        if (!llm_->set_config(config.str())) {
+            error = "无法应用 LLM 运行配置";
+            llm_.reset();
+            return false;
+        }
+        if (!llm_->load()) {
+            error = "LLM 模型加载失败，请检查模型文件和可用内存";
+            llm_.reset();
+            return false;
+        }
+        if (!llm_->set_config("{\"jinja\":{\"context\":{\"enable_thinking\":false}}}")) {
+            error = "无法配置对话模板";
+            llm_.reset();
+            return false;
+        }
+        return true;
+    };
+
+    activeOpenCl_ = false;
+    if (useOpenCl) {
+        if (tryLoadBackend("opencl")) {
+            activeOpenCl_ = true;
+        } else if (!cancelled_.load()) {
+            // Gracefully fall back to CPU when device OpenCL driver rejects the graph.
+            error.clear();
+            if (!tryLoadBackend("cpu")) return false;
+        } else {
+            return false;
+        }
+    } else {
+        if (!tryLoadBackend("cpu")) return false;
     }
+
     contextTokens_ = contextTokens;
-    std::ostringstream config;
-    config << "{\"backend_type\":\"cpu\",\"thread_num\":" << threadCount
-           << ",\"async\":false,\"use_mmap\":true,\"tmp_path\":" << JsonString(cachePath)
-           << ",\"max_all_tokens\":" << contextTokens
-           << ",\"presence_penalty\":1.5,\"repetition_penalty\":1.0"
-           << ",\"reuse_kv\":true,\"prompt_cache\":true}";
-    if (!llm_->set_config(config.str())) {
-        error = "无法应用 LLM 运行配置";
-        llm_.reset();
-        return false;
+    if (!activeOpenCl_) {
+        auto activation = llm_->getExecutor()->activte();
+        llm_->tuning(MNN::Transformer::OP_ENCODER_NUMBER, {1, 5, 10, 20, 30, 50, 100});
     }
-    if (!llm_->load()) {
-        error = "LLM 模型加载失败，请检查模型文件和可用内存";
-        llm_.reset();
-        return false;
-    }
-    if (!llm_->set_config("{\"jinja\":{\"context\":{\"enable_thinking\":false}}}")) {
-        error = "无法配置对话模板";
-        llm_.reset();
-        return false;
-    }
-    auto activation = llm_->getExecutor()->activte();
-    llm_->tuning(MNN::Transformer::OP_ENCODER_NUMBER, {1, 5, 10, 20, 30, 50, 100});
     if (cancelled_.load()) {
         error = "模型加载已取消";
         llm_.reset();
@@ -319,9 +342,25 @@ LlmResult LocalLlmSession::Generate(const LlmRequest& request,
         llm_->set_config(std::string("{\"jinja\":{\"context\":{\"enable_thinking\":") +
                          (thinking_ ? "true" : "false") + "}}}");
     }
+    {
+        const float clampedTemp = std::clamp(request.temperature, 0.0f, 2.0f);
+        const float clampedTopP = std::clamp(request.topP, 0.05f, 1.0f);
+        const float clampedPenalty = std::clamp(request.repeatPenalty, 1.0f, 2.0f);
+        std::ostringstream samplerCfg;
+        if (clampedTemp <= 0.01f) {
+            samplerCfg << "{\"sampler_type\":\"greedy\"}";
+        } else {
+            samplerCfg << "{\"sampler_type\":\"mixed\",\"temperature\":" << clampedTemp
+                       << ",\"top_p\":" << clampedTopP
+                       << ",\"repetition_penalty\":" << clampedPenalty << "}";
+        }
+        llm_->set_config(samplerCfg.str());
+    }
 
     ChatMessages history = request.messages;
-    const size_t characterBudget = static_cast<size_t>(contextTokens_ - request.maxNewTokens) * 3;
+    // Coarse pre-filter using 5 bytes/token so UTF-8 Chinese (3 bytes/char, ~1 token/char)
+    // is never dropped prematurely before the exact tokenizer check below.
+    const size_t characterBudget = static_cast<size_t>(contextTokens_ - request.maxNewTokens) * 5;
     size_t estimatedCharacters = history.front().second.size() + 64;
     for (size_t i = 1; i < history.size(); ++i) estimatedCharacters += history[i].second.size() + 16;
     while (estimatedCharacters > characterBudget && history.size() > 2) {
