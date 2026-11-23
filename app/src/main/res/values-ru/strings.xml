@@ -280,7 +280,7 @@
     <string name="video_models_title">Видеомодели</string>
     <string name="video_builtin_ready">Готово · 5B локально</string>
     <string name="video_search_more">Найти больше видеомоделей</string>
-    <string name="video_search_more_sub">Поддержка Wan2.2 / Wan2.1 GGUF (переиспользует UMT5 и TAE)</string>
+    <string name="video_search_more_sub">Поддержка Wan2.2 / Wan2.1 / MiniMax-H3 GGUF (переиспользует UMT5 и TAE)</string>
     <string name="video_delete_title">Удалить видео?</string>
     <string name="video_delete_body">Видео и связанные файлы будут удалены безвозвратно.</string>
     <string name="video_reuse_prompt">Повторить промпт</string>
@@ -397,7 +397,7 @@
     <string name="models_hint_mnn">Поиск пакетов MNN, напр. taobao-mnn</string>
     <string name="models_hint_decision">Поиск GGUF для решений, напр. OneJev1.6, elephant-1</string>
     <string name="models_hint_image">Поиск весов SD / SDXL / Z-Image / FLUX.2 Klein</string>
-    <string name="models_hint_video">Поиск видеомоделей Wan2.2 / Wan2.1 GGUF</string>
+    <string name="models_hint_video">Поиск видеомоделей Wan2.2 / Wan2.1 / MiniMax-H3 GGUF</string>
     <string name="models_hint_music">Поиск ACE-Step / YuE2 / HeartMuLa / Stable Audio GGUF</string>
     <string name="hub_split_gguf">Разбитые GGUF не поддерживаются; выберите единый файл</string>
     <string name="hub_wan_moe14b">Wan2.2 A14B требует &gt;16 ГБ ОЗУ; для смартфонов лучше Wan2.2-TI2V-5B или Wan2.1-1.3B</string>
@@ -413,7 +413,7 @@
     <string name="hub_empty_mnn">Неполный пакет MNN (требуются config.json, llm.mnn и токенизатор).</string>
     <string name="hub_empty_decision">Совместимые GGUF-модели для решений не найдены.</string>
     <string name="hub_empty_image">Подходящие веса изображений не найдены (SD/SDXL, Z-Image, FLUX.2-Klein).</string>
-    <string name="hub_empty_video">Не найдены поддерживаемые веса видео Wan2.2 / Wan2.1 GGUF.</string>
+    <string name="hub_empty_video">Не найдены поддерживаемые веса видео Wan2.2 / Wan2.1 / MiniMax-H3 GGUF.</string>
     <string name="hub_empty_music">Не найдены совместимые музыкальные GGUF для audio.cpp.</string>
     <string name="hub_search_failed_fmt">Ошибка поиска: %1$s (при необходимости смените зеркало)</string>
     <string name="hub_probe_ok_fmt">Подключено · %1$d мс</string>
@@ -525,4 +525,17 @@
     <string name="models_revision_label">Ревизия</string>
     <string name="common_show_token">Показать токен</string>
     <string name="common_hide_token">Скрыть токен</string>
+    <string name="hub_comp_minimax_h3">Включает общий текстовый энкодер Qwen3-VL, видео/аудио VAE MiniMax-H3 и адаптеры pi-H3 на 2/4 шага (потоковая загрузка с диска)</string>
+    <string name="hub_minimax_h3_unpruned">Полная модель MiniMax-H3 31B слишком велика для телефона; выберите урезанную версию Pruned (17B) Q2_K / Q3_K</string>
+    <string name="curated_minimax_h3_unsloth">MiniMax-H3 Pruned: совместная генерация видео и аудио за 2–4 шага (pi-H3 + стриминг с диска)</string>
+    <string name="curated_minimax_h3_abiray">Квантизации GGUF MiniMax-H3 17B Pruned (Q3_K_M / Q4_K_M)</string>
+    <string name="bench_str_minimax_h3">Совместное видео+аудио за 2–4 шага с pi-H3; потоковая загрузка с диска для смартфонов 12 ГБ+ (~18 ГБ памяти)</string>
+    <string name="video_frames_label_h3">Кадры (17k+5)</string>
+    <string name="video_err_frames_h3">Для MiniMax-H3 нужно 5–56 кадров по правилу 17k+5 (напр., 5, 22, 39, 56).</string>
+    <string name="settings_video_disk_stream">Потоковая загрузка весов с диска (MiniMax-H3)</string>
+    <string name="settings_video_disk_stream_detail">Подгружает веса сегментами из накопителя для работы на телефонах с 12 ГБ+ ОЗУ</string>
+    <string name="res_h3_landscape">480×288 Альбомная</string>
+    <string name="res_h3_portrait">288×480 Портретная</string>
+    <string name="res_h3_wide">512×320 Широкая</string>
+    <string name="res_h3_hd">640×384 Высокая</string>
 </resources>

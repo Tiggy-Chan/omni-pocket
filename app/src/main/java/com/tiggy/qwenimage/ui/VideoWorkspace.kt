@@ -115,6 +115,7 @@ fun VideoWorkspace(
     val settings = state.videoSettings
     val task = state.videoTask
     val activeCustomModel = state.customVideoModels.firstOrNull { it.id == settings.modelId }
+    val isMiniMaxH3 = activeCustomModel?.metadata?.get("arch") == "minimax_h3"
     val modelLabel = activeCustomModel?.name ?: "Wan2.2 Turbo"
     // Stats model files, so check once per visit and after each job or model change rather than on every recomposition.
     val runtime = remember(task.running, state.wanModelStatus, settings.modelId, state.customVideoModels) {
@@ -123,7 +124,8 @@ fun VideoWorkspace(
     val ready = runtime.localReady
     val firstFrame = settings.inputImageUri
     val parameterError = when {
-        settings.numFrames !in 5..41 || (settings.numFrames - 1) % 4 != 0 -> tr(R.string.video_err_frames)
+        isMiniMaxH3 && !VideoSettings.isValidH3FrameCount(settings.numFrames, max = 56) -> tr(R.string.video_err_frames_h3)
+        !isMiniMaxH3 && (settings.numFrames !in 5..41 || (settings.numFrames - 1) % 4 != 0) -> tr(R.string.video_err_frames)
         settings.steps !in 1..12 -> tr(R.string.video_err_steps)
         else -> null
     }
@@ -261,7 +263,7 @@ fun VideoWorkspace(
     }
 
     if (showParams) {
-        VideoParamsSheet(settings, viewModel) { showParams = false }
+        VideoParamsSheet(settings, isMiniMaxH3, viewModel) { showParams = false }
     }
     if (showModelSheet) {
         VideoModelSheet(
@@ -561,17 +563,31 @@ private val VideoResOptions = listOf(
     VideoResOption(384, 640, R.string.res_preview)
 )
 
+private val MiniMaxH3ResOptions = listOf(
+    VideoResOption(480, 288, R.string.res_h3_landscape),
+    VideoResOption(288, 480, R.string.res_h3_portrait),
+    VideoResOption(512, 320, R.string.res_h3_wide),
+    VideoResOption(640, 384, R.string.res_h3_hd)
+)
+
 @Composable
-private fun VideoParamsSheet(settings: VideoSettings, viewModel: QwenViewModel, onDismiss: () -> Unit) {
+private fun VideoParamsSheet(
+    settings: VideoSettings,
+    isMiniMaxH3: Boolean,
+    viewModel: QwenViewModel,
+    onDismiss: () -> Unit
+) {
     val localized = LocalLocalizedContext.current
     var seedText by remember(settings.seed) { mutableStateOf(settings.seed.toString()) }
     var cfgText by remember(settings.cfgScale) { mutableStateOf(String.format(Locale.US, "%.1f", settings.cfgScale)) }
+    val resOptions = if (isMiniMaxH3) MiniMaxH3ResOptions else VideoResOptions
+    val frameOptions = if (isMiniMaxH3) listOf(5, 22, 39, 56) else listOf(9, 17, 25, 33)
     OmniSheet(tr(R.string.common_parameters), onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(tr(R.string.video_resolution), color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(VideoResOptions) { opt ->
+                    items(resOptions) { opt ->
                         ComposerChip(
                             label = localized.getString(opt.labelRes),
                             onClick = { viewModel.setVideoResolution(opt.width, opt.height) },
@@ -581,15 +597,26 @@ private fun VideoParamsSheet(settings: VideoSettings, viewModel: QwenViewModel, 
                 }
             }
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(tr(R.string.video_frames_label), color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    tr(if (isMiniMaxH3) R.string.video_frames_label_h3 else R.string.video_frames_label),
+                    color = OmniColors.Muted,
+                    style = MaterialTheme.typography.bodyMedium
+                )
                 OmniTabs(
-                    items = listOf(9, 17, 25, 33),
+                    items = frameOptions,
                     selected = settings.numFrames,
                     label = { localized.getString(R.string.common_frames_value, it) },
                     onSelect = viewModel::setVideoNumFrames
                 )
             }
-            VideoIntSlider(tr(R.string.video_fps), "${settings.fps} FPS", settings.fps, 8..30, viewModel::setVideoFps)
+            if (isMiniMaxH3) {
+                SettingRow(
+                    title = tr(R.string.video_fps),
+                    detail = "24 FPS"
+                )
+            } else {
+                VideoIntSlider(tr(R.string.video_fps), "${settings.fps} FPS", settings.fps, 8..30, viewModel::setVideoFps)
+            }
             VideoIntSlider(tr(R.string.common_steps), tr(R.string.common_steps_value, settings.steps), settings.steps, 1..12, viewModel::setVideoSteps)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OmniTextField(
@@ -635,6 +662,14 @@ private fun VideoParamsSheet(settings: VideoSettings, viewModel: QwenViewModel, 
                 onClick = { viewModel.setVideoVaeTiling(!settings.vaeTiling) },
                 trailing = { Switch(checked = settings.vaeTiling, onCheckedChange = null) }
             )
+            if (isMiniMaxH3) {
+                SettingRow(
+                    title = tr(R.string.settings_video_disk_stream),
+                    detail = tr(R.string.settings_video_disk_stream_detail),
+                    onClick = { viewModel.setVideoDiskStreaming(!settings.diskStreaming) },
+                    trailing = { Switch(checked = settings.diskStreaming, onCheckedChange = null) }
+                )
+            }
         }
     }
 }

@@ -150,7 +150,7 @@
     <string name="about_repo_title">Omni Pocket on GitHub</string>
     <string name="about_star_prompt">If Omni Pocket helps you, please consider giving it a Star on GitHub.</string>
     <string name="about_star_button">Star on GitHub</string>
-    <string name="about_local_note">Chat (MNN / llama.cpp GGUF), Decision (Elephant-1), Image (Qwen / MOSS / SD / Z-Image / FLUX.2 Klein), Music (YuE2 / ACE-Step / HeartMuLa / Stable Audio 3), and Video (Wan2.2 / Wan2.1) all run locally on your phone with zero cloud inference.</string>
+    <string name="about_local_note">Chat (MNN / llama.cpp GGUF), Decision (Elephant-1), Image (Qwen / MOSS / SD / Z-Image / FLUX.2 Klein), Music (YuE2 / ACE-Step / HeartMuLa / Stable Audio 3), and Video (Wan2.2 / Wan2.1 / MiniMax-H3) all run locally on your phone with zero cloud inference.</string>
     <string name="chat_start_title">Start a conversation</string>
     <string name="chat_start_subtitle">Download a built-in or community chat model in Models first</string>
     <string name="chat_input_placeholder">Message</string>
@@ -280,7 +280,7 @@
     <string name="video_models_title">Video Models</string>
     <string name="video_builtin_ready">Ready · 5B on-device</string>
     <string name="video_search_more">Search more video models in Models</string>
-    <string name="video_search_more_sub">Supports Wan2.2 / Wan2.1 GGUF (reuses UMT5 &amp; TAE)</string>
+    <string name="video_search_more_sub">Supports Wan2.2 / Wan2.1 / MiniMax-H3 GGUF (reuses UMT5 &amp; TAE)</string>
     <string name="video_delete_title">Delete video?</string>
     <string name="video_delete_body">This will permanently delete the video and related files.</string>
     <string name="video_reuse_prompt">Reuse prompt</string>
@@ -397,7 +397,7 @@
     <string name="models_hint_mnn">Search MNN bundles, e.g. taobao-mnn</string>
     <string name="models_hint_decision">Search Decision GGUFs, e.g. OneJev1.6, elephant-1</string>
     <string name="models_hint_image">Search SD / SDXL / Z-Image / FLUX.2 Klein weights</string>
-    <string name="models_hint_video">Search Wan2.2 / Wan2.1 GGUF video models</string>
+    <string name="models_hint_video">Search Wan2.2 / Wan2.1 / MiniMax-H3 GGUF video models</string>
     <string name="models_hint_music">Search ACE-Step / YuE2 / HeartMuLa / Stable Audio GGUF</string>
     <string name="hub_split_gguf">Split GGUF files cannot be loaded directly; please pick a single-file quant</string>
     <string name="hub_wan_moe14b">Wan2.2 A14B needs dual models and &gt;16 GB RAM; Wan2.2-TI2V-5B or Wan2.1-1.3B is recommended on phones</string>
@@ -413,7 +413,7 @@
     <string name="hub_empty_mnn">Incomplete MNN bundle (requires config.json, llm_config.json, llm.mnn, llm.mnn.weight &amp; tokenizer).</string>
     <string name="hub_empty_decision">No compatible single-file Decision GGUF found in this repo.</string>
     <string name="hub_empty_image">No supported image weights found (single-file SD/SDXL, or Z-Image / FLUX.2-Klein GGUF).</string>
-    <string name="hub_empty_video">No supported Wan2.2 / Wan2.1 GGUF video weights found.</string>
+    <string name="hub_empty_video">No supported Wan2.2 / Wan2.1 / MiniMax-H3 GGUF video weights found.</string>
     <string name="hub_empty_music">No supported audio.cpp music GGUF found (YuE2 / ACE-Step / HeartMuLa / Stable Audio 3).</string>
     <string name="hub_search_failed_fmt">Search failed: %1$s (switch mirror if needed)</string>
     <string name="hub_probe_ok_fmt">Connected · %1$d ms</string>
@@ -525,4 +525,17 @@
     <string name="models_revision_label">Revision</string>
     <string name="common_show_token">Show token</string>
     <string name="common_hide_token">Hide token</string>
+    <string name="hub_comp_minimax_h3">Includes shared Qwen3-VL text encoder, MiniMax-H3 video/audio VAEs &amp; pi-H3 2/4-step adapters (disk streaming)</string>
+    <string name="hub_minimax_h3_unpruned">Unpruned MiniMax-H3 31B is too large for phones; please pick a Pruned (17B) Q2_K / Q3_K quant</string>
+    <string name="curated_minimax_h3_unsloth">MiniMax-H3 Pruned audio-video generation with pi-H3 2/4-step &amp; disk streaming</string>
+    <string name="curated_minimax_h3_abiray">MiniMax-H3 17B Pruned GGUF quantizations (Q3_K_M / Q4_K_M)</string>
+    <string name="bench_str_minimax_h3">Native joint video+audio in 2–4 steps with pi-H3; disk-streamed for 12 GB+ phones (~18 GB storage)</string>
+    <string name="video_frames_label_h3">Frames (17k+5)</string>
+    <string name="video_err_frames_h3">MiniMax-H3 frames must be 5–56 and follow 17k+5 (e.g. 5, 22, 39, 56).</string>
+    <string name="settings_video_disk_stream">Disk weight streaming (MiniMax-H3)</string>
+    <string name="settings_video_disk_stream_detail">Streams weights segment-by-segment from storage to fit 12 GB+ phones</string>
+    <string name="res_h3_landscape">480×288 Landscape</string>
+    <string name="res_h3_portrait">288×480 Portrait</string>
+    <string name="res_h3_wide">512×320 Wide</string>
+    <string name="res_h3_hd">640×384 High</string>
 </resources>

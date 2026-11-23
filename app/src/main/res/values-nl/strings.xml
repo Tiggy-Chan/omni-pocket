@@ -280,7 +280,7 @@
     <string name="video_models_title">Videomodellen</string>
     <string name="video_builtin_ready">Gereed · 5B lokaal</string>
     <string name="video_search_more">Zoek meer videomodellen</string>
-    <string name="video_search_more_sub">Ondersteunt Wan2.2 / Wan2.1 GGUF (hergebruikt UMT5 &amp; TAE)</string>
+    <string name="video_search_more_sub">Ondersteunt Wan2.2 / Wan2.1 / MiniMax-H3 GGUF (hergebruikt UMT5 &amp; TAE)</string>
     <string name="video_delete_title">Video verwijderen?</string>
     <string name="video_delete_body">De video en bijbehorende bestanden worden definitief verwijderd.</string>
     <string name="video_reuse_prompt">Prompt hergebruiken</string>
@@ -397,7 +397,7 @@
     <string name="models_hint_mnn">Zoek MNN-pakketten, bijv. taobao-mnn</string>
     <string name="models_hint_decision">Zoek beslissings-GGUF’s, bijv. OneJev1.6, elephant-1</string>
     <string name="models_hint_image">Zoek SD / SDXL / Z-Image / FLUX.2 Klein</string>
-    <string name="models_hint_video">Zoek Wan2.2 / Wan2.1 GGUF-videomodellen</string>
+    <string name="models_hint_video">Zoek Wan2.2 / Wan2.1 / MiniMax-H3 GGUF-videomodellen</string>
     <string name="models_hint_music">Zoek ACE-Step / YuE2 / HeartMuLa / Stable Audio GGUF</string>
     <string name="hub_split_gguf">Gesplitste GGUF-bestanden worden niet ondersteund; kies een enkel bestand</string>
     <string name="hub_wan_moe14b">Wan2.2 A14B vereist &gt;16 GB RAM; kies liever Wan2.2-TI2V-5B of Wan2.1-1.3B</string>
@@ -413,7 +413,7 @@
     <string name="hub_empty_mnn">Onvolledig MNN-pakket (config.json, llm.mnn en tokenizer vereist).</string>
     <string name="hub_empty_decision">Geen compatibele beslissings-GGUF gevonden in deze repo.</string>
     <string name="hub_empty_image">Geen ondersteunde afbeeldingsgewichten gevonden (SD/SDXL, Z-Image, FLUX.2-Klein).</string>
-    <string name="hub_empty_video">Geen ondersteunde Wan2.2 / Wan2.1 GGUF-videogewichten gevonden.</string>
+    <string name="hub_empty_video">Geen ondersteunde Wan2.2 / Wan2.1 / MiniMax-H3 GGUF-videogewichten gevonden.</string>
     <string name="hub_empty_music">Geen ondersteunde audio.cpp muziek-GGUF gevonden.</string>
     <string name="hub_search_failed_fmt">Zoeken mislukt: %1$s (wissel indien nodig van mirror)</string>
     <string name="hub_probe_ok_fmt">Verbonden · %1$d ms</string>
@@ -525,4 +525,17 @@
     <string name="models_revision_label">Revisie</string>
     <string name="common_show_token">Token tonen</string>
     <string name="common_hide_token">Token verbergen</string>
+    <string name="hub_comp_minimax_h3">Bevat gedeelde Qwen3-VL-tekstencoder, MiniMax-H3 video-/audio-VAE’s en pi-H3 2/4-stapsadapters (schijfstreaming)</string>
+    <string name="hub_minimax_h3_unpruned">Niet-gesnoeide MiniMax-H3 31B is te groot voor telefoons; kies een Pruned (17B) Q2_K / Q3_K-versie</string>
+    <string name="curated_minimax_h3_unsloth">MiniMax-H3 Pruned audio-videogeneratie met pi-H3 2/4 stappen &amp; schijfstreaming</string>
+    <string name="curated_minimax_h3_abiray">MiniMax-H3 17B Pruned GGUF-kwantisaties (Q3_K_M / Q4_K_M)</string>
+    <string name="bench_str_minimax_h3">Native video+audio in 2–4 stappen met pi-H3; schijfstreaming voor 12 GB+ telefoons (~18 GB opslag)</string>
+    <string name="video_frames_label_h3">Frames (17k+5)</string>
+    <string name="video_err_frames_h3">MiniMax-H3 vereist 5–56 frames volgens 17k+5 (bijv. 5, 22, 39, 56).</string>
+    <string name="settings_video_disk_stream">Gewichtsstreaming vanaf opslag (MiniMax-H3)</string>
+    <string name="settings_video_disk_stream_detail">Streamt gewichten per segment vanaf opslag voor telefoons met 12 GB+ RAM</string>
+    <string name="res_h3_landscape">480×288 Liggend</string>
+    <string name="res_h3_portrait">288×480 Staand</string>
+    <string name="res_h3_wide">512×320 Breed</string>
+    <string name="res_h3_hd">640×384 Hoog</string>
 </resources>

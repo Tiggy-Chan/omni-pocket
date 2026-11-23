@@ -150,7 +150,7 @@
     <string name="about_repo_title">Omni Pocket 开源仓库</string>
     <string name="about_star_prompt">如果 Omni Pocket 对你有帮助，欢迎到 GitHub 点一颗 Star 支持项目持续更新。</string>
     <string name="about_star_button">去给个 Star</string>
-    <string name="about_local_note">对话（MNN / llama.cpp GGUF）、决策（Elephant-1）、图像（Qwen / MOSS / SD / Z-Image / FLUX.2 Klein）、音乐（YuE2 / ACE-Step / HeartMuLa / Stable Audio 3）与视频（Wan2.2 / Wan2.1）全部在手机本机运行，推理无需联网。</string>
+    <string name="about_local_note">对话（MNN / llama.cpp GGUF）、决策（Elephant-1）、图像（Qwen / MOSS / SD / Z-Image / FLUX.2 Klein）、音乐（YuE2 / ACE-Step / HeartMuLa / Stable Audio 3）与视频（Wan2.2 / Wan2.1 / MiniMax-H3）全部在手机本机运行，推理无需联网。</string>
     <string name="chat_start_title">开始对话</string>
     <string name="chat_start_subtitle">先在模型页下载内置或社区对话模型</string>
     <string name="chat_input_placeholder">发消息</string>
@@ -280,7 +280,7 @@
     <string name="video_models_title">视频模型</string>
     <string name="video_builtin_ready">已就绪 · 5B 本机</string>
     <string name="video_search_more">从模型页搜索更多视频模型</string>
-    <string name="video_search_more_sub">支持 Wan2.2 / Wan2.1 GGUF（自动复用 UMT5 与 TAE）</string>
+    <string name="video_search_more_sub">支持 Wan2.2 / Wan2.1 / MiniMax-H3 GGUF（自动复用 UMT5 与 TAE）</string>
     <string name="video_delete_title">删除视频？</string>
     <string name="video_delete_body">将删除视频及关联文件，此操作无法撤销。</string>
     <string name="video_reuse_prompt">复用提示词</string>
@@ -397,7 +397,7 @@
     <string name="models_hint_mnn">搜索 MNN 转换包，如 taobao-mnn</string>
     <string name="models_hint_decision">搜索决策 GGUF 模型，如 OneJev1.6、elephant-1</string>
     <string name="models_hint_image">搜索 SD / SDXL / Z-Image / FLUX.2 Klein 权重</string>
-    <string name="models_hint_video">搜索 Wan2.2 / Wan2.1 GGUF 视频模型</string>
+    <string name="models_hint_video">搜索 Wan2.2 / Wan2.1 / MiniMax-H3 GGUF 视频模型</string>
     <string name="models_hint_music">搜索 ACE-Step / YuE2 / HeartMuLa / Stable Audio GGUF</string>
     <string name="hub_split_gguf">分片 GGUF 文件暂不支持单文件直接加载，请选择单文件版本</string>
     <string name="hub_wan_moe14b">Wan2.2 A14B 需要高低噪双模型且内存占用 &gt;16 GB，手机端建议选择 Wan2.2-TI2V-5B 或 Wan2.1-1.3B</string>
@@ -413,7 +413,7 @@
     <string name="hub_empty_mnn">该仓库缺少 MNN 完整文件（需包含 config.json、llm_config.json、llm.mnn、llm.mnn.weight 与 tokenizer.mtok/txt）</string>
     <string name="hub_empty_decision">该仓库未找到可用的单文件决策 GGUF 模型</string>
     <string name="hub_empty_image">该仓库未找到支持的图像权重（SD/SDXL 单文件，或 Z-Image / FLUX.2-Klein GGUF）</string>
-    <string name="hub_empty_video">该仓库未找到支持的 Wan2.2 / Wan2.1 GGUF 视频 DiT 权重</string>
+    <string name="hub_empty_video">该仓库未找到支持的 Wan2.2 / Wan2.1 / MiniMax-H3 GGUF 视频 DiT 权重</string>
     <string name="hub_empty_music">该仓库未找到支持的 audio.cpp 音乐 GGUF（YuE2 / ACE-Step / HeartMuLa / Stable Audio 3）</string>
     <string name="hub_search_failed_fmt">搜索失败：%1$s（如在国内请切换至 HF-Mirror）</string>
     <string name="hub_probe_ok_fmt">已连接 · %1$d ms</string>
@@ -525,4 +525,17 @@
     <string name="models_revision_label">分支版本（Revision）</string>
     <string name="common_show_token">显示令牌</string>
     <string name="common_hide_token">隐藏令牌</string>
+    <string name="hub_comp_minimax_h3">自动附带共享 Qwen3-VL 文本编码器、MiniMax-H3 音视频 VAE 及 pi-H3 2/4 步适配器（磁盘分段流式运行）</string>
+    <string name="hub_minimax_h3_unpruned">未剪枝 MiniMax-H3 31B 体积过大，手机端请选择 Pruned（17B）剪枝版 Q2_K / Q3_K</string>
+    <string name="curated_minimax_h3_unsloth">MiniMax-H3 剪枝版音画同步视频（配 pi-H3 2/4 步加速与磁盘流式加载）</string>
+    <string name="curated_minimax_h3_abiray">MiniMax-H3 17B 剪枝版多量化合集（含 Q3_K_M / Q4_K_M）</string>
+    <string name="bench_str_minimax_h3">原生音画同步视频生成，搭配 pi-H3 仅需 2–4 步去噪，通过磁盘分段流式加载可在 12 GB+ 手机运行（需约 18 GB 存储空间）</string>
+    <string name="video_frames_label_h3">帧数（17k+5）</string>
+    <string name="video_err_frames_h3">MiniMax-H3 本机帧数需为 5–56 且满足 17k+5（如 5、22、39、56）。</string>
+    <string name="settings_video_disk_stream">磁盘分段流式加载（MiniMax-H3）</string>
+    <string name="settings_video_disk_stream_detail">按层从闪存流式加载权重，大幅降低峰值内存以适配 12 GB+ 手机</string>
+    <string name="res_h3_landscape">480×288 横屏</string>
+    <string name="res_h3_portrait">288×480 竖屏</string>
+    <string name="res_h3_wide">512×320 宽屏</string>
+    <string name="res_h3_hd">640×384 清晰</string>
 </resources>

@@ -220,6 +220,7 @@ fun HfRepoOption.localizedCompanionSummary(): String? = when (companionNoteKey) 
     HubCompanionNote.ZImageShared -> tr(R.string.hub_comp_zimage)
     HubCompanionNote.Flux2Shared -> tr(R.string.hub_comp_flux2)
     HubCompanionNote.WanShared -> tr(R.string.hub_comp_wan, companionNoteArg.orEmpty())
+    HubCompanionNote.MiniMaxH3PiShared -> tr(R.string.hub_comp_minimax_h3)
     HubCompanionNote.Yue2Sidecars -> tr(R.string.hub_comp_yue2, companionNoteArg.orEmpty())
     HubCompanionNote.SelfContainedAudioGguf -> tr(R.string.hub_comp_audio_single)
     HubCompanionNote.DecisionBlockBidir -> tr(R.string.hub_comp_dec_bidir)
@@ -231,6 +232,7 @@ fun HfRepoOption.localizedCompanionSummary(): String? = when (companionNoteKey) 
 fun HfRepoOption.localizedSplitWarning(): String? = when (splitWarningKey) {
     HubSplitWarning.SplitGguf -> tr(R.string.hub_split_gguf)
     HubSplitWarning.WanMoE14B -> tr(R.string.hub_wan_moe14b)
+    HubSplitWarning.MiniMaxH3Unpruned -> tr(R.string.hub_minimax_h3_unpruned)
     null -> splitWarning
 }
 
@@ -261,6 +263,8 @@ fun HfRepoSummary.localizedSummary(): String {
         "curated_dreamshaper" -> R.string.curated_dreamshaper
         "curated_sd15" -> R.string.curated_sd15
         "curated_wan22_turbo" -> R.string.curated_wan22_turbo
+        "curated_minimax_h3_unsloth" -> R.string.curated_minimax_h3_unsloth
+        "curated_minimax_h3_abiray" -> R.string.curated_minimax_h3_abiray
         "curated_wan22_qs" -> R.string.curated_wan22_qs
         "curated_wan22_unsloth" -> R.string.curated_wan22_unsloth
         "curated_wan21_13b" -> R.string.curated_wan21_13b
@@ -301,6 +305,7 @@ fun ModelBenchmarkEntry.localizedStrengths(): String {
         "yue2-3b" -> R.string.bench_str_yue2
         "heartmula-3b" -> R.string.bench_str_heartmula
         "stable-audio-3-small" -> R.string.bench_str_stable_audio
+        "minimax-h3-pih3" -> R.string.bench_str_minimax_h3
         "wan2.2-ti2v-5b" -> R.string.bench_str_wan22
         "wan2.1-t2v-1.3b" -> R.string.bench_str_wan21
         else -> null

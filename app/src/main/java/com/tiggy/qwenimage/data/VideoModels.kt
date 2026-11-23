@@ -24,25 +24,34 @@ data class VideoSettings(
     val highQuality: Boolean = true,
     val useOpenCl: Boolean = true,
     val vaeTiling: Boolean = false,
+    val diskStreaming: Boolean = true,
     val threads: Int = 6,
     /** Empty string selects the built-in Wan2.2-TI2V-5B-Turbo package; otherwise a Hub VideoWan model ID. */
     val modelId: String = "",
     val inputImageUri: Uri? = null
 ) {
-    fun validate() {
+    fun validate(isMiniMaxH3: Boolean = false) {
         require(prompt.isNotBlank()) { "请输入视频提示词" }
-        require(numFrames in 5..81 && (numFrames - 1) % 4 == 0) { "视频帧数必须为 5–81 且满足 4n+1（如 9、17、25、33）" }
+        if (isMiniMaxH3) {
+            require(isValidH3FrameCount(numFrames, max = 56)) { "MiniMax-H3 视频帧数必须为 5–56 且满足 17k+5（如 5、22、39、56）" }
+        } else {
+            require(numFrames in 5..81 && (numFrames - 1) % 4 == 0) { "视频帧数必须为 5–81 且满足 4n+1（如 9、17、25、33）" }
+        }
         require(steps in 1..20) { "视频步数必须为 1–20" }
         require(fps in 8..30) { "帧率必须为 8–30 FPS" }
         require(cfgScale.isFinite() && cfgScale in 0.5f..15.0f) { "视频 CFG 必须在 0.5 到 15 之间" }
-        require(shift.isFinite() && shift in 1.0f..12.0f) { "流偏移必须在 1 到 12 之间" }
+        require(shift.isFinite() && shift in 1.0f..20.0f) { "流偏移必须在 1 到 20 之间" }
         require(threads in 2..8) { "视频线程数必须为 2–8" }
         require(width > 0 && height > 0 && width % 32 == 0 && height % 32 == 0) { "视频尺寸必须为 32 的倍数" }
     }
 
-    fun validateOnDevice() {
-        validate()
-        require(numFrames <= 41) { "本机最多生成 41 帧" }
+    fun validateOnDevice(isMiniMaxH3: Boolean = false) {
+        validate(isMiniMaxH3)
+        if (isMiniMaxH3) {
+            require(numFrames <= 56) { "本机 MiniMax-H3 最多生成 56 帧" }
+        } else {
+            require(numFrames <= 41) { "本机最多生成 41 帧" }
+        }
         require(steps <= 12) { "本机最多使用 12 步" }
     }
 
@@ -60,6 +69,7 @@ data class VideoSettings(
         put("highQuality", highQuality)
         put("useOpenCl", useOpenCl)
         put("vaeTiling", vaeTiling)
+        put("diskStreaming", diskStreaming)
         put("threads", threads)
         put("modelId", modelId)
         put("inputImage", inputImageUri?.toString())
@@ -69,30 +79,49 @@ data class VideoSettings(
         const val DEFAULT_VIDEO_NEGATIVE_PROMPT =
             "deformed, distorted, ugly, blurry, bad hands, dark, low quality, oversaturated, watermark, text"
 
+        fun isValidWanFrameCount(n: Int, max: Int = 41): Boolean = n in 5..max && (n - 1) % 4 == 0
+
+        fun isValidH3FrameCount(n: Int, max: Int = 56): Boolean = n in 5..max && (n - 5) % 17 == 0
+
         fun snapValidFrameCount(raw: Int, max: Int = 41): Int {
             val clamped = raw.coerceIn(5, max)
             val k = ((clamped - 1) + 2) / 4
             return (k * 4 + 1).coerceIn(5, max)
         }
 
-        fun fromJson(o: JSONObject) = VideoSettings(
-            prompt = o.optString("prompt", ""),
-            negativePrompt = o.optString("negativePrompt", DEFAULT_VIDEO_NEGATIVE_PROMPT),
-            seed = o.optLong("seed", 42L),
-            fps = o.optInt("fps", 16),
-            numFrames = snapValidFrameCount(o.optInt("numFrames", 25)),
-            width = o.optInt("width", 480),
-            height = o.optInt("height", 832),
-            steps = o.optInt("steps", 4).coerceIn(1, 12),
-            cfgScale = o.optDouble("cfgScale", 1.0).toFloat().coerceIn(0.5f, 15.0f),
-            shift = o.optDouble("shift", 5.0).toFloat().coerceIn(1.0f, 12.0f),
-            highQuality = o.optBoolean("highQuality", true),
-            useOpenCl = o.optBoolean("useOpenCl", true),
-            vaeTiling = o.optBoolean("vaeTiling", false),
-            threads = o.optInt("threads", 6).coerceIn(2, 8),
-            modelId = o.optString("modelId", ""),
-            inputImageUri = o.optString("inputImage").takeIf { it.isNotBlank() && it != "null" }?.let(Uri::parse)
-        )
+        fun snapValidH3FrameCount(raw: Int, max: Int = 56): Int {
+            val clamped = raw.coerceIn(5, max)
+            val k = ((clamped - 5) + 8) / 17
+            return (k * 17 + 5).coerceIn(5, max)
+        }
+
+        fun fromJson(o: JSONObject): VideoSettings {
+            val rawFrames = o.optInt("numFrames", 25)
+            val restoredFrames = if (isValidH3FrameCount(rawFrames) || isValidWanFrameCount(rawFrames)) {
+                rawFrames
+            } else {
+                snapValidFrameCount(rawFrames)
+            }
+            return VideoSettings(
+                prompt = o.optString("prompt", ""),
+                negativePrompt = o.optString("negativePrompt", DEFAULT_VIDEO_NEGATIVE_PROMPT),
+                seed = o.optLong("seed", 42L),
+                fps = o.optInt("fps", 16),
+                numFrames = restoredFrames,
+                width = o.optInt("width", 480),
+                height = o.optInt("height", 832),
+                steps = o.optInt("steps", 4).coerceIn(1, 12),
+                cfgScale = o.optDouble("cfgScale", 1.0).toFloat().coerceIn(0.5f, 15.0f),
+                shift = o.optDouble("shift", 5.0).toFloat().coerceIn(1.0f, 20.0f),
+                highQuality = o.optBoolean("highQuality", true),
+                useOpenCl = o.optBoolean("useOpenCl", true),
+                vaeTiling = o.optBoolean("vaeTiling", false),
+                diskStreaming = o.optBoolean("diskStreaming", true),
+                threads = o.optInt("threads", 6).coerceIn(2, 8),
+                modelId = o.optString("modelId", ""),
+                inputImageUri = o.optString("inputImage").takeIf { it.isNotBlank() && it != "null" }?.let(Uri::parse)
+            )
+        }
     }
 }
 

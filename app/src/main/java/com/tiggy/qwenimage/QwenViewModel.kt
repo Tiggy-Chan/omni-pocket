@@ -188,9 +188,18 @@ class QwenViewModel(
         val restoredCustomSd = runCatching {
             CustomSdSettings.fromJson(preferences.getString("customSdSettings", null)?.let { org.json.JSONObject(it) })
         }.getOrDefault(CustomSdSettings())
-        val restoredVideoSettings = runCatching {
+        val restoredVideoRaw = runCatching {
             preferences.getString("videoSettings", null)?.let { VideoSettings.fromJson(org.json.JSONObject(it)) }
         }.getOrNull() ?: VideoSettings()
+        val initialCustomVideos = _state.value.customVideoModels
+        val restoredIsH3 = isMiniMaxH3Model(restoredVideoRaw.modelId, initialCustomVideos)
+        val restoredVideoSettings = restoredVideoRaw.copy(
+            numFrames = if (restoredIsH3) {
+                VideoSettings.snapValidH3FrameCount(restoredVideoRaw.numFrames)
+            } else {
+                VideoSettings.snapValidFrameCount(restoredVideoRaw.numFrames)
+            }
+        )
         val restoredMusicSettings = runCatching {
             preferences.getString("musicSettings", null)?.let { MusicSettings.fromJson(org.json.JSONObject(it)) }
         }.getOrNull() ?: MusicSettings()
@@ -519,6 +528,13 @@ class QwenViewModel(
 
     fun videoRuntimeStatus(): VideoRuntimeStatus = videoEngine.runtimeStatus(_state.value.videoSettings.modelId)
 
+    private fun isMiniMaxH3Model(
+        modelId: String,
+        models: List<InstalledHubModel> = _state.value.customVideoModels
+    ): Boolean = modelId.isNotBlank() && models.firstOrNull { it.id == modelId }?.metadata?.get("arch") == "minimax_h3"
+
+    fun isActiveVideoMiniMaxH3(): Boolean = isMiniMaxH3Model(_state.value.videoSettings.modelId)
+
     private fun updateVideoSettings(persist: Boolean = true, transform: (VideoSettings) -> VideoSettings) {
         _state.update { state ->
             val next = transform(state.videoSettings)
@@ -532,10 +548,17 @@ class QwenViewModel(
     fun setVideoNegativePrompt(prompt: String) = updateVideoSettings { it.copy(negativePrompt = prompt) }
     fun setVideoSeed(seed: Long) = updateVideoSettings { it.copy(seed = seed.coerceAtLeast(0L)) }
     fun setVideoFps(fps: Int) = updateVideoSettings { it.copy(fps = fps.coerceIn(8, 30)) }
-    fun setVideoNumFrames(numFrames: Int) = updateVideoSettings { it.copy(numFrames = VideoSettings.snapValidFrameCount(numFrames)) }
+    fun setVideoNumFrames(numFrames: Int) = updateVideoSettings {
+        val snapped = if (isActiveVideoMiniMaxH3()) {
+            VideoSettings.snapValidH3FrameCount(numFrames)
+        } else {
+            VideoSettings.snapValidFrameCount(numFrames)
+        }
+        it.copy(numFrames = snapped)
+    }
     fun setVideoSteps(steps: Int) = updateVideoSettings { it.copy(steps = steps.coerceIn(1, 12)) }
     fun setVideoCfgScale(cfg: Float) = updateVideoSettings { it.copy(cfgScale = cfg.coerceIn(0.5f, 15.0f)) }
-    fun setVideoShift(shift: Float) = updateVideoSettings { it.copy(shift = shift.coerceIn(1.0f, 12.0f)) }
+    fun setVideoShift(shift: Float) = updateVideoSettings { it.copy(shift = shift.coerceIn(1.0f, 20.0f)) }
     fun setVideoResolution(width: Int, height: Int) {
         if (width > 0 && height > 0 && width % 32 == 0 && height % 32 == 0) {
             updateVideoSettings { it.copy(width = width, height = height) }
@@ -543,17 +566,61 @@ class QwenViewModel(
     }
     fun setVideoUseOpenCl(value: Boolean) = updateVideoSettings { it.copy(useOpenCl = value) }
     fun setVideoVaeTiling(value: Boolean) = updateVideoSettings { it.copy(vaeTiling = value) }
+    fun setVideoDiskStreaming(value: Boolean) = updateVideoSettings { it.copy(diskStreaming = value) }
     fun setVideoThreads(value: Int) = updateVideoSettings { it.copy(threads = value.coerceIn(2, 8)) }
     fun selectVideoModel(modelId: String) {
+        val wasH3 = isActiveVideoMiniMaxH3()
         if (modelId.isBlank()) {
-            updateVideoSettings { it.copy(modelId = "", steps = 4, cfgScale = 1.0f, shift = 5.0f) }
+            updateVideoSettings {
+                it.copy(
+                    modelId = "",
+                    width = if (wasH3) 480 else it.width,
+                    height = if (wasH3) 832 else it.height,
+                    numFrames = if (wasH3) 25 else VideoSettings.snapValidFrameCount(it.numFrames),
+                    fps = if (wasH3) 16 else it.fps,
+                    steps = 4,
+                    cfgScale = 1.0f,
+                    shift = 5.0f
+                )
+            }
             return
         }
         val model = _state.value.customVideoModels.firstOrNull { it.id == modelId } ?: return
-        val defaultSteps = model.metadata["defaultSteps"]?.toIntOrNull()?.coerceIn(1, 12) ?: 4
+        val isH3 = model.metadata["arch"] == "minimax_h3"
+        val defaultSteps = model.metadata["defaultSteps"]?.toIntOrNull()?.coerceIn(1, 12) ?: if (isH3) 2 else 4
         val defaultCfg = model.metadata["defaultCfg"]?.toFloatOrNull()?.coerceIn(0.5f, 15.0f) ?: 1.0f
-        val defaultShift = model.metadata["defaultShift"]?.toFloatOrNull()?.coerceIn(1.0f, 12.0f) ?: 5.0f
-        updateVideoSettings { it.copy(modelId = model.id, steps = defaultSteps, cfgScale = defaultCfg, shift = defaultShift) }
+        val defaultShift = model.metadata["defaultShift"]?.toFloatOrNull()?.coerceIn(1.0f, 20.0f) ?: if (isH3) 12.0f else 5.0f
+        if (isH3) {
+            val defaultW = model.metadata["defaultWidth"]?.toIntOrNull() ?: 480
+            val defaultH = model.metadata["defaultHeight"]?.toIntOrNull() ?: 288
+            val defaultFrames = VideoSettings.snapValidH3FrameCount(model.metadata["defaultFrames"]?.toIntOrNull() ?: 22)
+            updateVideoSettings {
+                it.copy(
+                    modelId = model.id,
+                    width = defaultW,
+                    height = defaultH,
+                    numFrames = defaultFrames,
+                    fps = 24,
+                    steps = defaultSteps,
+                    cfgScale = defaultCfg,
+                    shift = defaultShift,
+                    diskStreaming = true
+                )
+            }
+        } else {
+            updateVideoSettings {
+                it.copy(
+                    modelId = model.id,
+                    width = if (wasH3) 480 else it.width,
+                    height = if (wasH3) 832 else it.height,
+                    numFrames = if (wasH3) 25 else VideoSettings.snapValidFrameCount(it.numFrames),
+                    fps = if (wasH3) 16 else it.fps,
+                    steps = defaultSteps,
+                    cfgScale = defaultCfg,
+                    shift = defaultShift
+                )
+            }
+        }
     }
     fun reuseVideoItem(video: VideoItem) = updateVideoSettings(persist = false) { it.copy(prompt = video.prompt) }
     fun setVideoInputImage(uri: Uri?) {
@@ -600,12 +667,14 @@ class QwenViewModel(
             showTaskError(TaskDomain.Video, "本机视频模型缺少：${runtime.missingComponents.joinToString("、")}")
             return
         }
-        runCatching { settings.validateOnDevice() }.onFailure { error ->
+        val isMiniMaxH3 = isActiveVideoMiniMaxH3()
+        runCatching { settings.validateOnDevice(isMiniMaxH3) }.onFailure { error ->
             showTaskError(TaskDomain.Video, error.message ?: "参数校验失败")
             return
         }
 
         val modelLabel = _state.value.customVideoModels.firstOrNull { it.id == settings.modelId }?.name ?: "Wan2.2 Turbo"
+        val effectiveFps = if (isMiniMaxH3) 24 else settings.fps
         val initialStage = if (settings.inputImageUri != null) "准备 $modelLabel 图生视频..." else "准备 $modelLabel 文生视频..."
         val job = VideoJob(
             id = UUID.randomUUID().toString(),
@@ -620,8 +689,10 @@ class QwenViewModel(
         appendLog(TaskDomain.Video, "视频任务启动 [${job.id.take(8)}]：$modelLabel", job.id)
         appendLog(TaskDomain.Video, "提示词：${settings.prompt.take(60)}...", job.id)
         appendLog(TaskDomain.Video, "模式：${if (settings.inputImageUri != null) "图生视频（App 所选参考首帧）" else "文生视频"}", job.id)
-        appendLog(TaskDomain.Video, "规格：${settings.width}×${settings.height} | ${settings.numFrames}帧 | ${settings.fps}fps | ${settings.steps}步 Euler | CFG ${settings.cfgScale}", job.id)
-        appendLog(TaskDomain.Video, "执行设备：${if (settings.useOpenCl) "diffusion=GPUOpenCL, TE=CPU(${settings.threads}), VAE=CPU" else "全 CPU (${settings.threads} 线程)"}", job.id)
+        val samplerNote = if (isMiniMaxH3) "Euler · pi-Flow" else "Euler"
+        appendLog(TaskDomain.Video, "规格：${settings.width}×${settings.height} | ${settings.numFrames}帧 | ${effectiveFps}fps | ${settings.steps}步 $samplerNote | CFG ${settings.cfgScale}", job.id)
+        val streamSuffix = if (isMiniMaxH3 && settings.diskStreaming) " · 磁盘流式加载" else ""
+        appendLog(TaskDomain.Video, "执行设备：${if (settings.useOpenCl) "diffusion=GPUOpenCL, TE=CPU(${settings.threads}), VAE=CPU" else "全 CPU (${settings.threads} 线程)"}$streamSuffix", job.id)
 
         viewModelScope.launch(Dispatchers.Default) {
             runCatching {

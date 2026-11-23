@@ -138,7 +138,7 @@ object ModelBenchmarkCatalog {
         "unsloth", "bartowski", "ggml-org", "city96", "quantstack", "leejet",
         "stabilityai", "black-forest-labs", "comfy-org", "tongyi-mai",
         "audio-cpp", "heartmula", "openmoss-team", "baselabs", "hum-ma", "lightx2v",
-        "mradermacher", "omnijev", "fastino", "waseigo"
+        "mradermacher", "omnijev", "fastino", "waseigo", "lakonik"
     )
 
     val entries: List<ModelBenchmarkEntry> = listOf(
@@ -563,6 +563,22 @@ object ModelBenchmarkCatalog {
         ),
 
         // --- Video ---
+        ModelBenchmarkEntry(
+            id = "minimax-h3-pih3",
+            familyName = "MiniMax-H3 · pi-H3 (2–4 Step AV)",
+            modality = BenchmarkModality.Video,
+            paramScale = "17B Pruned DiT + Qwen3-VL",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "MiniMax-H3 / Lakonik pi-Flow",
+            primaryScoreLabel = "2–4 Step Joint Video+Audio",
+            secondaryScoreLabel = "24 fps · Disk Streaming",
+            strengths = "原生音画同步视频生成，搭配 pi-H3 仅需 2–4 步去噪，通过磁盘分段流式加载可在 12 GB+ 手机运行（需约 18 GB 存储空间）",
+            recommendedQuant = "Q2_K / Q3_K (~6.3–8.2 GB + shared)",
+            minRamGb = 12,
+            recommendedRepo = "unsloth/MiniMax-H3-GGUF",
+            searchCategory = HubSearchCategory.VideoWan,
+            aliases = listOf("minimax-h3", "minimax_h3", "pi-h3", "pi_h3")
+        ),
         ModelBenchmarkEntry(
             id = "wan2.2-ti2v-5b",
             familyName = "Wan2.2-TI2V-5B (Turbo / Base)",

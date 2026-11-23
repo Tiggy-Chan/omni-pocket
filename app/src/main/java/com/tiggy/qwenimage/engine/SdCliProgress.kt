@@ -83,7 +83,8 @@ class SdCliProgressParser {
         }
         if (line.contains("loading diffusion model") || line.contains("loading model from") ||
             line.contains("loading t5xxl") || line.contains("loading tae") ||
-            line.contains("loading llm") || line.contains("loading vae")
+            line.contains("loading llm") || line.contains("loading vae") ||
+            line.contains("loading audio_vae") || line.contains("loading lora")
         ) {
             return SdCliEvent(SdCliStage.Loading)
         }

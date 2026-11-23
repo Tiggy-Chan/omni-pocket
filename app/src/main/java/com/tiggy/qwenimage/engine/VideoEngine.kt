@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import com.tiggy.qwenimage.data.DeviceHardwareProbe
 import com.tiggy.qwenimage.data.HubModelType
 import com.tiggy.qwenimage.data.InstalledHubModelsRepository
 import com.tiggy.qwenimage.data.VideoBackend
@@ -38,6 +39,9 @@ class VideoEngine(
     @Volatile
     private var cancelRequested = false
 
+    fun isMiniMaxH3(modelId: String): Boolean =
+        modelId.isNotBlank() && hubModels.find(modelId)?.metadata?.get("arch") == "minimax_h3"
+
     fun runtimeStatus(modelId: String = ""): VideoRuntimeStatus {
         val nativeLib = resolveSdCliBinary(context.applicationInfo.nativeLibraryDir)
         if (modelId.isNotBlank()) {
@@ -47,8 +51,22 @@ class VideoEngine(
             }
             val missing = buildList {
                 if (!hubModels.entryFile(hubModel).isFile) add(hubModel.entryFile.substringAfterLast('/'))
-                if (hubModels.resolveCompanionByMeta(hubModel, "t5Companion") == null) add(T5)
-                if (hubModels.resolveCompanionByMeta(hubModel, "taeCompanion") == null) add(VAE)
+                if (hubModel.metadata["arch"] == "minimax_h3") {
+                    if (hubModels.resolveCompanionByMeta(hubModel, "llmCompanion") == null) add(H3_TE)
+                    if (hubModels.resolveCompanionByMeta(hubModel, "vaeCompanion") == null) add(H3_VAE)
+                    if (hubModel.metadata["audioVaeCompanion"] != null &&
+                        hubModels.resolveCompanionByMeta(hubModel, "audioVaeCompanion") == null
+                    ) add(H3_AUDIO_VAE)
+                    if (hubModel.metadata["piH3Adapter2Step"] != null &&
+                        hubModels.resolveCompanionByMeta(hubModel, "piH3Adapter2Step") == null
+                    ) add(H3_PI_2STEP)
+                    if (hubModel.metadata["piH3Adapter4Step"] != null &&
+                        hubModels.resolveCompanionByMeta(hubModel, "piH3Adapter4Step") == null
+                    ) add(H3_PI_4STEP)
+                } else {
+                    if (hubModels.resolveCompanionByMeta(hubModel, "t5Companion") == null) add(T5)
+                    if (hubModels.resolveCompanionByMeta(hubModel, "taeCompanion") == null) add(VAE)
+                }
                 if (!nativeLib.isFile) add("libsd_cli.so")
             }
             return VideoRuntimeStatus(missing.isEmpty(), missing)
@@ -115,7 +133,8 @@ class VideoEngine(
         cancelRequested = false
         try {
             currentCoroutineContext().ensureActive()
-            job.settings.validate()
+            val isMiniMaxH3 = isMiniMaxH3(job.settings.modelId)
+            job.settings.validate(isMiniMaxH3)
             if (cancelRequested) throw CancellationException("已取消视频生成")
             val status = runtimeStatus(job.settings.modelId)
             if (!status.localReady) throw IOException("本机视频模型缺少：${status.missingComponents.joinToString("、")}")
@@ -142,8 +161,9 @@ class VideoEngine(
         onUpdate: (EngineUpdate) -> Unit
     ): VideoItem {
         val settings = job.settings
-        settings.validateOnDevice()
-        val (ditFile, t5File, taeFile, modelLabel) = resolveVideoWeights(settings.modelId)
+        val weights = resolveVideoWeights(settings.modelId)
+        val isMiniMaxH3 = weights.arch == VideoModelArch.MINIMAX_H3
+        settings.validateOnDevice(isMiniMaxH3)
         val nativeLib = resolveSdCliBinary(context.applicationInfo.nativeLibraryDir)
         val videoId = "ondevice_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
         val outputFile = File(videoDir, "$videoId.webm")
@@ -153,17 +173,44 @@ class VideoEngine(
 
         try {
             initImageFile = settings.inputImageUri?.let { copyReferenceImage(it, videoId) }
+            val effectiveFps = if (isMiniMaxH3) 24 else settings.fps
+            val piH3Adapter: File?
+            val scheduler: String?
+            val extraSampleArgs: String?
+            if (isMiniMaxH3) {
+                val useTwoStep = settings.steps <= 2
+                piH3Adapter = if (useTwoStep) {
+                    weights.piH3Adapter2Step ?: weights.piH3Adapter4Step
+                } else {
+                    weights.piH3Adapter4Step ?: weights.piH3Adapter2Step
+                }
+                if (piH3Adapter != null) {
+                    scheduler = "piflow"
+                    val maxRawT = if (useTwoStep) "0.93" else "0.96"
+                    extraSampleArgs = "min_raw_t=0,max_raw_t=$maxRawT,final_step_size_scale=0.6"
+                } else {
+                    scheduler = null
+                    extraSampleArgs = null
+                }
+            } else {
+                piH3Adapter = null
+                scheduler = null
+                extraSampleArgs = null
+            }
+            val useDiskStreaming = isMiniMaxH3 && settings.diskStreaming
+            val maxVramGb = if (useDiskStreaming) computeDiskStreamBudgetGb() else null
+
             val options = SdCliVideoOptions(
                 nativeLib = nativeLib,
-                diffusionModel = ditFile,
-                textEncoder = t5File,
-                vae = taeFile,
+                diffusionModel = weights.dit,
+                textEncoder = weights.textEncoder,
+                vae = weights.vae,
                 output = partialFile,
                 prompt = settings.prompt,
                 width = settings.width,
                 height = settings.height,
                 frames = settings.numFrames,
-                fps = settings.fps,
+                fps = effectiveFps,
                 steps = settings.steps,
                 seed = settings.seed,
                 shift = settings.shift,
@@ -172,11 +219,22 @@ class VideoEngine(
                 negativePrompt = settings.negativePrompt,
                 cfgScale = settings.cfgScale,
                 useOpenCl = settings.useOpenCl,
-                vaeTiling = settings.vaeTiling
+                vaeTiling = settings.vaeTiling,
+                arch = weights.arch,
+                audioVae = weights.audioVae,
+                piH3Adapter = piH3Adapter,
+                diskStreaming = useDiskStreaming,
+                maxVramGb = maxVramGb,
+                scheduler = scheduler,
+                extraSampleArgs = extraSampleArgs
             )
             val command = buildSdCliVideoCommand(options)
-            val accelLabel = if (settings.useOpenCl) "OpenCL DiT / CPU VAE" else "CPU"
-            onUpdate(EngineUpdate(0f, "正在启动 $modelLabel", "$modelLabel · $accelLabel · seed=${settings.seed} · ${settings.numFrames} 帧 @ ${settings.fps}fps · ${settings.steps} 步"))
+            val accelLabel = buildList {
+                add(if (settings.useOpenCl) "OpenCL DiT / CPU VAE" else "CPU")
+                if (useDiskStreaming) add("Disk Stream")
+                if (piH3Adapter != null) add("pi-H3")
+            }.joinToString(" · ")
+            onUpdate(EngineUpdate(0f, "正在启动 ${weights.label}", "${weights.label} · $accelLabel · seed=${settings.seed} · ${settings.numFrames} 帧 @ ${effectiveFps}fps · ${settings.steps} 步"))
             if (initImageFile != null) onUpdate(EngineUpdate(null, "已载入参考首帧"))
 
             val builder = ProcessBuilder(command)
@@ -213,7 +271,8 @@ class VideoEngine(
                 file = outputFile,
                 settings = settings,
                 backend = VideoBackend.LocalWan,
-                fallbackDuration = settings.numFrames.toFloat() / settings.fps
+                fallbackDuration = settings.numFrames.toFloat() / effectiveFps,
+                fallbackFps = effectiveFps
             )
             saveMetadata(item)
             onUpdate(EngineUpdate(1f, "视频已保存", "${outputFile.name} · ${item.durationSec.formatSeconds()} · ${outputFile.length() / 1024} KB"))
@@ -230,7 +289,11 @@ class VideoEngine(
         val dit: File,
         val textEncoder: File,
         val vae: File,
-        val label: String
+        val label: String,
+        val arch: VideoModelArch = VideoModelArch.WAN,
+        val audioVae: File? = null,
+        val piH3Adapter2Step: File? = null,
+        val piH3Adapter4Step: File? = null
     )
 
     private fun resolveVideoWeights(modelId: String): ResolvedVideoWeights {
@@ -238,6 +301,25 @@ class VideoEngine(
             val hubModel = hubModels.find(modelId)?.takeIf { it.type == HubModelType.VideoWan }
                 ?: throw IOException("所选视频模型不存在，请重新下载")
             val dit = hubModels.entryFile(hubModel)
+            if (hubModel.metadata["arch"] == "minimax_h3") {
+                val llm = hubModels.resolveCompanionByMeta(hubModel, "llmCompanion")
+                    ?: throw IOException("缺少共享 Qwen3-VL-32B 文本编码器，请在模型页重新下载")
+                val vae = hubModels.resolveCompanionByMeta(hubModel, "vaeCompanion")
+                    ?: throw IOException("缺少共享 MiniMax-H3 视频 VAE，请在模型页重新下载")
+                val audioVae = hubModels.resolveCompanionByMeta(hubModel, "audioVaeCompanion")
+                val adapter2 = hubModels.resolveCompanionByMeta(hubModel, "piH3Adapter2Step")
+                val adapter4 = hubModels.resolveCompanionByMeta(hubModel, "piH3Adapter4Step")
+                return ResolvedVideoWeights(
+                    dit = dit,
+                    textEncoder = llm,
+                    vae = vae,
+                    label = hubModel.name,
+                    arch = VideoModelArch.MINIMAX_H3,
+                    audioVae = audioVae,
+                    piH3Adapter2Step = adapter2,
+                    piH3Adapter4Step = adapter4
+                )
+            }
             val t5 = hubModels.resolveCompanionByMeta(hubModel, "t5Companion")
                 ?: throw IOException("缺少共享 UMT5 文本编码器，请在模型页重新下载")
             val tae = hubModels.resolveCompanionByMeta(hubModel, "taeCompanion")
@@ -246,6 +328,15 @@ class VideoEngine(
         }
         val files = requiredLocalFiles()
         return ResolvedVideoWeights(files.getValue(DIT), files.getValue(T5), files.getValue(VAE), "Wan2.2 Turbo")
+    }
+
+    private fun computeDiskStreamBudgetGb(): Float {
+        val ramGb = runCatching { DeviceHardwareProbe.read(context).totalRamGb }.getOrDefault(12.0)
+        return when {
+            ramGb >= 20.0 -> 6.0f
+            ramGb >= 14.0 -> 3.5f
+            else -> 2.5f
+        }
     }
 
     private fun dispatchEvent(event: SdCliEvent, onUpdate: (EngineUpdate) -> Unit) {
@@ -372,6 +463,11 @@ class VideoEngine(
         const val DIT = "Wan2.2 DiT"
         const val T5 = "UMT5 文本编码器"
         const val VAE = "TAE 视频解码器"
+        const val H3_TE = "Qwen3-VL-32B 文本编码器"
+        const val H3_VAE = "MiniMax-H3 视频 VAE"
+        const val H3_AUDIO_VAE = "MiniMax-H3 音频 VAE"
+        const val H3_PI_2STEP = "pi-H3 2 步适配器"
+        const val H3_PI_4STEP = "pi-H3 4 步适配器"
         val EXPECTED_SIZES = mapOf(
             DIT to 3_033_897_696L,
             T5 to 2_858_489_696L,

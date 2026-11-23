@@ -280,7 +280,7 @@
     <string name="video_models_title">動画モデル</string>
     <string name="video_builtin_ready">準備完了 · 5B ローカル</string>
     <string name="video_search_more">モデル画面で他の動画モデルを検索</string>
-    <string name="video_search_more_sub">Wan2.2 / Wan2.1 GGUF 対応（UMT5・TAE を自動再利用）</string>
+    <string name="video_search_more_sub">Wan2.2 / Wan2.1 / MiniMax-H3 GGUF 対応（UMT5・TAE を自動再利用）</string>
     <string name="video_delete_title">動画を削除しますか？</string>
     <string name="video_delete_body">動画と関連ファイルを完全に削除します。元に戻せません。</string>
     <string name="video_reuse_prompt">プロンプトを再利用</string>
@@ -397,7 +397,7 @@
     <string name="models_hint_mnn">MNN パッケージを検索（例：taobao-mnn）</string>
     <string name="models_hint_decision">意思決定 GGUF を検索（例：OneJev1.6、elephant-1）</string>
     <string name="models_hint_image">SD / SDXL / Z-Image / FLUX.2 Klein を検索</string>
-    <string name="models_hint_video">Wan2.2 / Wan2.1 GGUF 動画モデルを検索</string>
+    <string name="models_hint_video">Wan2.2 / Wan2.1 / MiniMax-H3 GGUF 動画モデルを検索</string>
     <string name="models_hint_music">ACE-Step / YuE2 / HeartMuLa / Stable Audio を検索</string>
     <string name="hub_split_gguf">分割 GGUF は直接読み込めません。単一ファイル版を選んでください</string>
     <string name="hub_wan_moe14b">Wan2.2 A14B は16 GB超のRAMが必要。端末では Wan2.2-TI2V-5B や Wan2.1-1.3B を推奨</string>
@@ -413,7 +413,7 @@
     <string name="hub_empty_mnn">MNN パッケージが不完全です（config.json、llm.mnn 等が必要）。</string>
     <string name="hub_empty_decision">互換性のある単一ファイル意思決定 GGUF が見つかりません。</string>
     <string name="hub_empty_image">対応する画像モデルが見つかりません（SD/SDXL・Z-Image・FLUX.2-Klein）。</string>
-    <string name="hub_empty_video">対応する Wan2.2 / Wan2.1 GGUF 動画モデルが見つかりません。</string>
+    <string name="hub_empty_video">対応する Wan2.2 / Wan2.1 / MiniMax-H3 GGUF 動画モデルが見つかりません。</string>
     <string name="hub_empty_music">対応する audio.cpp 音楽 GGUF が見つかりません。</string>
     <string name="hub_search_failed_fmt">検索に失敗しました：%1$s（必要に応じてミラーを切替）</string>
     <string name="hub_probe_ok_fmt">接続済み · %1$d ms</string>
@@ -525,4 +525,17 @@
     <string name="models_revision_label">リビジョン (Revision)</string>
     <string name="common_show_token">トークンを表示</string>
     <string name="common_hide_token">トークンを隠す</string>
+    <string name="hub_comp_minimax_h3">共有 Qwen3-VL テキストエンコーダ、MiniMax-H3 映像/音声 VAE、pi-H3 2/4 ステップアダプタを自動同梱（ディスクストリーミング対応）</string>
+    <string name="hub_minimax_h3_unpruned">未剪定 MiniMax-H3 31B はスマホには大きすぎます。Pruned（17B）の Q2_K / Q3_K を選択してください</string>
+    <string name="curated_minimax_h3_unsloth">MiniMax-H3 剪定版 映像＋音声同時生成（pi-H3 2/4 ステップ・ディスクストリーミング対応）</string>
+    <string name="curated_minimax_h3_abiray">MiniMax-H3 17B 剪定版 GGUF 量子化セット（Q3_K_M / Q4_K_M）</string>
+    <string name="bench_str_minimax_h3">pi-H3 で 2〜4 ステップの映像・音声同時生成。ディスク分割ストリーミングにより 12 GB+ スマホで動作（約 18 GB の空き容量が必要）</string>
+    <string name="video_frames_label_h3">フレーム数（17k+5）</string>
+    <string name="video_err_frames_h3">MiniMax-H3 のフレーム数は 5–56 かつ 17k+5（例: 5, 22, 39, 56）である必要があります。</string>
+    <string name="settings_video_disk_stream">ディスク重みストリーミング（MiniMax-H3）</string>
+    <string name="settings_video_disk_stream_detail">ストレージから分割読み込みしてピーク RAM を抑え、12 GB+ スマホで実行</string>
+    <string name="res_h3_landscape">480×288 横向き</string>
+    <string name="res_h3_portrait">288×480 縦向き</string>
+    <string name="res_h3_wide">512×320 ワイド</string>
+    <string name="res_h3_hd">640×384 高精細</string>
 </resources>

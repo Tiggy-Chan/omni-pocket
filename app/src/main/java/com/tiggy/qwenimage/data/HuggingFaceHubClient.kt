@@ -18,13 +18,15 @@ enum class HfFileFormat { Gguf, Safetensors, Ckpt, MnnBundle }
 
 enum class HubSplitWarning {
     SplitGguf,
-    WanMoE14B
+    WanMoE14B,
+    MiniMaxH3Unpruned
 }
 
 enum class HubCompanionNote {
     ZImageShared,
     Flux2Shared,
     WanShared,
+    MiniMaxH3PiShared,
     Yue2Sidecars,
     SelfContainedAudioGguf,
     DecisionBlockBidir,
@@ -69,11 +71,19 @@ data class HfRepoOption(
     val metadata: Map<String, String> = emptyMap(),
     val splitWarningKey: HubSplitWarning? = null,
     val companionNoteKey: HubCompanionNote? = null,
-    val companionNoteArg: String? = null
+    val companionNoteArg: String? = null,
+    /** Effective RAM footprint when weights stream from disk (e.g. MiniMax-H3) instead of loading all files at once. */
+    val runtimeRamBytesOverride: Long? = null,
+    val recommendedRamGbOverride: Int? = null
 ) {
+    /** Bytes used for on-device RAM fit classification. */
+    val runtimeBytesForFit: Long
+        get() = runtimeRamBytesOverride ?: totalBytes
+
     /** Approximate minimum device RAM to load and run cleanly on Android. */
     val recommendedRamGb: Int
-        get() = ((totalBytes / 1_000_000_000.0) * 1.35 + 1.5).toInt().coerceAtLeast(3)
+        get() = recommendedRamGbOverride
+            ?: ((runtimeBytesForFit / 1_000_000_000.0) * 1.35 + 1.5).toInt().coerceAtLeast(3)
 }
 
 /** Verified shared companion artifacts reused across modular diffusion/video/audio models. */
@@ -101,6 +111,46 @@ object HubCompanionArtifacts {
         sourceRepo = "lightx2v/Autoencoders",
         sourceRevision = "main",
         sharedCompanionKey = "taew2_1.safetensors"
+    )
+    val MINIMAX_H3_TE_Q2_K = HfDownloadFile(
+        path = "qwen3vl-32B-MiniMax-H3-Q2_K.gguf",
+        size = 8_487_968_160L,
+        sha256 = "5bbc11d0b3ef197c98df2ce8f05de8fbb8eb5917cd91c33d0b59f93759b34914",
+        sourceRepo = "realrebelai/MiniMax-H3_GGUFs",
+        sourceRevision = "main",
+        sharedCompanionKey = "qwen3vl-32B-MiniMax-H3-Q2_K.gguf"
+    )
+    val MINIMAX_H3_VIDEO_VAE = HfDownloadFile(
+        path = "vae/minimax_h3_video_vae_int8_convrot.safetensors",
+        size = 2_811_065_184L,
+        sha256 = "52a2c8c73583c86e4f41cdcce3a6ad0ea562987bc0bf3d60a0cef5f5c8e60c0e",
+        sourceRepo = "Comfy-Org/MiniMax-H3",
+        sourceRevision = "main",
+        sharedCompanionKey = "minimax_h3_video_vae_int8_convrot.safetensors"
+    )
+    val MINIMAX_H3_AUDIO_VAE = HfDownloadFile(
+        path = "vae/minimax_h3_audio_vae_fp32.safetensors",
+        size = 605_254_808L,
+        sha256 = "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+        sourceRepo = "Comfy-Org/MiniMax-H3",
+        sourceRevision = "main",
+        sharedCompanionKey = "minimax_h3_audio_vae_fp32.safetensors"
+    )
+    val PI_H3_2STEP_ADAPTER = HfDownloadFile(
+        path = "pi_h3_2step_adapter/diffusion_pytorch_model.safetensors",
+        size = 503_383_808L,
+        sha256 = "2602688b12e2763fdbc1ad7e0c626b83942fbda511050f266a49dbcdc1db5f02",
+        sourceRepo = "Lakonik/pi-H3",
+        sourceRevision = "main",
+        sharedCompanionKey = "pi_h3_2step_adapter.safetensors"
+    )
+    val PI_H3_4STEP_ADAPTER = HfDownloadFile(
+        path = "pi_h3_4step_adapter/diffusion_pytorch_model.safetensors",
+        size = 503_383_808L,
+        sha256 = "2dcdbb193f08755e0efb5f3b07585a988e30eb1c38c25283d30635ccf3d6e07f",
+        sourceRepo = "Lakonik/pi-H3",
+        sourceRevision = "main",
+        sharedCompanionKey = "pi_h3_4step_adapter.safetensors"
     )
     val FLUX1_AE_VAE = HfDownloadFile(
         path = "split_files/vae/ae.safetensors",
@@ -478,12 +528,71 @@ object HuggingFaceHubClient {
                 !name.contains("umt5") && !name.contains("t5xxl") && !name.contains("clip") &&
                 !name.contains("vae") && !name.contains("tae") && !name.contains("imatrix") &&
                 !name.contains("high_noise") && !name.contains("high-noise") &&
+                !name.contains("qwen3") && !name.contains("minimax-h3-image") && !name.contains("minimax_h3_image") &&
                 file.size >= 400_000_000L
         }
         return candidates.map { file ->
             val fileName = file.path.substringAfterLast('/')
-            val lower = (repo + " " + fileName).lowercase(Locale.ROOT)
+            val fileLower = fileName.lowercase(Locale.ROOT)
+            val lower = "$repoLower $fileLower"
             val isSplit = SPLIT_GGUF_REGEX.containsMatchIn(fileName)
+            val isMiniMaxH3 = repoLower.contains("minimax-h3") || repoLower.contains("minimax_h3") ||
+                fileLower.contains("minimax-h3") || fileLower.contains("minimax_h3")
+            val quant = extractQuantTag(fileName)
+
+            if (isMiniMaxH3) {
+                val isUnpruned = !fileLower.contains("pruned") && file.size > 13_000_000_000L
+                val companions = listOf(
+                    HubCompanionArtifacts.MINIMAX_H3_TE_Q2_K,
+                    HubCompanionArtifacts.MINIMAX_H3_VIDEO_VAE,
+                    HubCompanionArtifacts.MINIMAX_H3_AUDIO_VAE,
+                    HubCompanionArtifacts.PI_H3_2STEP_ADAPTER,
+                    HubCompanionArtifacts.PI_H3_4STEP_ADAPTER
+                )
+                val allFiles = listOf(file) + companions
+                return@map HfRepoOption(
+                    id = sanitizeModelId("minimax-h3", repo, file.path),
+                    label = fileName,
+                    repo = repo,
+                    revision = revision,
+                    type = HubModelType.VideoWan,
+                    format = HfFileFormat.Gguf,
+                    entryFile = file.path,
+                    files = allFiles,
+                    totalBytes = allFiles.sumOf { it.size },
+                    quantTag = quant,
+                    splitWarning = when {
+                        isSplit -> "分片 GGUF 文件暂不支持单文件直接加载"
+                        isUnpruned -> "未剪枝 MiniMax-H3 31B 体积过大，手机端请选择 Pruned（17B）剪枝版 Q2_K / Q3_K"
+                        else -> null
+                    },
+                    companionSummary = "自动附带共享 Qwen3-VL 文本编码器、MiniMax-H3 音视频 VAE 及 pi-H3 2/4 步适配器（磁盘分段流式运行）",
+                    metadata = mapOf(
+                        "arch" to "minimax_h3",
+                        "llmCompanion" to HubCompanionArtifacts.MINIMAX_H3_TE_Q2_K.sharedCompanionKey.orEmpty(),
+                        "vaeCompanion" to HubCompanionArtifacts.MINIMAX_H3_VIDEO_VAE.sharedCompanionKey.orEmpty(),
+                        "audioVaeCompanion" to HubCompanionArtifacts.MINIMAX_H3_AUDIO_VAE.sharedCompanionKey.orEmpty(),
+                        "piH3Adapter2Step" to HubCompanionArtifacts.PI_H3_2STEP_ADAPTER.sharedCompanionKey.orEmpty(),
+                        "piH3Adapter4Step" to HubCompanionArtifacts.PI_H3_4STEP_ADAPTER.sharedCompanionKey.orEmpty(),
+                        "defaultSteps" to "2",
+                        "defaultCfg" to "1.0",
+                        "defaultShift" to "12.0",
+                        "defaultFps" to "24",
+                        "defaultFrames" to "22",
+                        "defaultWidth" to "480",
+                        "defaultHeight" to "288"
+                    ),
+                    splitWarningKey = when {
+                        isSplit -> HubSplitWarning.SplitGguf
+                        isUnpruned -> HubSplitWarning.MiniMaxH3Unpruned
+                        else -> null
+                    },
+                    companionNoteKey = HubCompanionNote.MiniMaxH3PiShared,
+                    runtimeRamBytesOverride = 6_200_000_000L,
+                    recommendedRamGbOverride = 12
+                )
+            }
+
             val isWan22Ti2v5B = lower.contains("ti2v") || (lower.contains("wan2.2") && lower.contains("5b")) ||
                 (lower.contains("wan2_2") && lower.contains("5b")) || (lower.contains("wan-2.2") && lower.contains("5b"))
             val isTurbo = lower.contains("turbo") || lower.contains("lightx2v") || lower.contains("distill") || lower.contains("selfforcing")
@@ -491,7 +600,6 @@ object HuggingFaceHubClient {
             val tae = if (isWan22Ti2v5B) HubCompanionArtifacts.TAE_WAN2_2 else HubCompanionArtifacts.TAE_WAN2_1
             val companions = listOf(HubCompanionArtifacts.UMT5_XXL_Q3_K_S, tae)
             val allFiles = listOf(file) + companions
-            val quant = extractQuantTag(fileName)
             HfRepoOption(
                 id = sanitizeModelId("wan", repo, file.path),
                 label = fileName,
@@ -684,6 +792,8 @@ object HuggingFaceHubClient {
             HfRepoSummary("stable-diffusion-v1-5/stable-diffusion-v1-5", "stable-diffusion-v1-5", "stable-diffusion-v1-5", 0, 0, "text-to-image", listOf("sd15"), false, "SD 1.5 基础单文件权重", "curated_sd15")
         )
         HubSearchCategory.VideoWan -> listOf(
+            HfRepoSummary("unsloth/MiniMax-H3-GGUF", "unsloth", "MiniMax-H3-GGUF", 0, 0, "text-to-video", listOf("minimax-h3", "pi-h3", "gguf"), false, "MiniMax-H3 剪枝版音画同步视频（配 pi-H3 2/4 步加速与磁盘流式加载）", "curated_minimax_h3_unsloth"),
+            HfRepoSummary("Abiray/MiniMax-H3-Pruned-GGUF", "Abiray", "MiniMax-H3-Pruned-GGUF", 0, 0, "text-to-video", listOf("minimax-h3", "pi-h3", "gguf"), false, "MiniMax-H3 17B 剪枝版多量化合集（含 Q3_K_M / Q4_K_M）", "curated_minimax_h3_abiray"),
             HfRepoSummary("hum-ma/Wan2.2-TI2V-5B-Turbo-GGUF", "hum-ma", "Wan2.2-TI2V-5B-Turbo-GGUF", 0, 0, "text-to-video", listOf("wan2.2", "gguf"), false, "4 步加速版 Wan2.2 5B，支持文生/图生视频", "curated_wan22_turbo"),
             HfRepoSummary("QuantStack/Wan2.2-TI2V-5B-GGUF", "QuantStack", "Wan2.2-TI2V-5B-GGUF", 0, 0, "text-to-video", listOf("wan2.2", "gguf"), false, "官方 Wan2.2 5B 全系列量化（Q3–Q8 可选）", "curated_wan22_qs"),
             HfRepoSummary("unsloth/Wan2.2-TI2V-5B-GGUF", "unsloth", "Wan2.2-TI2V-5B-GGUF", 0, 0, "text-to-video", listOf("wan2.2", "gguf"), false, "Unsloth 动态量化 Wan2.2-TI2V-5B", "curated_wan22_unsloth"),
@@ -714,6 +824,9 @@ object HuggingFaceHubClient {
         "Q5_K_M" -> 4
         "Q6_K" -> 5
         "Q8_0" -> 6
+        "Q3_K_M" -> 7
+        "Q3_K" -> 8
+        "Q2_K" -> 9
         else -> 10
     }
 

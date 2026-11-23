@@ -280,7 +280,7 @@
     <string name="video_models_title">Video modelleri</string>
     <string name="video_builtin_ready">Hazır · 5B yerel</string>
     <string name="video_search_more">Modeller’de daha fazla video modeli ara</string>
-    <string name="video_search_more_sub">Wan2.2 / Wan2.1 GGUF destekler (UMT5 ve TAE’yi yeniden kullanır)</string>
+    <string name="video_search_more_sub">Wan2.2 / Wan2.1 / MiniMax-H3 GGUF destekler (UMT5 ve TAE’yi yeniden kullanır)</string>
     <string name="video_delete_title">Video silinsin mi?</string>
     <string name="video_delete_body">Video ve ilgili dosyalar kalıcı olarak silinecektir.</string>
     <string name="video_reuse_prompt">İstemi yeniden kullan</string>
@@ -397,7 +397,7 @@
     <string name="models_hint_mnn">MNN paketleri ara, örn. taobao-mnn</string>
     <string name="models_hint_decision">Karar GGUF modelleri ara, örn. OneJev1.6, elephant-1</string>
     <string name="models_hint_image">SD / SDXL / Z-Image / FLUX.2 Klein ağırlıkları ara</string>
-    <string name="models_hint_video">Wan2.2 / Wan2.1 GGUF video modelleri ara</string>
+    <string name="models_hint_video">Wan2.2 / Wan2.1 / MiniMax-H3 GGUF video modelleri ara</string>
     <string name="models_hint_music">ACE-Step / YuE2 / HeartMuLa / Stable Audio GGUF ara</string>
     <string name="hub_split_gguf">Bölünmüş GGUF dosyaları doğrudan yüklenemez; tek dosya seçin</string>
     <string name="hub_wan_moe14b">Wan2.2 A14B &gt;16 GB RAM gerektirir; telefonda Wan2.2-TI2V-5B veya Wan2.1-1.3B önerilir</string>
@@ -413,7 +413,7 @@
     <string name="hub_empty_mnn">Eksik MNN paketi (config.json, llm.mnn ve tokenizer gerekli).</string>
     <string name="hub_empty_decision">Bu depoda uyumlu tek dosya karar GGUF bulunamadı.</string>
     <string name="hub_empty_image">Desteklenen görsel ağırlığı bulunamadı (SD/SDXL, Z-Image, FLUX.2-Klein).</string>
-    <string name="hub_empty_video">Desteklenen Wan2.2 / Wan2.1 GGUF video ağırlığı bulunamadı.</string>
+    <string name="hub_empty_video">Desteklenen Wan2.2 / Wan2.1 / MiniMax-H3 GGUF video ağırlığı bulunamadı.</string>
     <string name="hub_empty_music">Desteklenen audio.cpp müzik GGUF bulunamadı.</string>
     <string name="hub_search_failed_fmt">Arama başarısız: %1$s (gerekirse aynayı değiştirin)</string>
     <string name="hub_probe_ok_fmt">Bağlandı · %1$d ms</string>
@@ -525,4 +525,17 @@
     <string name="models_revision_label">Revizyon</string>
     <string name="common_show_token">Belirteci göster</string>
     <string name="common_hide_token">Belirteci gizle</string>
+    <string name="hub_comp_minimax_h3">Paylaşılan Qwen3-VL metin kodlayıcı, MiniMax-H3 video/ses VAE ve pi-H3 2/4 adım adaptörleri dahildir (disk akışı)</string>
+    <string name="hub_minimax_h3_unpruned">Budanmamış MiniMax-H3 31B telefonlar için çok büyüktür; lütfen Pruned (17B) Q2_K / Q3_K sürümünü seçin</string>
+    <string name="curated_minimax_h3_unsloth">pi-H3 2/4 adım ve disk akışıyla MiniMax-H3 Pruned sesli video üretimi</string>
+    <string name="curated_minimax_h3_abiray">MiniMax-H3 17B Pruned GGUF nicemlemeleri (Q3_K_M / Q4_K_M)</string>
+    <string name="bench_str_minimax_h3">pi-H3 ile 2–4 adımda yerel video+ses üretimi; 12 GB+ telefonlar için disk akışı (~18 GB depolama)</string>
+    <string name="video_frames_label_h3">Kare (17k+5)</string>
+    <string name="video_err_frames_h3">MiniMax-H3 için kare sayısı 5–56 arasında ve 17k+5 kuralına uygun olmalıdır (örn. 5, 22, 39, 56).</string>
+    <string name="settings_video_disk_stream">Diskten ağırlık akışı (MiniMax-H3)</string>
+    <string name="settings_video_disk_stream_detail">12 GB+ RAM telefonlarda çalışması için ağırlıkları depolamadan parça parça yükler</string>
+    <string name="res_h3_landscape">480×288 Yatay</string>
+    <string name="res_h3_portrait">288×480 Dikey</string>
+    <string name="res_h3_wide">512×320 Geniş</string>
+    <string name="res_h3_hd">640×384 Yüksek</string>
 </resources>

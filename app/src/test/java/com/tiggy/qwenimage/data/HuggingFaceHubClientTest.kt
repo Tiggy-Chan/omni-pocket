@@ -195,4 +195,36 @@ class HuggingFaceHubClientTest {
         assertEquals("block_bidirectional", elephantOpts.single().metadata["attentionMode"])
         assertEquals(HubCompanionNote.DecisionBlockBidir, elephantOpts.single().companionNoteKey)
     }
+
+    @Test
+    fun extractsMiniMaxH3PrunedWithPiH3CompanionsAndFlagsUnpruned() {
+        val json = """
+            [
+              {"type":"file","path":"minimax_h3_fl2va_pruned-Q2_K.gguf","size":6720000000},
+              {"type":"file","path":"minimax_h3_fl2va-Q4_K_M.gguf","size":19600000000},
+              {"type":"file","path":"minimax_h3_image-Q4_K_M.gguf","size":6000000000},
+              {"type":"file","path":"qwen3vl_32b_minimax_h3-Q2_K_M.gguf","size":13000000000}
+            ]
+        """.trimIndent()
+        val opts = HuggingFaceHubClient.parseRepoTree("unsloth/MiniMax-H3-GGUF", "main", json, HubSearchCategory.VideoWan)
+        assertEquals(2, opts.size)
+        val pruned = opts[0]
+        assertNull(pruned.splitWarning)
+        assertEquals("minimax_h3", pruned.metadata["arch"])
+        assertEquals("2", pruned.metadata["defaultSteps"])
+        assertEquals("12.0", pruned.metadata["defaultShift"])
+        assertEquals("22", pruned.metadata["defaultFrames"])
+        assertEquals(6, pruned.files.size)
+        assertEquals(12, pruned.recommendedRamGb)
+        assertEquals(HubCompanionNote.MiniMaxH3PiShared, pruned.companionNoteKey)
+        assertTrue(pruned.files.any { it.sharedCompanionKey == "qwen3vl-32B-MiniMax-H3-Q2_K.gguf" })
+        assertTrue(pruned.files.any { it.sharedCompanionKey == "minimax_h3_video_vae_int8_convrot.safetensors" })
+        assertTrue(pruned.files.any { it.sharedCompanionKey == "minimax_h3_audio_vae_fp32.safetensors" })
+        assertTrue(pruned.files.any { it.sharedCompanionKey == "pi_h3_2step_adapter.safetensors" })
+        assertTrue(pruned.files.any { it.sharedCompanionKey == "pi_h3_4step_adapter.safetensors" })
+
+        val unpruned = opts[1]
+        assertNotNull(unpruned.splitWarning)
+        assertEquals(HubSplitWarning.MiniMaxH3Unpruned, unpruned.splitWarningKey)
+    }
 }

@@ -150,7 +150,7 @@
     <string name="about_repo_title">Omni Pocket 開源倉庫</string>
     <string name="about_star_prompt">如果 Omni Pocket 對你有幫助，歡迎到 GitHub 點一顆 Star 支持專案持續更新。</string>
     <string name="about_star_button">前往給 Star</string>
-    <string name="about_local_note">對話（MNN / llama.cpp GGUF）、決策（Elephant-1）、圖像（Qwen / MOSS / SD / Z-Image / FLUX.2 Klein）、音樂（YuE2 / ACE-Step / HeartMuLa / Stable Audio 3）與影片（Wan2.2 / Wan2.1）全部在手機本機執行，推論無需連網。</string>
+    <string name="about_local_note">對話（MNN / llama.cpp GGUF）、決策（Elephant-1）、圖像（Qwen / MOSS / SD / Z-Image / FLUX.2 Klein）、音樂（YuE2 / ACE-Step / HeartMuLa / Stable Audio 3）與影片（Wan2.2 / Wan2.1 / MiniMax-H3）全部在手機本機執行，推論無需連網。</string>
     <string name="chat_start_title">開始對話</string>
     <string name="chat_start_subtitle">請先在模型頁下載內建或社群對話模型</string>
     <string name="chat_input_placeholder">傳送訊息</string>
@@ -280,7 +280,7 @@
     <string name="video_models_title">影片模型</string>
     <string name="video_builtin_ready">已就緒 · 5B 本機</string>
     <string name="video_search_more">從模型頁搜尋更多影片模型</string>
-    <string name="video_search_more_sub">支援 Wan2.2 / Wan2.1 GGUF（自動複用 UMT5 與 TAE）</string>
+    <string name="video_search_more_sub">支援 Wan2.2 / Wan2.1 / MiniMax-H3 GGUF（自動複用 UMT5 與 TAE）</string>
     <string name="video_delete_title">刪除影片？</string>
     <string name="video_delete_body">將刪除影片及關聯檔案，此操作無法復原。</string>
     <string name="video_reuse_prompt">重複使用提示詞</string>
@@ -397,7 +397,7 @@
     <string name="models_hint_mnn">搜尋 MNN 轉換包，如 taobao-mnn</string>
     <string name="models_hint_decision">搜尋決策 GGUF 模型，如 OneJev1.6、elephant-1</string>
     <string name="models_hint_image">搜尋 SD / SDXL / Z-Image / FLUX.2 Klein 權重</string>
-    <string name="models_hint_video">搜尋 Wan2.2 / Wan2.1 GGUF 影片模型</string>
+    <string name="models_hint_video">搜尋 Wan2.2 / Wan2.1 / MiniMax-H3 GGUF 影片模型</string>
     <string name="models_hint_music">搜尋 ACE-Step / YuE2 / HeartMuLa / Stable Audio GGUF</string>
     <string name="hub_split_gguf">分片 GGUF 檔案暫不支援單檔直接載入，請選擇單檔版本</string>
     <string name="hub_wan_moe14b">Wan2.2 A14B 需要高低噪雙模型且記憶體 &gt;16 GB，手機建議選 Wan2.2-TI2V-5B 或 Wan2.1-1.3B</string>
@@ -413,7 +413,7 @@
     <string name="hub_empty_mnn">此倉庫缺少完整 MNN 檔案（需含 config.json、llm_config.json、llm.mnn、llm.mnn.weight 與 tokenizer）</string>
     <string name="hub_empty_decision">此倉庫未找到可用的單檔決策 GGUF 模型</string>
     <string name="hub_empty_image">此倉庫未找到支援的圖像權重（SD/SDXL 單檔，或 Z-Image / FLUX.2-Klein GGUF）</string>
-    <string name="hub_empty_video">此倉庫未找到支援的 Wan2.2 / Wan2.1 GGUF 影片權重</string>
+    <string name="hub_empty_video">此倉庫未找到支援的 Wan2.2 / Wan2.1 / MiniMax-H3 GGUF 影片權重</string>
     <string name="hub_empty_music">此倉庫未找到支援的 audio.cpp 音樂 GGUF（YuE2 / ACE-Step / HeartMuLa / Stable Audio 3）</string>
     <string name="hub_search_failed_fmt">搜尋失敗：%1$s（必要時請切換鏡像源）</string>
     <string name="hub_probe_ok_fmt">已連線 · %1$d ms</string>
@@ -525,4 +525,17 @@
     <string name="models_revision_label">分支版本（Revision）</string>
     <string name="common_show_token">顯示權杖</string>
     <string name="common_hide_token">隱藏權杖</string>
+    <string name="hub_comp_minimax_h3">自動附帶共享 Qwen3-VL 文字編碼器、MiniMax-H3 影音 VAE 及 pi-H3 2/4 步適配器（磁碟分段串流執行）</string>
+    <string name="hub_minimax_h3_unpruned">未剪枝 MiniMax-H3 31B 體積過大，手機端請選擇 Pruned（17B）剪枝版 Q2_K / Q3_K</string>
+    <string name="curated_minimax_h3_unsloth">MiniMax-H3 剪枝版影音同步影片（配 pi-H3 2/4 步加速與磁碟串流載入）</string>
+    <string name="curated_minimax_h3_abiray">MiniMax-H3 17B 剪枝版多量化合集（含 Q3_K_M / Q4_K_M）</string>
+    <string name="bench_str_minimax_h3">原生影音同步影片生成，搭配 pi-H3 僅需 2–4 步去噪，透過磁碟分段串流載入可在 12 GB+ 手機執行（需約 18 GB 儲存空間）</string>
+    <string name="video_frames_label_h3">影格數（17k+5）</string>
+    <string name="video_err_frames_h3">MiniMax-H3 本機影格數須為 5–56 且符合 17k+5（如 5、22、39、56）。</string>
+    <string name="settings_video_disk_stream">磁碟分段串流載入（MiniMax-H3）</string>
+    <string name="settings_video_disk_stream_detail">逐層從儲存空間串流載入權重，大幅降低峰值記憶體以適配 12 GB+ 手機</string>
+    <string name="res_h3_landscape">480×288 橫向</string>
+    <string name="res_h3_portrait">288×480 直向</string>
+    <string name="res_h3_wide">512×320 寬銀幕</string>
+    <string name="res_h3_hd">640×384 清晰</string>
 </resources>

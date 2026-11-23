@@ -280,7 +280,7 @@
     <string name="video_models_title">Modèles vidéo</string>
     <string name="video_builtin_ready">Prêt · 5B local</string>
     <string name="video_search_more">Chercher d’autres modèles vidéo</string>
-    <string name="video_search_more_sub">Compatible Wan2.2 / Wan2.1 GGUF (réutilise UMT5 &amp; TAE)</string>
+    <string name="video_search_more_sub">Compatible Wan2.2 / Wan2.1 / MiniMax-H3 GGUF (réutilise UMT5 &amp; TAE)</string>
     <string name="video_delete_title">Supprimer la vidéo ?</string>
     <string name="video_delete_body">La vidéo et ses fichiers seront supprimés définitivement.</string>
     <string name="video_reuse_prompt">Réutiliser le prompt</string>
@@ -397,7 +397,7 @@
     <string name="models_hint_mnn">Rechercher des paquets MNN, ex. taobao-mnn</string>
     <string name="models_hint_decision">Rechercher des GGUF décision, ex. OneJev1.6, elephant-1</string>
     <string name="models_hint_image">Rechercher SD / SDXL / Z-Image / FLUX.2 Klein</string>
-    <string name="models_hint_video">Rechercher des modèles vidéo Wan2.2 / Wan2.1 GGUF</string>
+    <string name="models_hint_video">Rechercher des modèles vidéo Wan2.2 / Wan2.1 / MiniMax-H3 GGUF</string>
     <string name="models_hint_music">Rechercher ACE-Step / YuE2 / HeartMuLa / Stable Audio</string>
     <string name="hub_split_gguf">Les fichiers GGUF divisés ne sont pas pris en charge ; choisissez un fichier unique</string>
     <string name="hub_wan_moe14b">Wan2.2 A14B exige &gt;16 Go RAM ; préférez Wan2.2-TI2V-5B ou Wan2.1-1.3B</string>
@@ -413,7 +413,7 @@
     <string name="hub_empty_mnn">Paquet MNN incomplet (config.json, llm.mnn, poids et tokenizer requis).</string>
     <string name="hub_empty_decision">Aucun fichier GGUF de décision compatible trouvé dans ce dépôt.</string>
     <string name="hub_empty_image">Aucun poids d’image pris en charge trouvé (SD/SDXL, Z-Image, FLUX.2-Klein).</string>
-    <string name="hub_empty_video">Aucun poids vidéo Wan2.2 / Wan2.1 GGUF pris en charge trouvé.</string>
+    <string name="hub_empty_video">Aucun poids vidéo Wan2.2 / Wan2.1 / MiniMax-H3 GGUF pris en charge trouvé.</string>
     <string name="hub_empty_music">Aucun GGUF musical audio.cpp pris en charge trouvé.</string>
     <string name="hub_search_failed_fmt">Échec de la recherche : %1$s (changez de miroir si besoin)</string>
     <string name="hub_probe_ok_fmt">Connecté · %1$d ms</string>
@@ -525,4 +525,17 @@
     <string name="models_revision_label">Révision</string>
     <string name="common_show_token">Afficher le jeton</string>
     <string name="common_hide_token">Masquer le jeton</string>
+    <string name="hub_comp_minimax_h3">Inclut l’encodeur Qwen3-VL partagé, les VAE vidéo/audio MiniMax-H3 et les adaptateurs pi-H3 2/4 étapes (streaming disque)</string>
+    <string name="hub_minimax_h3_unpruned">MiniMax-H3 31B non élagué est trop volumineux sur mobile ; choisissez une version Pruned (17B) Q2_K / Q3_K</string>
+    <string name="curated_minimax_h3_unsloth">Génération audio-vidéo MiniMax-H3 Pruned avec pi-H3 2/4 étapes et streaming disque</string>
+    <string name="curated_minimax_h3_abiray">Quantifications GGUF MiniMax-H3 17B Pruned (Q3_K_M / Q4_K_M)</string>
+    <string name="bench_str_minimax_h3">Vidéo+audio natif en 2–4 étapes avec pi-H3 ; streaming disque adapté aux téléphones 12 Go+ (~18 Go d’espace)</string>
+    <string name="video_frames_label_h3">Images (17k+5)</string>
+    <string name="video_err_frames_h3">MiniMax-H3 requiert 5–56 images selon 17k+5 (ex. 5, 22, 39, 56).</string>
+    <string name="settings_video_disk_stream">Streaming des poids depuis le stockage (MiniMax-H3)</string>
+    <string name="settings_video_disk_stream_detail">Charge les poids par segments depuis le stockage pour les appareils 12 Go+ RAM</string>
+    <string name="res_h3_landscape">480×288 Paysage</string>
+    <string name="res_h3_portrait">288×480 Portrait</string>
+    <string name="res_h3_wide">512×320 Large</string>
+    <string name="res_h3_hd">640×384 Haute</string>
 </resources>

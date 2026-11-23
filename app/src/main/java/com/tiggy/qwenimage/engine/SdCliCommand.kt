@@ -4,6 +4,11 @@ import com.tiggy.qwenimage.data.VideoSettings
 import java.io.File
 import java.util.Locale
 
+internal enum class VideoModelArch {
+    WAN,
+    MINIMAX_H3
+}
+
 internal data class SdCliVideoOptions(
     val nativeLib: File,
     val diffusionModel: File,
@@ -23,7 +28,15 @@ internal data class SdCliVideoOptions(
     val negativePrompt: String = VideoSettings.DEFAULT_VIDEO_NEGATIVE_PROMPT,
     val cfgScale: Float = 1.0f,
     val useOpenCl: Boolean = true,
-    val vaeTiling: Boolean = false
+    val vaeTiling: Boolean = false,
+    val arch: VideoModelArch = VideoModelArch.WAN,
+    val audioVae: File? = null,
+    val piH3Adapter: File? = null,
+    val endImage: File? = null,
+    val diskStreaming: Boolean = false,
+    val maxVramGb: Float? = null,
+    val scheduler: String? = null,
+    val extraSampleArgs: String? = null
 )
 
 internal fun buildSdCliVideoCommand(options: SdCliVideoOptions): List<String> {
@@ -31,7 +44,13 @@ internal fun buildSdCliVideoCommand(options: SdCliVideoOptions): List<String> {
     require(options.width > 0 && options.height > 0 && options.width % 32 == 0 && options.height % 32 == 0) {
         "视频尺寸必须为 32 的倍数"
     }
-    require(options.frames in 5..41 && (options.frames - 1) % 4 == 0) { "端侧视频帧数必须为 5–41 且满足 4n+1" }
+    if (options.arch == VideoModelArch.MINIMAX_H3) {
+        require(VideoSettings.isValidH3FrameCount(options.frames, max = 56)) {
+            "端侧 MiniMax-H3 帧数必须为 5–56 且满足 17k+5"
+        }
+    } else {
+        require(options.frames in 5..41 && (options.frames - 1) % 4 == 0) { "端侧视频帧数必须为 5–41 且满足 4n+1" }
+    }
     require(options.fps in 8..30) { "帧率必须为 8–30" }
     require(options.steps in 1..12) { "端侧视频步数必须为 1–12" }
     require(options.cfgScale.isFinite() && options.cfgScale in 0.5f..15.0f) { "CFG 必须在 0.5 到 15 之间" }
@@ -47,15 +66,39 @@ internal fun buildSdCliVideoCommand(options: SdCliVideoOptions): List<String> {
         add(options.nativeLib.absolutePath)
         add("-M"); add("vid_gen")
         add("--diffusion-model"); add(options.diffusionModel.absolutePath)
-        add("--t5xxl"); add(options.textEncoder.absolutePath)
-        add("--taesd"); add(options.vae.absolutePath)
-        // VAE must stay on CPU for Wan2.x because vae=GPUOpenCL produces purple noise corruption on mobile Adreno.
+        when (options.arch) {
+            VideoModelArch.WAN -> {
+                add("--t5xxl"); add(options.textEncoder.absolutePath)
+                add("--taesd"); add(options.vae.absolutePath)
+            }
+            VideoModelArch.MINIMAX_H3 -> {
+                add("--llm"); add(options.textEncoder.absolutePath)
+                add("--vae"); add(options.vae.absolutePath)
+                options.audioVae?.let {
+                    add("--audio-vae"); add(it.absolutePath)
+                }
+                options.piH3Adapter?.let {
+                    add("--lora"); add(it.absolutePath)
+                    add("--lora-apply-mode"); add("at_runtime")
+                }
+            }
+        }
+        // VAE must stay on CPU because vae=GPUOpenCL produces purple noise corruption on mobile Adreno.
         if (options.useOpenCl) {
             add("--backend"); add("diffusion=GPUOpenCL,te=CPU,vae=CPU")
             add("--diffusion-fa")
         } else {
             add("--backend"); add("cpu")
-            add("--offload-to-cpu")
+            if (!options.diskStreaming) {
+                add("--offload-to-cpu")
+            }
+        }
+        if (options.diskStreaming) {
+            add("--params-backend"); add("disk")
+            val budget = options.maxVramGb
+            if (budget != null && budget.isFinite() && budget > 0f) {
+                add("--max-vram"); add(fmt(budget))
+            }
         }
         if (options.vaeTiling) add("--vae-tiling")
         add("-t"); add(options.threads.toString())
@@ -66,14 +109,24 @@ internal fun buildSdCliVideoCommand(options: SdCliVideoOptions): List<String> {
         add("-W"); add(options.width.toString())
         add("-H"); add(options.height.toString())
         add("--video-frames"); add(options.frames.toString())
-        add("--fps"); add(options.fps.toString())
+        add("--fps"); add((if (options.arch == VideoModelArch.MINIMAX_H3) 24 else options.fps).toString())
         add("--steps"); add(options.steps.toString())
         add("--seed"); add(options.seed.toString())
         add("--cfg-scale"); add(fmt(options.cfgScale))
         add("--sampling-method"); add("euler")
+        options.scheduler?.takeIf { it.isNotBlank() }?.let {
+            add("--scheduler"); add(it)
+        }
+        options.extraSampleArgs?.takeIf { it.isNotBlank() }?.let {
+            add("--extra-sample-args"); add(it)
+        }
         add("--flow-shift"); add(fmt(options.shift))
         options.initImage?.let {
             add("-i")
+            add(it.absolutePath)
+        }
+        options.endImage?.let {
+            add("--end-img")
             add(it.absolutePath)
         }
         add("-o"); add(options.output.absolutePath)

@@ -280,7 +280,7 @@
     <string name="video_models_title">비디오 모델</string>
     <string name="video_builtin_ready">준비됨 · 5B 로컬</string>
     <string name="video_search_more">모델 페이지에서 더 많은 비디오 모델 검색</string>
-    <string name="video_search_more_sub">Wan2.2 / Wan2.1 GGUF 지원 (UMT5 및 TAE 자동 재사용)</string>
+    <string name="video_search_more_sub">Wan2.2 / Wan2.1 / MiniMax-H3 GGUF 지원 (UMT5 및 TAE 자동 재사용)</string>
     <string name="video_delete_title">비디오를 삭제할까요?</string>
     <string name="video_delete_body">비디오와 관련 파일을 영구 삭제합니다. 되돌릴 수 없습니다.</string>
     <string name="video_reuse_prompt">프롬프트 재사용</string>
@@ -397,7 +397,7 @@
     <string name="models_hint_mnn">MNN 패키지 검색 (예: taobao-mnn)</string>
     <string name="models_hint_decision">의사결정 GGUF 검색 (예: OneJev1.6, elephant-1)</string>
     <string name="models_hint_image">SD / SDXL / Z-Image / FLUX.2 Klein 가중치 검색</string>
-    <string name="models_hint_video">Wan2.2 / Wan2.1 GGUF 비디오 모델 검색</string>
+    <string name="models_hint_video">Wan2.2 / Wan2.1 / MiniMax-H3 GGUF 비디오 모델 검색</string>
     <string name="models_hint_music">ACE-Step / YuE2 / HeartMuLa / Stable Audio GGUF 검색</string>
     <string name="hub_split_gguf">분할 GGUF 파일은 직접 로드할 수 없습니다. 단일 파일을 선택하세요</string>
     <string name="hub_wan_moe14b">Wan2.2 A14B는 16 GB 이상 RAM 필요; 모바일은 Wan2.2-TI2V-5B 또는 Wan2.1-1.3B 권장</string>
@@ -413,7 +413,7 @@
     <string name="hub_empty_mnn">MNN 패키지가 불완전합니다 (config.json, llm.mnn 등 필요).</string>
     <string name="hub_empty_decision">호환되는 단일 파일 의사결정 GGUF를 찾을 수 없습니다.</string>
     <string name="hub_empty_image">지원되는 이미지 가중치를 찾을 수 없습니다 (SD/SDXL, Z-Image, FLUX.2-Klein).</string>
-    <string name="hub_empty_video">지원되는 Wan2.2 / Wan2.1 GGUF 비디오 가중치를 찾을 수 없습니다.</string>
+    <string name="hub_empty_video">지원되는 Wan2.2 / Wan2.1 / MiniMax-H3 GGUF 비디오 가중치를 찾을 수 없습니다.</string>
     <string name="hub_empty_music">지원되는 audio.cpp 음악 GGUF를 찾을 수 없습니다.</string>
     <string name="hub_search_failed_fmt">검색 실패: %1$s (필요 시 미러 전환)</string>
     <string name="hub_probe_ok_fmt">연결됨 · %1$d ms</string>
@@ -525,4 +525,17 @@
     <string name="models_revision_label">리비전 (Revision)</string>
     <string name="common_show_token">토큰 표시</string>
     <string name="common_hide_token">토큰 숨기기</string>
+    <string name="hub_comp_minimax_h3">공유 Qwen3-VL 텍스트 인코더, MiniMax-H3 비디오/오디오 VAE 및 pi-H3 2/4스텝 어댑터 포함(디스크 스트리밍)</string>
+    <string name="hub_minimax_h3_unpruned">비가지치기 MiniMax-H3 31B는 모바일에 너무 큽니다. Pruned(17B) Q2_K / Q3_K 버전을 선택하세요</string>
+    <string name="curated_minimax_h3_unsloth">MiniMax-H3 Pruned 오디오-비디오 동시 생성(pi-H3 2/4스텝 · 디스크 스트리밍)</string>
+    <string name="curated_minimax_h3_abiray">MiniMax-H3 17B Pruned GGUF 양자화 모음(Q3_K_M / Q4_K_M)</string>
+    <string name="bench_str_minimax_h3">pi-H3 기반 2–4스텝 네이티브 오디오-비디오 생성; 디스크 분할 스트리밍으로 12 GB+ 스마트폰 지원(약 18 GB 저장 공간 필요)</string>
+    <string name="video_frames_label_h3">프레임 수 (17k+5)</string>
+    <string name="video_err_frames_h3">MiniMax-H3 프레임 수는 5–56이며 17k+5 규칙(예: 5, 22, 39, 56)을 따라야 합니다.</string>
+    <string name="settings_video_disk_stream">디스크 가중치 스트리밍 (MiniMax-H3)</string>
+    <string name="settings_video_disk_stream_detail">저장소에서 세그먼트 단위로 가중치를 스트리밍해 12 GB+ 기기에서 실행</string>
+    <string name="res_h3_landscape">480×288 가로</string>
+    <string name="res_h3_portrait">288×480 세로</string>
+    <string name="res_h3_wide">512×320 와이드</string>
+    <string name="res_h3_hd">640×384 고화질</string>
 </resources>

@@ -72,6 +72,7 @@ private enum class SettingsTab { General, Chat, Decision, Image, Video, Music }
 private val ContextWindowPresets = listOf(2048, 4096, 8192, 16384, 32768, 65536)
 private val MaxNewTokenPresets = listOf(512, 1024, 2048, 4096, 8192)
 private val VideoFramePresets = listOf(9, 17, 25, 33)
+private val MiniMaxH3FramePresets = listOf(5, 22, 39, 56)
 private val MusicDurationPresets = listOf(15, 30, 60, 90)
 
 private data class VideoResolutionPreset(val width: Int, val height: Int, val labelRes: Int)
@@ -81,6 +82,13 @@ private val VideoResolutionPresets = listOf(
     VideoResolutionPreset(832, 480, R.string.res_landscape),
     VideoResolutionPreset(480, 480, R.string.res_square),
     VideoResolutionPreset(384, 640, R.string.res_preview)
+)
+
+private val MiniMaxH3ResolutionPresets = listOf(
+    VideoResolutionPreset(480, 288, R.string.res_h3_landscape),
+    VideoResolutionPreset(288, 480, R.string.res_h3_portrait),
+    VideoResolutionPreset(512, 320, R.string.res_h3_wide),
+    VideoResolutionPreset(640, 384, R.string.res_h3_hd)
 )
 
 @Composable
@@ -501,11 +509,14 @@ fun SettingsPage(
                         SettingsTab.Video -> {
                             item(key = "video-settings") {
                                 val v = state.videoSettings
+                                val isMiniMaxH3 = state.customVideoModels.firstOrNull { it.id == v.modelId }?.metadata?.get("arch") == "minimax_h3"
+                                val resPresets = if (isMiniMaxH3) MiniMaxH3ResolutionPresets else VideoResolutionPresets
+                                val framePresets = if (isMiniMaxH3) MiniMaxH3FramePresets else VideoFramePresets
                                 SectionLabel(tr(R.string.settings_video_gen))
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(tr(R.string.settings_video_res), color = OmniColors.Ink, style = MaterialTheme.typography.bodyLarge)
                                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        items(VideoResolutionPresets) { preset ->
+                                        items(resPresets) { preset ->
                                             ComposerChip(
                                                 label = tr(preset.labelRes),
                                                 onClick = { viewModel.setVideoResolution(preset.width, preset.height) },
@@ -515,7 +526,7 @@ fun SettingsPage(
                                     }
                                     Text(tr(R.string.settings_video_frames), color = OmniColors.Ink, style = MaterialTheme.typography.bodyLarge)
                                     OmniTabs(
-                                        items = VideoFramePresets,
+                                        items = framePresets,
                                         selected = v.numFrames,
                                         label = { localized.getString(R.string.common_frames_value, it) },
                                         onSelect = viewModel::setVideoNumFrames
@@ -535,9 +546,9 @@ fun SettingsPage(
                                         detail = String.format(Locale.US, "%.1f", v.shift)
                                     )
                                     Slider(
-                                        value = v.shift,
+                                        value = v.shift.coerceIn(1.0f, 14.0f),
                                         onValueChange = { viewModel.setVideoShift((it * 2f).roundToInt() / 2f) },
-                                        valueRange = 1.0f..10.0f
+                                        valueRange = 1.0f..14.0f
                                     )
                                     SettingRow(
                                         title = tr(R.string.settings_video_threads),
@@ -560,6 +571,12 @@ fun SettingsPage(
                                         detail = tr(R.string.settings_video_vae_tiling_detail),
                                         onClick = { viewModel.setVideoVaeTiling(!v.vaeTiling) },
                                         trailing = { Switch(checked = v.vaeTiling, onCheckedChange = null) }
+                                    )
+                                    SettingRow(
+                                        title = tr(R.string.settings_video_disk_stream),
+                                        detail = tr(R.string.settings_video_disk_stream_detail),
+                                        onClick = { viewModel.setVideoDiskStreaming(!v.diskStreaming) },
+                                        trailing = { Switch(checked = v.diskStreaming, onCheckedChange = null) }
                                     )
                                 }
                             }

@@ -1370,8 +1370,8 @@ private fun HubRepoFilesSheet(
                         val installed = option.id in installedIds
                         val queued = state.downloads.isPendingOrActive("hub:${option.id}")
                         val quantHint = remember(option.quantTag) { ModelBenchmarkCatalog.quantQualityHint(option.quantTag) }
-                        val fit = remember(option.totalBytes, state.deviceHardware) {
-                            ModelBenchmarkCatalog.evaluateDeviceFit(option.totalBytes, state.deviceHardware)
+                        val fit = remember(option.runtimeBytesForFit, state.deviceHardware) {
+                            ModelBenchmarkCatalog.evaluateDeviceFit(option.runtimeBytesForFit, state.deviceHardware)
                         }
                         val recRamText = tr(R.string.models_rec_ram, option.recommendedRamGb)
                         val filesCountText = if (option.files.size > 1) tr(R.string.models_files_count, option.files.size) else null
