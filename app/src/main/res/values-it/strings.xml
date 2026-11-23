@@ -150,14 +150,6 @@
     <string name="about_repo_title">Omni Pocket su GitHub</string>
     <string name="about_star_prompt">Se Omni Pocket ti è utile, lascia una stella su GitHub per sostenere il progetto.</string>
     <string name="about_star_button">Metti una stella</string>
-    <string name="about_section_sponsor">Sostieni l’autore</string>
-    <string name="about_sponsor_desc">Omni Pocket è gratuito, open-source e locale. Puoi sostenere lo sviluppo tramite WeChat Pay o Alipay.</string>
-    <string name="about_wechat_pay">WeChat Pay</string>
-    <string name="about_alipay">Alipay</string>
-    <string name="about_save_qr">Salva QR nella galleria</string>
-    <string name="about_qr_saved">Salvato — aprilo dall’album nello scanner WeChat o Alipay</string>
-    <string name="about_qr_save_failed">Impossibile salvare il QR</string>
-    <string name="about_tap_zoom">Tocca per ingrandire</string>
     <string name="about_local_note">Chat, Decisione, Immagini, Musica e Video girano interamente in locale sul telefono senza cloud.</string>
     <string name="chat_start_title">Inizia una chat</string>
     <string name="chat_start_subtitle">Scarica prima un modello di chat in Modelli</string>

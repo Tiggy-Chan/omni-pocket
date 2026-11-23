@@ -150,14 +150,6 @@
     <string name="about_repo_title">Omni Pocket на GitHub</string>
     <string name="about_star_prompt">Если Omni Pocket оказался полезен, поставьте звёздочку на GitHub.</string>
     <string name="about_star_button">Поставить Star</string>
-    <string name="about_section_sponsor">Поддержать автора</string>
-    <string name="about_sponsor_desc">Omni Pocket бесплатен, открыт и работает локально. Поддержать разработку можно через WeChat Pay или Alipay.</string>
-    <string name="about_wechat_pay">WeChat Pay</string>
-    <string name="about_alipay">Alipay</string>
-    <string name="about_save_qr">Сохранить QR в галерею</string>
-    <string name="about_qr_saved">Сохранено в галерею — откройте в сканере WeChat или Alipay</string>
-    <string name="about_qr_save_failed">Не удалось сохранить QR</string>
-    <string name="about_tap_zoom">Нажмите для увеличения</string>
     <string name="about_local_note">Чат, решения, изображения, музыка и видео работают полностью локально на телефоне без облака.</string>
     <string name="chat_start_title">Начать чат</string>
     <string name="chat_start_subtitle">Сначала загрузите модель чата в разделе «Модели»</string>

@@ -150,14 +150,6 @@
     <string name="about_repo_title">Omni Pocket 开源仓库</string>
     <string name="about_star_prompt">如果 Omni Pocket 对你有帮助，欢迎到 GitHub 点一颗 Star 支持项目持续更新。</string>
     <string name="about_star_button">去给个 Star</string>
-    <string name="about_section_sponsor">赞助支持</string>
-    <string name="about_sponsor_desc">Omni Pocket 免费开源、全端本地运行。如果这个项目帮到了你，可以通过微信支付或支付宝赞助支持作者继续维护。</string>
-    <string name="about_wechat_pay">微信支付</string>
-    <string name="about_alipay">支付宝</string>
-    <string name="about_save_qr">保存收款码到相册</string>
-    <string name="about_qr_saved">已保存到相册，可在微信或支付宝「扫一扫 → 相册」识别赞助</string>
-    <string name="about_qr_save_failed">保存收款码失败</string>
-    <string name="about_tap_zoom">点击二维码可放大查看</string>
     <string name="about_local_note">对话（MNN / llama.cpp GGUF）、决策（Elephant-1）、图像（Qwen / MOSS / SD / Z-Image / FLUX.2 Klein）、音乐（YuE2 / ACE-Step / HeartMuLa / Stable Audio 3）与视频（Wan2.2 / Wan2.1）全部在手机本机运行，推理无需联网。</string>
     <string name="chat_start_title">开始对话</string>
     <string name="chat_start_subtitle">先在模型页下载内置或社区对话模型</string>

@@ -150,14 +150,6 @@
     <string name="about_repo_title">Omni Pocket GitHub リポジトリ</string>
     <string name="about_star_prompt">Omni Pocket が役に立ったら、ぜひ GitHub で Star を付けて応援してください。</string>
     <string name="about_star_button">GitHub で Star</string>
-    <string name="about_section_sponsor">開発を支援する</string>
-    <string name="about_sponsor_desc">Omni Pocket は無料のオープンソースアプリです。気に入っていただけたら、WeChat Pay または Alipay で開発をご支援いただけます。</string>
-    <string name="about_wechat_pay">WeChat Pay</string>
-    <string name="about_alipay">Alipay</string>
-    <string name="about_save_qr">QRコードを写真に保存</string>
-    <string name="about_qr_saved">写真に保存しました。WeChat / Alipay のスキャンからアルバムを選択してください</string>
-    <string name="about_qr_save_failed">QRコードの保存に失敗しました</string>
-    <string name="about_tap_zoom">タップして拡大</string>
     <string name="about_local_note">チャット・意思決定・画像・音楽・動画のすべての推論がスマートフォン本体で完結し、クラウド通信は不要です。</string>
     <string name="chat_start_title">チャットを始める</string>
     <string name="chat_start_subtitle">まずモデル画面で内蔵またはコミュニティモデルをダウンロードしてください</string>

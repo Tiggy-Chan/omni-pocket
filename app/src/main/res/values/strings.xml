@@ -150,14 +150,6 @@
     <string name="about_repo_title">Omni Pocket on GitHub</string>
     <string name="about_star_prompt">If Omni Pocket helps you, please consider giving it a Star on GitHub.</string>
     <string name="about_star_button">Star on GitHub</string>
-    <string name="about_section_sponsor">Sponsor the Author</string>
-    <string name="about_sponsor_desc">Omni Pocket is free, open-source, and runs offline on your device. If you enjoy it, you can support ongoing maintenance via WeChat Pay or Alipay.</string>
-    <string name="about_wechat_pay">WeChat Pay</string>
-    <string name="about_alipay">Alipay</string>
-    <string name="about_save_qr">Save QR to Photos</string>
-    <string name="about_qr_saved">Saved to Photos — open WeChat or Alipay Scan → Album to support</string>
-    <string name="about_qr_save_failed">Unable to save QR image</string>
-    <string name="about_tap_zoom">Tap QR code to enlarge</string>
     <string name="about_local_note">Chat (MNN / llama.cpp GGUF), Decision (Elephant-1), Image (Qwen / MOSS / SD / Z-Image / FLUX.2 Klein), Music (YuE2 / ACE-Step / HeartMuLa / Stable Audio 3), and Video (Wan2.2 / Wan2.1) all run locally on your phone with zero cloud inference.</string>
     <string name="chat_start_title">Start a conversation</string>
     <string name="chat_start_subtitle">Download a built-in or community chat model in Models first</string>

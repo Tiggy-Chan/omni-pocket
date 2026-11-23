@@ -150,14 +150,6 @@
     <string name="about_repo_title">GitHub’da Omni Pocket</string>
     <string name="about_star_prompt">Omni Pocket işine yaradıysa GitHub’da Star vererek projeyi destekleyebilirsin.</string>
     <string name="about_star_button">GitHub’da Star ver</string>
-    <string name="about_section_sponsor">Geliştiriciyi destekle</string>
-    <string name="about_sponsor_desc">Omni Pocket ücretsiz, açık kaynaklı ve çevrimdışı çalışır. Geliştirmeyi WeChat Pay veya Alipay ile destekleyebilirsin.</string>
-    <string name="about_wechat_pay">WeChat Pay</string>
-    <string name="about_alipay">Alipay</string>
-    <string name="about_save_qr">QR kodunu galeriye kaydet</string>
-    <string name="about_qr_saved">Galeriye kaydedildi — WeChat veya Alipay tarayıcısından albümü seçin</string>
-    <string name="about_qr_save_failed">QR kaydedilemedi</string>
-    <string name="about_tap_zoom">Büyütmek için dokunun</string>
     <string name="about_local_note">Sohbet, Karar, Görsel, Müzik ve Video tamamen cihazınızda yerel çalışır; bulut çıkarımı gerekmez.</string>
     <string name="chat_start_title">Sohbete başla</string>
     <string name="chat_start_subtitle">Önce Modeller sayfasından bir sohbet modeli indirin</string>
