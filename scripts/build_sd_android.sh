@@ -17,7 +17,10 @@ OPENCL_HEADERS_REVISION="4ea6df132107e3b4b9407f903204b5522fdffcd6"
 OPENCL_ICD_REVISION="5907ac1114079de4383cecddf1c8640e3f52f92b"
 NDK_REVISION="28.2.13676358"
 ANDROID_PLATFORM="android-28"
-PATCH="$ROOT/patches/sd-opencl-conv3d-bias.patch"
+PATCHES=(
+    "$ROOT/patches/sd-opencl-conv3d-bias.patch"
+    "$ROOT/patches/sd-piflow-h3.patch"
+)
 
 if [[ -z "${ANDROID_NDK:-}" || ! -f "${ANDROID_NDK}/source.properties" ]] || ! grep -q "Pkg.Revision = $NDK_REVISION" "${ANDROID_NDK}/source.properties" 2>/dev/null; then
     if [[ -n "${ANDROID_HOME:-}" && -d "$ANDROID_HOME/ndk/$NDK_REVISION" ]]; then
@@ -71,17 +74,16 @@ READELF="$ANDROID_NDK/toolchains/llvm/prebuilt/$NDK_HOST_TAG/bin/llvm-readelf"
     exit 1
 }
 
-if [[ -f "$PATCH" ]]; then
-    if git -C "$SD_SRC" apply --check "$PATCH" >/dev/null 2>&1; then
-        git -C "$SD_SRC" apply "$PATCH"
-    elif ! git -C "$SD_SRC" apply --reverse --check "$PATCH" >/dev/null 2>&1; then
-        echo "stable-diffusion.cpp is neither clean nor already patched by $PATCH" >&2
-        exit 1
+for PATCH in "${PATCHES[@]}"; do
+    if [[ -f "$PATCH" ]]; then
+        if git -C "$SD_SRC" apply --check "$PATCH" >/dev/null 2>&1; then
+            git -C "$SD_SRC" apply "$PATCH"
+        elif ! git -C "$SD_SRC" apply --reverse --check "$PATCH" >/dev/null 2>&1; then
+            echo "stable-diffusion.cpp is neither clean nor already patched by $PATCH" >&2
+            exit 1
+        fi
     fi
-elif [[ -n "$(git -C "$SD_SRC" status --porcelain)" ]]; then
-    echo "stable-diffusion.cpp has local changes and no patch was provided" >&2
-    exit 1
-fi
+done
 
 checkout_dependency() {
     local name="$1"

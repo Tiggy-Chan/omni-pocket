@@ -1,0 +1,434 @@
+diff --git a/examples/common/common.cpp b/examples/common/common.cpp
+index bd25f90..72f8bdc 100644
+--- a/examples/common/common.cpp
++++ b/examples/common/common.cpp
+@@ -1189,7 +1189,7 @@ ArgOptions SDGenerationParams::get_options() {
+          &hires_upscaler},
+         {"",
+          "--extra-sample-args",
+-         "extra sampler/scheduler/guidance args, key=value list. CFG supports guidance_schedule; APG supports apg_eta, apg_momentum, apg_norm_threshold, apg_norm_threshold_smoothing; SLG supports slg_uncond; lcm supports noise_clip_std, noise_scale_start, noise_scale_end; flux supports base_shift, max_shift; ltx2 supports max_shift, base_shift, stretch, terminal; euler_ge supports gamma; beta scheduler supports alpha, beta; logit_normal supports mu, std, logsnr_min, logsnr_max, resolution_aware; llada_image supports uniform; lms supports lms_max_order, lms_shift, lms_divisions; noise-injecting samplers support noise_sampler with value iid (default except for dpm++2m_sde_bt) or brownian_tree; brownian_tree_rng supports cpu (default), cuda, std_default or sampler_rng",
++         "extra sampler/scheduler/guidance args, key=value list. CFG supports guidance_schedule; APG supports apg_eta, apg_momentum, apg_norm_threshold, apg_norm_threshold_smoothing; SLG supports slg_uncond; lcm supports noise_clip_std, noise_scale_start, noise_scale_end; flux supports base_shift, max_shift; ltx2 supports max_shift, base_shift, stretch, terminal; piflow supports min_raw_t, max_raw_t, final_step_size_scale; euler_ge supports gamma; beta scheduler supports alpha, beta; logit_normal supports mu, std, logsnr_min, logsnr_max, resolution_aware; llada_image supports uniform; lms supports lms_max_order, lms_shift, lms_divisions; noise-injecting samplers support noise_sampler with value iid (default except for dpm++2m_sde_bt) or brownian_tree; brownian_tree_rng supports cpu (default), cuda, std_default or sampler_rng",
+          (int)',',
+          &extra_sample_args},
+         {"",
+@@ -1618,6 +1618,41 @@ ArgOptions SDGenerationParams::get_options() {
+         return 1;
+     };
+ 
++    auto on_lora_arg = [&](int argc, const char** argv, int index) {
++        if (++index >= argc) {
++            return -1;
++        }
++        std::string spec = argv_to_utf8(index, argv);
++        if (spec.empty()) {
++            LOG_ERROR("error: --lora requires a non-empty file path");
++            return -1;
++        }
++        float mul        = 1.0f;
++        std::string path = spec;
++        if (!fs::exists(fs::u8path(path))) {
++            size_t colon = spec.rfind(':');
++            if (colon != std::string::npos && colon > 0 && colon + 1 < spec.size()) {
++                std::string maybe_mul = spec.substr(colon + 1);
++                try {
++                    size_t parsed = 0;
++                    float v       = std::stof(maybe_mul, &parsed);
++                    if (parsed == maybe_mul.size() && std::isfinite(v)) {
++                        path = spec.substr(0, colon);
++                        mul  = v;
++                    }
++                } catch (...) {
++                }
++            }
++        }
++        fs::path final_path = fs::u8path(path);
++        if (!fs::exists(final_path)) {
++            LOG_ERROR("error: --lora file not found: %s", path.c_str());
++            return -1;
++        }
++        lora_map[final_path.lexically_normal().u8string()] += mul;
++        return 1;
++    };
++
+     auto on_cache_mode_arg = [&](int argc, const char** argv, int index) {
+         if (++index >= argc) {
+             return -1;
+@@ -1811,6 +1846,10 @@ ArgOptions SDGenerationParams::get_options() {
+          "--audio",
+          "driving audio track (Wan2.2 S2V; can be used once)",
+          on_audio_arg},
++        {"",
++         "--lora",
++         "explicit LoRA/adapter file path with optional :multiplier suffix (can be used multiple times)",
++         on_lora_arg},
+         {"",
+          "--cache-mode",
+          "caching method: 'easycache' (DiT), 'ucache' (UNET), 'dbcache'/'taylorseer'/'cache-dit' (DiT block-level), 'spectrum' (UNET/DiT Chebyshev+Taylor forecasting)",
+diff --git a/include/stable-diffusion.h b/include/stable-diffusion.h
+index d029261..c457950 100644
+--- a/include/stable-diffusion.h
++++ b/include/stable-diffusion.h
+@@ -80,6 +80,7 @@ enum scheduler_t {
+     FLUX_SCHEDULER,
+     BETA_SCHEDULER,
+     LLADA_IMAGE_SCHEDULER,
++    PIFLOW_SCHEDULER,
+     SCHEDULER_COUNT
+ };
+ 
+diff --git a/src/core/ggml_runner.h b/src/core/ggml_runner.h
+index 02630c0..019f105 100644
+--- a/src/core/ggml_runner.h
++++ b/src/core/ggml_runner.h
+@@ -47,6 +47,13 @@ struct WeightAdapter {
+         } conv2d;
+     };
+     virtual ggml_tensor* patch_weight(ggml_context* ctx, ggml_backend_t backend, ggml_tensor* weight, const std::string& weight_name) = 0;
++    virtual ggml_tensor* get_replacement_weight(ggml_context* ctx, ggml_backend_t backend, ggml_tensor* weight, const std::string& weight_name) {
++        SD_UNUSED(ctx);
++        SD_UNUSED(backend);
++        SD_UNUSED(weight);
++        SD_UNUSED(weight_name);
++        return nullptr;
++    }
+     virtual ggml_tensor* forward_with_lora(ggml_context* ctx,
+                                            ggml_backend_t backend,
+                                            ggml_tensor* x,
+diff --git a/src/model/adapter/lora.hpp b/src/model/adapter/lora.hpp
+index 1e5377c..eafd17c 100644
+--- a/src/model/adapter/lora.hpp
++++ b/src/model/adapter/lora.hpp
+@@ -85,7 +85,8 @@ struct LoraModel : public GGMLRunner {
+         if (sd_version_is_minimax_h3(source_version)) {
+             for (const auto& entry : model_manager->loader().file_tensors(source_file)) {
+                 const auto name = convert_tensor_name(entry.first, VERSION_COUNT);
+-                if (ends_with(name, ".ff.net.0.proj.weight.lora_up")) {
++                if (ends_with(name, ".ff.net.0.proj.weight.lora_up") ||
++                    ends_with(name, ".ff.net.0.proj.weight")) {
+                     // Diffusers SwiGLU stores [value, gate]; MiniMax-H3 uses [gate, value].
+                     swapped_lora_up_tensors.insert(convert_tensor_name(entry.first, source_version));
+                 }
+@@ -98,8 +99,9 @@ struct LoraModel : public GGMLRunner {
+         for (const auto& [name, source] : sources) {
+             if (filter && !filter(name))
+                 continue;
+-            const bool scalar  = source.nelements() == 1 && (ends_with(name, ".alpha") || ends_with(name, ".scale"));
+-            auto* tensor       = ggml_new_tensor(params_ctx, scalar ? GGML_TYPE_F32 : source.type, source.n_dims, source.ne);
++            const bool scalar     = source.nelements() == 1 && (ends_with(name, ".alpha") || ends_with(name, ".scale"));
++            const bool promote_1d = source.n_dims == 1 && (source.type == GGML_TYPE_F16 || source.type == GGML_TYPE_BF16);
++            auto* tensor          = ggml_new_tensor(params_ctx, (scalar || promote_1d) ? GGML_TYPE_F32 : source.type, source.n_dims, source.ne);
+             lora_tensors[name] = tensor;
+             if (scalar) {
+                 tensor->data  = &scalar_values[tensor];
+@@ -565,6 +567,53 @@ struct LoraModel : public GGMLRunner {
+         return updown;
+     }
+ 
++    ggml_tensor* get_weight_replacement(const std::string& model_tensor_name,
++                                        ggml_backend_t backend,
++                                        ggml_context* ctx,
++                                        ggml_tensor* model_tensor,
++                                        bool force_f32 = false) {
++        std::string set_name = "lora." + model_tensor_name;
++        auto iter            = lora_tensors.find(set_name);
++        if (iter == lora_tensors.end()) {
++            return nullptr;
++        }
++        ggml_tensor* rep = iter->second;
++        if (rep == model_tensor) {
++            return rep;
++        }
++        if (ggml_nelements(rep) != ggml_nelements(model_tensor)) {
++            skipped_incompatible_lora_tensors.insert(set_name);
++            if (warned_incompatible_model_tensors.insert(model_tensor_name).second) {
++                LOG_WARN("skip incompatible replacement adapter tensor |%s|: model shape = [%lld, %lld, %lld, %lld], adapter shape = [%lld, %lld, %lld, %lld]",
++                         model_tensor_name.c_str(),
++                         static_cast<long long>(model_tensor->ne[0]),
++                         static_cast<long long>(model_tensor->ne[1]),
++                         static_cast<long long>(model_tensor->ne[2]),
++                         static_cast<long long>(model_tensor->ne[3]),
++                         static_cast<long long>(rep->ne[0]),
++                         static_cast<long long>(rep->ne[1]),
++                         static_cast<long long>(rep->ne[2]),
++                         static_cast<long long>(rep->ne[3]));
++            }
++            return nullptr;
++        }
++        applied_lora_tensors.insert(set_name);
++        if (swapped_lora_up_tensors.count(set_name)) {
++            if (rep->type != GGML_TYPE_F32) {
++                rep = ggml_ext_cast_f32(ctx, backend, rep);
++            }
++            auto halves = ggml_ext_chunk(ctx, rep, 2, 1);
++            rep         = ggml_concat(ctx, halves[1], halves[0], 1);
++        } else if ((force_f32 || model_tensor->type == GGML_TYPE_F32) && rep->type != GGML_TYPE_F32) {
++            rep = ggml_ext_cast_f32(ctx, backend, rep);
++        }
++        if (rep->ne[0] != model_tensor->ne[0] || rep->ne[1] != model_tensor->ne[1] ||
++            rep->ne[2] != model_tensor->ne[2] || rep->ne[3] != model_tensor->ne[3]) {
++            rep = ggml_reshape(ctx, rep, model_tensor);
++        }
++        return rep;
++    }
++
+     ggml_tensor* get_weight_diff(const std::string& model_tensor_name, ggml_backend_t backend, ggml_context* ctx, ggml_tensor* model_tensor, bool with_lora_and_lokr = true) {
+         // lora
+         ggml_tensor* diff = nullptr;
+@@ -959,9 +1008,10 @@ struct LoraModel : public GGMLRunner {
+             std::string model_tensor_name = it.first;
+             ggml_tensor* model_tensor     = it.second;
+ 
++            ggml_tensor* replacement = get_weight_replacement(model_tensor_name, runtime_backend, compute_ctx, model_tensor, true);
+             // lora
+             ggml_tensor* diff = get_weight_diff(model_tensor_name, runtime_backend, compute_ctx, model_tensor);
+-            if (diff == nullptr) {
++            if (replacement == nullptr && diff == nullptr) {
+                 continue;
+             }
+ 
+@@ -972,7 +1022,13 @@ struct LoraModel : public GGMLRunner {
+             }
+ 
+             ggml_tensor* final_tensor;
+-            if (model_tensor->type != GGML_TYPE_F32 && model_tensor->type != GGML_TYPE_F16) {
++            if (replacement != nullptr) {
++                final_tensor = replacement;
++                if (diff != nullptr) {
++                    final_tensor = ggml_add_inplace(compute_ctx, final_tensor, diff);
++                }
++                final_tensor = ggml_cpy(compute_ctx, final_tensor, model_tensor);
++            } else if (model_tensor->type != GGML_TYPE_F32 && model_tensor->type != GGML_TYPE_F16) {
+                 final_tensor = ggml_ext_cast_f32(compute_ctx, runtime_backend, model_tensor);
+                 final_tensor = ggml_add_inplace(compute_ctx, final_tensor, diff);
+                 final_tensor = ggml_cpy(compute_ctx, final_tensor, model_tensor);
+@@ -1060,8 +1116,23 @@ public:
+         : lora_models(lora_models) {
+     }
+ 
++    ggml_tensor* get_replacement_weight(ggml_context* ctx, ggml_backend_t backend, ggml_tensor* weight, const std::string& weight_name) override {
++        ggml_tensor* replaced = nullptr;
++        for (auto& lora_model : lora_models) {
++            ggml_tensor* candidate = lora_model->get_weight_replacement(weight_name, backend, ctx, replaced != nullptr ? replaced : weight);
++            if (candidate != nullptr) {
++                replaced = candidate;
++            }
++        }
++        return replaced;
++    }
++
+     ggml_tensor* patch_weight(ggml_context* ctx, ggml_backend_t backend, ggml_tensor* weight, const std::string& weight_name, bool with_lora_and_lokr) {
+         for (auto& lora_model : lora_models) {
++            ggml_tensor* replacement = lora_model->get_weight_replacement(weight_name, backend, ctx, weight);
++            if (replacement != nullptr) {
++                weight = replacement;
++            }
+             ggml_tensor* diff = lora_model->get_weight_diff(weight_name, backend, ctx, weight, with_lora_and_lokr);
+             if (diff == nullptr) {
+                 continue;
+diff --git a/src/model/common/ggml_block.hpp b/src/model/common/ggml_block.hpp
+index 7529848..0f0baf4 100644
+--- a/src/model/common/ggml_block.hpp
++++ b/src/model/common/ggml_block.hpp
+@@ -236,6 +236,13 @@ public:
+         }
+         ggml_tensor* linear_bias = has_weight_scale ? nullptr : b;
+         ggml_tensor* out         = nullptr;
++        if (ctx->weight_adapter && (w->type == GGML_TYPE_I8 || has_weight_scale)) {
++            if (ggml_tensor* replacement = ctx->weight_adapter->get_replacement_weight(ctx->ggml_ctx, ctx->backend, w, prefix + "weight")) {
++                w                = replacement;
++                has_weight_scale = false;
++                linear_bias      = b;
++            }
++        }
+         if (w->type == GGML_TYPE_I8) {
+             if (x->type != GGML_TYPE_F32) {
+                 x = ggml_ext_cast_f32(ctx->ggml_ctx, ctx->backend, x);
+diff --git a/src/model/diffusion/minimax_h3.hpp b/src/model/diffusion/minimax_h3.hpp
+index e93c70f..9cb434b 100644
+--- a/src/model/diffusion/minimax_h3.hpp
++++ b/src/model/diffusion/minimax_h3.hpp
+@@ -547,8 +547,12 @@ namespace MiniMaxH3 {
+             if (!config.uses_adaln_curves()) {
+                 return std::dynamic_pointer_cast<TimeEmbedder>(blocks["time_embedder"])->forward(ctx, timestep_features);
+             }
+-            auto lower = ggml_get_rows(ctx->ggml_ctx, params["adaln_t_table"], curve_indices);
+-            auto upper = ggml_get_rows(ctx->ggml_ctx, params["adaln_t_table"], curve_upper_indices);
++            auto table = params["adaln_t_table"];
++            if (ctx->weight_adapter) {
++                table = ctx->weight_adapter->patch_weight(ctx->ggml_ctx, ctx->backend, table, "model.diffusion_model.adaln_t_table");
++            }
++            auto lower = ggml_get_rows(ctx->ggml_ctx, table, curve_indices);
++            auto upper = ggml_get_rows(ctx->ggml_ctx, table, curve_upper_indices);
+             return ggml_add(ctx->ggml_ctx,
+                             lower,
+                             ggml_mul(ctx->ggml_ctx,
+diff --git a/src/name_conversion.cpp b/src/name_conversion.cpp
+index f37c4dd..037963c 100644
+--- a/src/name_conversion.cpp
++++ b/src/name_conversion.cpp
+@@ -1054,14 +1054,26 @@ std::string convert_diffusers_dit_to_original_minimax_h3(std::string name) {
+     static const std::vector<std::pair<std::string, std::string>> prefix_map = {
+         {"transformer_blocks.", "blocks."},
+         {"token_refiner.refiner_blocks.", "token_refiner.blocks."},
++        {"proj_in.", "video_patch_proj."},
++        {"audio_proj_in.", "audio_patch_proj."},
++        {"context_embedder.", "condition_proj."},
++        {"time_embedder.table", "adaln_t_table"},
++        {"norm_out.norm.", "final_layer.norm."},
++        {"norm_out.linear.", "final_layer.adaln_proj.linear."},
++        {"norm_out.folded_bias", "final_layer.adaln_proj.linear.bias"},
++        {"proj_out.", "final_layer.video_out."},
++        {"audio_proj_out.", "final_layer.audio_out."},
+     };
+     static const std::vector<std::pair<std::string, std::string>> name_map = {
+         {".attn.to_q.weight", ".attn.qkv_proj.weight"},
+         {".attn.to_k.weight", ".attn.qkv_proj.weight.1"},
+         {".attn.to_v.weight", ".attn.qkv_proj.weight.2"},
++        {".attn.norm_q.", ".attn.q_norm."},
++        {".attn.norm_k.", ".attn.k_norm."},
+         {".attn.to_out.0.", ".attn.out_proj."},
+         {".ff.net.0.proj.", ".mlp.fc1."},
+         {".ff.net.2.", ".mlp.fc2."},
++        {".adaln_proj.folded_bias", ".adaln_proj.linear.bias"},
+     };
+     replace_with_prefix_map(name, prefix_map);
+     replace_with_name_map(name, name_map);
+@@ -1665,12 +1677,38 @@ std::string convert_tensor_name(std::string name, SDVersion version) {
+             "transformer_blocks",
+             "single_transformer_blocks",
+         };
++        bool dit_prefixed = false;
+         for (const auto& prefix : dit_prefix_vec) {
+             if (starts_with(name, prefix)) {
+-                name = "transformer." + name;
++                name         = "transformer." + name;
++                dit_prefixed = true;
+                 break;
+             }
+         }
++        if (!dit_prefixed && sd_version_is_minimax_h3(version)) {
++            static const std::vector<std::string> h3_adapter_prefixes = {
++                "blocks.",
++                "token_refiner.",
++                "final_layer.",
++                "norm_out.",
++                "proj_out.",
++                "audio_proj_out.",
++                "proj_in.",
++                "audio_proj_in.",
++                "context_embedder.",
++                "time_embedder.",
++                "video_patch_proj.",
++                "audio_patch_proj.",
++                "condition_proj.",
++                "adaln_t_table",
++            };
++            for (const auto& prefix : h3_adapter_prefixes) {
++                if (starts_with(name, prefix)) {
++                    name = "transformer." + name;
++                    break;
++                }
++            }
++        }
+ 
+         // LOG_VERBOSE("name %s %d", name.c_str(), version);
+ 
+diff --git a/src/runtime/denoiser.hpp b/src/runtime/denoiser.hpp
+index 6fbcb43..c4cc2b8 100644
+--- a/src/runtime/denoiser.hpp
++++ b/src/runtime/denoiser.hpp
+@@ -850,6 +850,70 @@ struct LLaDAImageScheduler : SigmaScheduler {
+     }
+ };
+ 
++// https://github.com/Lakonik/ComfyUI-piFlow/blob/main/piflow_scheduler.py
++// Builds a uniform raw_t schedule from max_raw_t down to
++//   (max_raw_t - min_raw_t) * final_step_size_scale / (n - 1 + final_step_size_scale) + min_raw_t
++// and maps each raw_t through the denoiser's own time-shift curve (e.g. shift=12 for MiniMax-H3).
++struct PiFlowScheduler : SigmaScheduler {
++    float min_raw_t             = 0.0f;
++    float max_raw_t             = 1.0f;
++    float final_step_size_scale = 1.0f;
++
++    explicit PiFlowScheduler(const char* extra_sample_args = nullptr) {
++        parse_extra_sample_args(extra_sample_args);
++    }
++
++    void parse_extra_sample_args(const char* extra_sample_args) {
++        for (const auto& [key, value] : parse_key_value_args(extra_sample_args, "piflow scheduler arg")) {
++            if (key == "min_raw_t") {
++                if (!parse_strict_float(value, min_raw_t)) {
++                    LOG_WARN("ignoring invalid piflow scheduler arg '%s=%s'", key.c_str(), value.c_str());
++                }
++            } else if (key == "max_raw_t") {
++                if (!parse_strict_float(value, max_raw_t)) {
++                    LOG_WARN("ignoring invalid piflow scheduler arg '%s=%s'", key.c_str(), value.c_str());
++                }
++            } else if (key == "final_step_size_scale") {
++                if (!parse_strict_float(value, final_step_size_scale)) {
++                    LOG_WARN("ignoring invalid piflow scheduler arg '%s=%s'", key.c_str(), value.c_str());
++                }
++            }
++        }
++        min_raw_t             = std::clamp(min_raw_t, 0.0f, 1.0f);
++        max_raw_t             = std::clamp(max_raw_t, min_raw_t, 1.0f);
++        final_step_size_scale = std::max(final_step_size_scale, 0.01f);
++    }
++
++    std::vector<float> get_sigmas(uint32_t n, float /*sigma_min*/, float /*sigma_max*/, t_to_sigma_t t_to_sigma) override {
++        std::vector<float> sigmas;
++        if (n == 0) {
++            return sigmas;
++        }
++        sigmas.reserve(n + 1);
++        const float denom = static_cast<float>(n - 1) + final_step_size_scale;
++        const float t_end = (max_raw_t - min_raw_t) * final_step_size_scale / denom + min_raw_t;
++        LOG_VERBOSE("pi-Flow scheduler: steps=%u, min_raw_t=%.4f, max_raw_t=%.4f, final_step_size_scale=%.4f",
++                    n, min_raw_t, max_raw_t, final_step_size_scale);
++        for (uint32_t i = 0; i < n; ++i) {
++            const float raw_t = (n == 1)
++                                    ? max_raw_t
++                                    : max_raw_t + (t_end - max_raw_t) * (static_cast<float>(i) / static_cast<float>(n - 1));
++            float sigma       = 0.0f;
++            if (raw_t >= 1.0f) {
++                sigma = 1.0f;
++            } else if (raw_t > 0.0f) {
++                const float t = std::clamp(raw_t * static_cast<float>(TIMESTEPS) - 1.0f,
++                                           0.0f,
++                                           static_cast<float>(TIMESTEPS - 1));
++                sigma         = t_to_sigma(t);
++            }
++            sigmas.push_back(sigma);
++        }
++        sigmas.push_back(0.0f);
++        return sigmas;
++    }
++};
++
+ struct Flux2Scheduler : SigmaScheduler {
+     int image_seq_len = 0;
+ 
+@@ -1197,6 +1261,11 @@ struct Denoiser {
+                 scheduler = std::make_shared<FluxScheduler>(image_seq_len, version, extra_sample_args);
+                 break;
+             }
++            case PIFLOW_SCHEDULER: {
++                LOG_INFO("get_sigmas with pi-Flow scheduler");
++                scheduler = std::make_shared<PiFlowScheduler>(extra_sample_args);
++                break;
++            }
+             default:
+                 LOG_INFO("get_sigmas with discrete scheduler (default)");
+                 scheduler = std::make_shared<DiscreteScheduler>();
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+index 3d59181..e648081 100644
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -138,6 +138,7 @@ const char* scheduler_to_str[] = {
+     "flux",
+     "beta",
+     "llada_image",
++    "piflow",
+ };
+ 
+ static_assert(SCHEDULER_COUNT == sizeof(scheduler_to_str) / sizeof(scheduler_to_str[0]),
