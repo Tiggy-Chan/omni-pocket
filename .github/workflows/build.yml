@@ -3,8 +3,8 @@ name: Build
 # Builds Omni Pocket (arm64-v8a) with all local inference runtimes:
 # - MNN (prebuilt libMNN.so in qwenimage21/src/main/jniLibs/)
 # - llama.cpp (Decision + generic GGUF chat via CMake in app/src/main/cpp/)
-# - unified stable-diffusion.cpp (libsd_cli.so with OpenCL + WebM: MOSS, Wan2.2, generic SD)
-# - audio.cpp (libyue2_cli.so: YuE2-3B music)
+# - unified stable-diffusion.cpp (libsd_jni.so with OpenCL + WebM: MOSS, Wan2.2/MiniMax-H3, generic SD)
+# - audio.cpp (libyue2_jni.so: YuE2-3B / ACE-Step / HeartMuLa / Stable Audio 3 music)
 on:
   push:
     branches: [main]
@@ -112,6 +112,8 @@ jobs:
             apk="out/omni-pocket-${V}-arm64-v8a.apk"
             cp app/build/outputs/apk/release/app-release.apk "$apk"
             APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)"
+            ZIPALIGN="$(ls "$ANDROID_HOME"/build-tools/*/zipalign | sort -V | tail -n 1)"
+            "$ZIPALIGN" -c -P 16 4 "$apk"
             "$APKSIGNER" verify -v --print-certs "$apk"
             VERIFY_OUT="$("$APKSIGNER" verify -v --min-sdk-version 21 "$apk")"
             echo "$VERIFY_OUT"

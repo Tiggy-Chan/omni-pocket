@@ -9,7 +9,6 @@ import java.io.File
 
 class SdCliCommandTest {
     private fun options(frames: Int = 25) = SdCliVideoOptions(
-        nativeLib = File("/app/libsd_cli.so"),
         diffusionModel = File("/models/wan.gguf"),
         textEncoder = File("/models/t5.gguf"),
         vae = File("/models/tae.safetensors"),
@@ -28,6 +27,8 @@ class SdCliCommandTest {
     fun passesEveryUserVisibleParameterToTheCli() {
         val command = buildSdCliVideoCommand(options())
 
+        assertEquals("sd-jni", command[0])
+        assertFalse(command.contains("/system/bin/nice"))
         assertEquals("16", command.valueAfter("--fps"))
         assertEquals("123456789", command.valueAfter("--seed"))
         assertEquals("25", command.valueAfter("--video-frames"))
@@ -102,7 +103,6 @@ class SdCliCommandTest {
     fun buildsMiniMaxH3PiFlowCommandWithDiskStreamingAndAudioVae() {
         val command = buildSdCliVideoCommand(
             SdCliVideoOptions(
-                nativeLib = File("/app/libsd_cli.so"),
                 diffusionModel = File("/models/minimax_h3_fl2va_pruned-Q2_K.gguf"),
                 textEncoder = File("/models/qwen3vl-32B-MiniMax-H3-Q2_K.gguf"),
                 vae = File("/models/minimax_h3_video_vae_int8_convrot.safetensors"),
@@ -152,7 +152,6 @@ class SdCliCommandTest {
     fun passesRefImageFlagForMiniMaxH3Ref2VaAndGenericImageEdit() {
         val h3RefCmd = buildSdCliVideoCommand(
             SdCliVideoOptions(
-                nativeLib = File("/app/libsd_cli.so"),
                 diffusionModel = File("/models/minimax_h3_ref2va_pruned-Q2_K.gguf"),
                 textEncoder = File("/models/qwen3vl-32B-MiniMax-H3-Q2_K.gguf"),
                 vae = File("/models/minimax_h3_video_vae_int8_convrot.safetensors"),
@@ -175,7 +174,6 @@ class SdCliCommandTest {
 
         val flux3Cmd = buildSdCliGenericImageCommand(
             SdCliGenericImageOptions(
-                nativeLib = File("/app/libsd_cli.so"),
                 modelFile = File("/models/flux-3-image-klein-Q4_K_M.gguf"),
                 llmFile = File("/models/Qwen3VL-4B-Instruct-Q4_K_M.gguf"),
                 vaeFile = File("/models/flux2_ae.safetensors"),

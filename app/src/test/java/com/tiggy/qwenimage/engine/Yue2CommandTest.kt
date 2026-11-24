@@ -10,7 +10,6 @@ import java.io.File
 
 class Yue2CommandTest {
     private fun options(lyrics: String = "[Verse]\nhello", guidance: Float? = null) = Yue2Options(
-        nativeLib = File("/app/libyue2_cli.so"),
         modelDir = File("/models/yue2"),
         output = File("/music/song.part.wav"),
         outputDir = File("/cache/yue2-job"),
@@ -28,6 +27,7 @@ class Yue2CommandTest {
     fun passesUserParametersAndBoundsTheSemanticStream() {
         val command = buildYue2Command(options())
 
+        assertEquals("audiocpp-jni", command[0])
         assertEquals("yue2", command.valueAfter("--family"))
         assertEquals("cpu", command.valueAfter("--backend"))
         assertEquals("42", command.valueAfter("--seed"))
@@ -76,7 +76,6 @@ class Yue2CommandTest {
     fun buildsVulkanAndMultiFamilyMusicCommands() {
         val aceCmd = buildAudioCppMusicCommand(
             AudioCppMusicOptions(
-                nativeLib = File("/app/libyue2_cli.so"),
                 family = AudioCppFamily.AceStep,
                 modelPath = File("/models/hub/acestep/ACE-Step-1.5-Turbo-Q8_0.gguf"),
                 output = File("/music/ace.part.wav"),
@@ -105,7 +104,6 @@ class Yue2CommandTest {
 
         val heartCmd = buildAudioCppMusicCommand(
             AudioCppMusicOptions(
-                nativeLib = File("/app/libyue2_cli.so"),
                 family = AudioCppFamily.HeartMula,
                 modelPath = File("/models/hub/heartmula/HeartMuLa-Q8_0.gguf"),
                 output = File("/music/hm.part.wav"),
@@ -128,7 +126,6 @@ class Yue2CommandTest {
 
         val saCmd = buildAudioCppMusicCommand(
             AudioCppMusicOptions(
-                nativeLib = File("/app/libyue2_cli.so"),
                 family = AudioCppFamily.StableAudio,
                 modelPath = File("/models/hub/sa/Stable-Audio-3-Small-Music-Q8_0.gguf"),
                 output = File("/music/sa.part.wav"),

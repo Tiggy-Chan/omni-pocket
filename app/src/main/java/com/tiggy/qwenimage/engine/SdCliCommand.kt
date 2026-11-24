@@ -10,7 +10,6 @@ internal enum class VideoModelArch {
 }
 
 internal data class SdCliVideoOptions(
-    val nativeLib: File,
     val diffusionModel: File,
     val textEncoder: File,
     val vae: File,
@@ -61,10 +60,7 @@ internal fun buildSdCliVideoCommand(options: SdCliVideoOptions): List<String> {
     fun fmt(v: Float): String = String.format(Locale.US, "%.2f", v).trimEnd('0').trimEnd('.')
 
     return buildList {
-        add("/system/bin/nice")
-        add("-n")
-        add("10")
-        add(options.nativeLib.absolutePath)
+        add("sd-jni")
         add("-M"); add("vid_gen")
         add("--diffusion-model"); add(options.diffusionModel.absolutePath)
         when (options.arch) {

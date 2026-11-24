@@ -8,7 +8,6 @@ import java.io.File
 
 class SdCliMossCommandTest {
     private fun options() = SdCliMossOptions(
-        nativeLib = File("/app/libmoss_cli.so"),
         diffusionModel = File("/models/MOSS-Image-SFT-Q4_0.gguf"),
         textEncoder = File("/models/Qwen3.5-9B-Q4_K_M.gguf"),
         vae = File("/models/flux2-vae_small.safetensors"),
@@ -29,7 +28,8 @@ class SdCliMossCommandTest {
     fun passesTheRealLocalModelsAndEverySamplingParameter() {
         val command = buildSdCliMossCommand(options())
 
-        assertEquals("/app/libmoss_cli.so", command[3])
+        assertEquals("sd-jni", command[0])
+        assertFalse(command.contains("/system/bin/nice"))
         assertEquals("img_gen", command.valueAfter("-M"))
         assertEquals("/models/MOSS-Image-SFT-Q4_0.gguf", command.valueAfter("--diffusion-model"))
         assertEquals("/models/Qwen3.5-9B-Q4_K_M.gguf", command.valueAfter("--llm"))

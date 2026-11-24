@@ -1,6 +1,6 @@
 #!/bin/bash
-# Build the unified stable-diffusion.cpp CLI (libsd_cli.so) for Android arm64 (CPU + OpenCL + WebM).
-# Drives Wan2.2 video, MOSS-Image, and Hugging Face single-file SD/SDXL/Turbo image checkpoints.
+# Build the unified stable-diffusion.cpp JNI shared library (libsd_jni.so) for Android arm64 (CPU + OpenCL + WebM).
+# Drives Wan2.2 / MiniMax-H3 video, MOSS-Image, and Hugging Face single-file/modular image models inside :engine.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,7 +8,8 @@ SD_SRC="$ROOT/third_party/stable-diffusion.cpp"
 BUILD_ROOT="${SD_BUILD_DIR:-${MOSS_BUILD_DIR:-$ROOT/build/sd-android}}"
 DEPS_ROOT="$BUILD_ROOT/deps"
 SD_BUILD="$BUILD_ROOT/stable-diffusion"
-OUTPUT="$ROOT/app/src/main/jniLibs/arm64-v8a/libsd_cli.so"
+OUTPUT="$ROOT/app/src/main/jniLibs/arm64-v8a/libsd_jni.so"
+LEGACY_CLI="$ROOT/app/src/main/jniLibs/arm64-v8a/libsd_cli.so"
 LEGACY_MOSS="$ROOT/app/src/main/jniLibs/arm64-v8a/libmoss_cli.so"
 
 SD_REVISION="95ff76230889898e1bf40058ba272a3699b50dc6"
@@ -185,27 +186,102 @@ UPSTREAM_VERSION="$(git -C "$SD_SRC" describe --tags --always --abbrev=7 --dirty
 } | tee "$BUILD_ROOT/build-info.txt"
 
 cmake -S "$SD_SRC" -B "$SD_BUILD" "${SD_CMAKE_ARGS[@]}"
-cmake --build "$SD_BUILD" --target sd-cli --parallel "${JOBS:-4}"
+cmake --build "$SD_BUILD" --target stable-diffusion sd-cli --parallel "${JOBS:-4}"
 
-[[ -f "$SD_BUILD/bin/sd-cli" ]] || {
-    echo "sd-cli was not produced at $SD_BUILD/bin/sd-cli" >&2
-    exit 1
-}
-mkdir -p "$(dirname "$OUTPUT")"
-cp "$SD_BUILD/bin/sd-cli" "$OUTPUT"
-chmod 0755 "$OUTPUT"
-"$(dirname "$READELF")/llvm-strip" --strip-unneeded "$OUTPUT"
-rm -f "$LEGACY_MOSS"
+# Link true JNI shared library (libsd_jni.so) with 16KB ELF page alignment and dlopen OpenCL loader.
+# Reuses all compiled static libraries and compiles cli/main.cpp with -Dmain=omni_sd_cli_main.
+TOOLCHAIN_BIN="$(dirname "$READELF")"
+CLANG="$TOOLCHAIN_BIN/aarch64-linux-android28-clang"
+CLANGXX="$TOOLCHAIN_BIN/aarch64-linux-android28-clang++"
+JNI_OBJ_DIR="$BUILD_ROOT/jni-obj"
+mkdir -p "$JNI_OBJ_DIR" "$(dirname "$OUTPUT")"
+
+"$CLANG" -O3 -fPIC -DCL_TARGET_OPENCL_VERSION=300 \
+    -I"$OPENCL_HEADERS" \
+    -c "$ROOT/app/src/main/cpp/opencl_dlopen_loader.c" \
+    -o "$JNI_OBJ_DIR/opencl_dlopen_loader.o"
+
+SD_CLI_INCLUDES=(
+    -I"$SD_SRC/include"
+    -I"$SD_SRC/src"
+    -I"$SD_SRC/examples"
+    -I"$SD_SRC/examples/cli"
+    -I"$SD_SRC/thirdparty"
+    -I"$SD_SRC/thirdparty/libwebm"
+    -I"$SD_SRC/thirdparty/libwebp/src"
+    -I"$SD_SRC/ggml/include"
+)
+
+"$CLANGXX" -std=c++17 -O3 -fPIC -DSD_USE_WEBP -DSD_USE_WEBM \
+    -Dmain=omni_sd_cli_main \
+    "${SD_CLI_INCLUDES[@]}" \
+    -c "$SD_SRC/examples/cli/main.cpp" \
+    -o "$JNI_OBJ_DIR/sd_cli_main.o"
+
+"$CLANGXX" -std=c++17 -O3 -fPIC \
+    -c "$ROOT/scripts/native/sd_jni_bridge.cpp" \
+    -o "$JNI_OBJ_DIR/sd_jni_bridge.o"
+
+CLI_COMMON_OBJS=(
+    "$SD_BUILD/examples/cli/CMakeFiles/sd-cli.dir/__/common/common.cpp.o"
+    "$SD_BUILD/examples/cli/CMakeFiles/sd-cli.dir/__/common/log.cpp.o"
+    "$SD_BUILD/examples/cli/CMakeFiles/sd-cli.dir/__/common/media_io.cpp.o"
+    "$SD_BUILD/examples/cli/CMakeFiles/sd-cli.dir/image_metadata.cpp.o"
+)
+
+STATIC_LIBS=(
+    "$SD_BUILD/libstable-diffusion.a"
+    "$SD_BUILD/thirdparty/libzip/libzip.a"
+    "$SD_BUILD/ggml/src/libggml.a"
+    "$SD_BUILD/ggml/src/libggml-cpu.a"
+    "$SD_BUILD/ggml/src/ggml-opencl/libggml-opencl.a"
+    "$SD_BUILD/ggml/src/libggml-base.a"
+    "$SD_BUILD/thirdparty/libwebm/libwebm.a"
+    "$SD_BUILD/thirdparty/libwebp/libwebpmux.a"
+    "$SD_BUILD/thirdparty/libwebp/libwebp.a"
+    "$SD_BUILD/thirdparty/libwebp/libsharpyuv.a"
+    "$SD_BUILD/thirdparty/libwebp/libcpufeatures-webp.a"
+)
+EXISTING_LIBS=()
+for lib in "${STATIC_LIBS[@]}"; do
+    [[ -f "$lib" ]] && EXISTING_LIBS+=("$lib")
+done
+
+"$CLANGXX" -shared -fPIC \
+    -static-libstdc++ \
+    -Wl,-z,max-page-size=16384 \
+    -Wl,--version-script="$ROOT/scripts/native/jni_engine.map" \
+    -Wl,--gc-sections \
+    "$JNI_OBJ_DIR/sd_jni_bridge.o" \
+    "$JNI_OBJ_DIR/sd_cli_main.o" \
+    "$JNI_OBJ_DIR/opencl_dlopen_loader.o" \
+    "${CLI_COMMON_OBJS[@]}" \
+    -Wl,--start-group "${EXISTING_LIBS[@]}" -Wl,--end-group \
+    -ldl -llog -lm -lz \
+    -o "$OUTPUT"
+
+"$TOOLCHAIN_BIN/llvm-strip" --strip-unneeded "$OUTPUT"
+rm -f "$LEGACY_CLI" "$LEGACY_MOSS"
 
 DYNAMIC_DEPS="$("$READELF" -d "$OUTPUT")"
-grep -q 'Shared library: \[libOpenCL.so\]' <<<"$DYNAMIC_DEPS" || {
-    echo "libsd_cli.so does not declare its OpenCL runtime dependency" >&2
-    exit 1
-}
 if grep -q 'Shared library: \[libc++_shared.so\]' <<<"$DYNAMIC_DEPS"; then
-    echo "libsd_cli.so unexpectedly requires shared libc++" >&2
+    echo "libsd_jni.so unexpectedly requires shared libc++" >&2
     exit 1
 fi
+if grep -q 'Shared library: \[libOpenCL.so\]' <<<"$DYNAMIC_DEPS"; then
+    echo "libsd_jni.so should use dlopen loader instead of DT_NEEDED libOpenCL.so" >&2
+    exit 1
+fi
+PROG_HEADERS="$("$READELF" -l "$OUTPUT")"
+grep -Eq 'LOAD.*[[:space:]]0x(4000|10000)[[:space:]]*$' <<<"$PROG_HEADERS" || {
+    echo "libsd_jni.so is not 16KB page-aligned" >&2
+    exit 1
+}
+DYN_SYMS="$("$READELF" --dyn-syms "$OUTPUT")"
+grep -q 'Java_com_tiggy_qwenimage_engine_NativeEngineBridge_nativeRunSd' <<<"$DYN_SYMS" || {
+    echo "libsd_jni.so missing JNI entry symbol" >&2
+    exit 1
+}
 
-printf 'Unified sd-cli Android binary ready: %s\n' "$OUTPUT"
+printf 'Unified sd JNI shared library ready: %s\n' "$OUTPUT"
 ls -lh "$OUTPUT"

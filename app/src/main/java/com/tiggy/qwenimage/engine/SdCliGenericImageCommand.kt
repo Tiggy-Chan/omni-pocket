@@ -2,12 +2,10 @@ package com.tiggy.qwenimage.engine
 
 import java.io.File
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 internal val SUPPORTED_SD_SAMPLERS = listOf("euler", "euler_a", "dpm++2m", "lcm", "heun")
 
 internal data class SdCliGenericImageOptions(
-    val nativeLib: File,
     val modelFile: File,
     val output: File,
     val prompt: String,
@@ -44,10 +42,7 @@ internal fun buildSdCliGenericImageCommand(options: SdCliGenericImageOptions): L
 
     val isModular = options.llmFile != null && options.vaeFile != null
     return buildList {
-        add("/system/bin/nice")
-        add("-n")
-        add("10")
-        add(options.nativeLib.absolutePath)
+        add("sd-jni")
         add("-M"); add("img_gen")
         if (isModular) {
             add("--diffusion-model"); add(options.modelFile.absolutePath)
@@ -81,25 +76,5 @@ internal fun buildSdCliGenericImageCommand(options: SdCliGenericImageOptions): L
             add("-r"); add(it.absolutePath)
         }
         add("-o"); add(options.output.absolutePath)
-    }
-}
-
-/** Resolves the unified sd-cli binary, falling back to libmoss_cli.so if present. */
-internal fun resolveSdCliBinary(nativeLibraryDir: String): File {
-    val unified = File(nativeLibraryDir, "libsd_cli.so")
-    if (unified.isFile) return unified
-    val legacyMoss = File(nativeLibraryDir, "libmoss_cli.so")
-    return if (legacyMoss.isFile) legacyMoss else unified
-}
-
-/** Terminates a child process cleanly with a bounded wait before falling back to SIGKILL. */
-internal fun terminateProcessGracefully(process: Process?, graceMs: Long = 400L) {
-    if (process == null) return
-    runCatching {
-        if (!process.isAlive) return
-        process.destroy()
-        if (!process.waitFor(graceMs, TimeUnit.MILLISECONDS) && process.isAlive) {
-            process.destroyForcibly()
-        }
     }
 }

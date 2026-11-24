@@ -93,7 +93,8 @@ data class CustomSdSettings(
 
 /**
  * Executes single-file (SD 1.5 / SDXL / Turbo) and modular (Z-Image-Turbo / FLUX.2-Klein /
- * FLUX.3-Klein / ERNIE-Image-Turbo) diffusion checkpoints downloaded from Hugging Face / hf-mirror via libsd_cli.so.
+ * FLUX.3-Klein / ERNIE-Image-Turbo) diffusion checkpoints downloaded from Hugging Face / hf-mirror
+ * via libsd_jni.so inside the isolated `:engine` worker service.
  */
 class LocalSdImageEngine(
     private val context: Context,
@@ -101,7 +102,7 @@ class LocalSdImageEngine(
 ) : AutoCloseable {
     private val outputDirectory = File(context.getExternalFilesDir(null) ?: context.filesDir, "outputs")
 
-    @Volatile private var activeProcess: Process? = null
+    @Volatile private var activeWorker: InferenceWorkerClient? = null
     @Volatile private var cancelRequested = false
 
     suspend fun executeGeneration(
@@ -125,22 +126,20 @@ class LocalSdImageEngine(
             check(llmFile != null && llmFile.isFile) { "缺少共享文本编码器组件，请在模型页重新下载 ${model.name}" }
             check(vaeFile != null && vaeFile.isFile) { "缺少共享 VAE 解码器组件，请在模型页重新下载 ${model.name}" }
         }
-        val nativeLib = resolveSdCliBinary(context.applicationInfo.nativeLibraryDir)
-        check(nativeLib.isFile) { "本机图像推理库（libsd_cli.so）未安装" }
-        check(activeProcess == null) { "已有图像任务正在执行" }
+        check(NativeEngineBridge.isSdEngineAvailable(context)) { "本机图像推理库（libsd_jni.so）未安装" }
+        check(activeWorker == null) { "已有图像任务正在执行" }
         if (!outputDirectory.isDirectory && !outputDirectory.mkdirs()) throw IOException("无法创建输出目录")
 
         val outputFile = File(outputDirectory, "$jobId.png")
         val partialFile = File(outputDirectory, "$jobId.part.png")
         partialFile.delete()
         var refImageFile: File? = null
-        var process: Process? = null
+        val worker = InferenceWorkerClient(context)
         try {
             if (settings.inputImageUri != null && model.metadata["supportsEdit"] == "true") {
                 refImageFile = copyReferenceImage(settings.inputImageUri, jobId)
             }
             val options = SdCliGenericImageOptions(
-                nativeLib = nativeLib,
                 modelFile = modelFile,
                 output = partialFile,
                 prompt = settings.prompt,
@@ -167,30 +166,27 @@ class LocalSdImageEngine(
                 )
             )
             if (refImageFile != null) onUpdate(EngineUpdate(null, "已载入参考图"))
-            val builder = ProcessBuilder(buildSdCliGenericImageCommand(options))
-            builder.environment()["LD_LIBRARY_PATH"] = "/vendor/lib64:${context.applicationInfo.nativeLibraryDir}"
-            builder.environment()["GGML_OPENCL_KERNEL_CACHE_DIR"] =
-                File(context.cacheDir, "opencl-kernels").apply { mkdirs() }.absolutePath
-            builder.redirectErrorStream(true)
-            val launched = builder.start()
-            process = launched
-            activeProcess = launched
+            activeWorker = worker
             if (cancelRequested) throw CancellationException("已取消图像生成")
 
             val parser = SdCliProgressParser()
-            val input = launched.inputStream
-            val buffer = ByteArray(4096)
+            val tailLock = Any()
             var outputTail = ""
-            while (true) {
-                currentCoroutineContext().ensureActive()
-                val count = input.read(buffer)
-                if (count < 0) break
-                val chunk = String(buffer, 0, count, Charsets.UTF_8)
-                outputTail = (outputTail + chunk).takeLast(4_000)
-                parser.feed(chunk).forEach { event -> dispatchEvent(event, onUpdate) }
+            val openClCacheDir = File(context.cacheDir, "opencl-kernels").apply { mkdirs() }.absolutePath
+            val exitCode = worker.run(
+                jobId = jobId,
+                engine = InferenceWorkerProtocol.ENGINE_SD,
+                args = buildSdCliGenericImageCommand(options),
+                openClCacheDir = openClCacheDir
+            ) { chunk ->
+                synchronized(tailLock) {
+                    outputTail = (outputTail + chunk).takeLast(4_000)
+                    parser.feed(chunk).forEach { event -> dispatchEvent(event, onUpdate) }
+                }
             }
-            val exitCode = launched.waitFor()
-            parser.finish().forEach { event -> dispatchEvent(event, onUpdate) }
+            synchronized(tailLock) {
+                parser.finish().forEach { event -> dispatchEvent(event, onUpdate) }
+            }
             currentCoroutineContext().ensureActive()
             if (cancelRequested) throw CancellationException("已取消图像生成")
             if (exitCode != 0 || partialFile.length() < 128L) {
@@ -214,8 +210,7 @@ class LocalSdImageEngine(
             if (error is CancellationException || cancelRequested) throw CancellationException("已取消图像生成")
             throw error
         } finally {
-            activeProcess = null
-            terminateProcessGracefully(process)
+            activeWorker = null
             refImageFile?.delete()
             partialFile.delete()
             cancelRequested = false
@@ -246,8 +241,7 @@ class LocalSdImageEngine(
 
     fun cancelGeneration() {
         cancelRequested = true
-        val target = activeProcess
-        if (target != null) Thread({ terminateProcessGracefully(target) }, "sd-cancel").start()
+        activeWorker?.cancel()
     }
 
     override fun close() = cancelGeneration()

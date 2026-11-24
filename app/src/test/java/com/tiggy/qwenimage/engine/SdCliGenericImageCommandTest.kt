@@ -8,7 +8,6 @@ import java.io.File
 
 class SdCliGenericImageCommandTest {
     private fun options(useOpenCl: Boolean = false) = SdCliGenericImageOptions(
-        nativeLib = File("/app/libsd_cli.so"),
         modelFile = File("/models/hub/sdxl-turbo/sd_xl_turbo_1.0_fp16.safetensors"),
         output = File("/outputs/job.part.png"),
         prompt = "a calm mountain lake at sunrise",
@@ -25,6 +24,8 @@ class SdCliGenericImageCommandTest {
     @Test
     fun buildsCpuCommandWithOffloadAndMmap() {
         val cmd = buildSdCliGenericImageCommand(options(useOpenCl = false))
+        assertEquals("sd-jni", cmd[0])
+        assertFalse(cmd.contains("/system/bin/nice"))
         assertEquals("img_gen", cmd.valueAfter("-M"))
         assertEquals("/models/hub/sdxl-turbo/sd_xl_turbo_1.0_fp16.safetensors", cmd.valueAfter("--model"))
         assertEquals("cpu", cmd.valueAfter("--backend"))

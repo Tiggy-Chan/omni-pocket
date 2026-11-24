@@ -70,6 +70,7 @@ target_include_directories(omni_llm PRIVATE
 )
 target_compile_features(omni_llm PRIVATE cxx_std_17)
 target_link_libraries(omni_llm PRIVATE MNN android log)
+target_link_options(omni_llm PRIVATE "LINKER:-z,max-page-size=16384")
 
 add_library(omni_decision SHARED
     decision_jni.cpp
@@ -96,4 +97,5 @@ else()
 endif()
 target_link_options(omni_decision PRIVATE
     "LINKER:--version-script=${CMAKE_CURRENT_LIST_DIR}/omni_decision.map"
+    "LINKER:-z,max-page-size=16384"
 )

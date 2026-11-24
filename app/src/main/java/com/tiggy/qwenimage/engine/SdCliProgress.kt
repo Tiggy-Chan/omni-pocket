@@ -17,7 +17,7 @@ data class SdCliEvent(
 )
 
 /**
- * Incremental parser for `libsd_cli` output. The CLI redraws its progress bar with carriage returns, so
+ * Incremental parser for `libsd_jni` output. The engine redraws its progress bar with carriage returns, so
  * input is split on both `\r` and `\n` and a trailing partial segment is kept until more text arrives.
  *
  * It only reports what the CLI really printed; nothing is inferred from timers.

@@ -21,7 +21,7 @@ class LocalMossEngine(
     private val outputDirectory = File(context.getExternalFilesDir(null) ?: context.filesDir, "outputs")
 
     @Volatile
-    private var activeProcess: Process? = null
+    private var activeWorker: InferenceWorkerClient? = null
 
     @Volatile
     private var cancelRequested = false
@@ -38,9 +38,8 @@ class LocalMossEngine(
         settings.validateLocal()
         val modelStatus = repository.status()
         check(modelStatus.ready) { modelStatus.message }
-        val nativeLib = resolveSdCliBinary(context.applicationInfo.nativeLibraryDir)
-        check(nativeLib.isFile) { "本机 MOSS 推理库未安装" }
-        check(activeProcess == null) { "已有 MOSS 本机任务正在执行" }
+        check(NativeEngineBridge.isSdEngineAvailable(context)) { "本机 MOSS 推理库未安装" }
+        check(activeWorker == null) { "已有 MOSS 本机任务正在执行" }
         if (!outputDirectory.isDirectory && !outputDirectory.mkdirs()) throw IOException("无法创建 MOSS 输出目录")
 
         val outputFile = File(outputDirectory, "$jobId.png")
@@ -49,7 +48,6 @@ class LocalMossEngine(
         partialFile.delete()
         val effectiveThreads = (threadsOverride ?: settings.local.threads).coerceIn(2, 8)
         val options = SdCliMossOptions(
-            nativeLib = nativeLib,
             diffusionModel = repository.artifactPath(MossModelRepository.SFT_FILE),
             textEncoder = repository.artifactPath(MossModelRepository.TEXT_ENCODER_FILE),
             vae = repository.artifactPath(MossModelRepository.VAE_FILE),
@@ -67,33 +65,31 @@ class LocalMossEngine(
             useOpenCl = settings.local.useOpenCl,
             vaeTiling = settings.local.vaeTiling
         )
-        var process: Process? = null
+        val worker = InferenceWorkerClient(context)
         try {
             val backendLabel = if (settings.local.useOpenCl) "OpenCL" else "CPU"
             onUpdate(EngineUpdate(0f, "正在启动 MOSS 本机", "stable-diffusion.cpp · $backendLabel · ${settings.local.steps} 步"))
-            val builder = ProcessBuilder(buildSdCliMossCommand(options))
-            builder.environment()["LD_LIBRARY_PATH"] = "/vendor/lib64:${context.applicationInfo.nativeLibraryDir}"
-            builder.environment()["GGML_OPENCL_KERNEL_CACHE_DIR"] = File(context.cacheDir, "opencl-kernels").apply { mkdirs() }.absolutePath
-            builder.redirectErrorStream(true)
-            val launchedProcess = builder.start()
-            process = launchedProcess
-            activeProcess = launchedProcess
+            activeWorker = worker
             if (cancelRequested) throw CancellationException("已取消 MOSS 本机生成")
 
             val parser = SdCliProgressParser()
-            val input = launchedProcess.inputStream
-            val buffer = ByteArray(4096)
+            val tailLock = Any()
             var outputTail = ""
-            while (true) {
-                currentCoroutineContext().ensureActive()
-                val count = input.read(buffer)
-                if (count < 0) break
-                val chunk = String(buffer, 0, count, Charsets.UTF_8)
-                outputTail = (outputTail + chunk).takeLast(4_000)
-                parser.feed(chunk).forEach { event -> dispatchEvent(event, onUpdate) }
+            val openClCacheDir = File(context.cacheDir, "opencl-kernels").apply { mkdirs() }.absolutePath
+            val exitCode = worker.run(
+                jobId = jobId,
+                engine = InferenceWorkerProtocol.ENGINE_SD,
+                args = buildSdCliMossCommand(options),
+                openClCacheDir = openClCacheDir
+            ) { chunk ->
+                synchronized(tailLock) {
+                    outputTail = (outputTail + chunk).takeLast(4_000)
+                    parser.feed(chunk).forEach { event -> dispatchEvent(event, onUpdate) }
+                }
             }
-            val exitCode = launchedProcess.waitFor()
-            parser.finish().forEach { event -> dispatchEvent(event, onUpdate) }
+            synchronized(tailLock) {
+                parser.finish().forEach { event -> dispatchEvent(event, onUpdate) }
+            }
             currentCoroutineContext().ensureActive()
             if (cancelRequested) throw CancellationException("已取消 MOSS 本机生成")
             if (exitCode != 0 || partialFile.length() < 128L) {
@@ -120,8 +116,7 @@ class LocalMossEngine(
             if (error is CancellationException || cancelRequested) throw CancellationException("已取消 MOSS 本机生成")
             throw error
         } finally {
-            activeProcess = null
-            terminateProcessGracefully(process)
+            activeWorker = null
             partialFile.delete()
             cancelRequested = false
         }
@@ -129,8 +124,7 @@ class LocalMossEngine(
 
     fun cancelGeneration() {
         cancelRequested = true
-        val target = activeProcess
-        if (target != null) Thread({ terminateProcessGracefully(target) }, "moss-cancel").start()
+        activeWorker?.cancel()
     }
 
     override fun close() = cancelGeneration()

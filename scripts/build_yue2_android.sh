@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the unified audio.cpp music CLI (libyue2_cli.so, CPU OpenMP + Vulkan GPU) for Android arm64.
+# Build the unified audio.cpp music JNI shared library (libyue2_jni.so, CPU OpenMP + Vulkan GPU) for Android arm64.
 # Includes YuE2, ACE-Step 1.5, HeartMuLa, and Stable Audio 3, and stages Khronos Vulkan/SPIRV headers
 # into build/vulkan-deps/ so app/src/main/cpp (llama.cpp) can also enable ggml-vulkan automatically.
 set -euo pipefail
@@ -10,7 +10,8 @@ DEPS_ROOT="$BUILD_ROOT/deps"
 VULKAN_STAGE="$ROOT/build/vulkan-deps"
 SRC="$BUILD_ROOT/audio.cpp"
 OUT_BUILD="$BUILD_ROOT/build"
-OUTPUT="$ROOT/app/src/main/jniLibs/arm64-v8a/libyue2_cli.so"
+OUTPUT="$ROOT/app/src/main/jniLibs/arm64-v8a/libyue2_jni.so"
+LEGACY_CLI="$ROOT/app/src/main/jniLibs/arm64-v8a/libyue2_cli.so"
 
 AUDIOCPP_URL="https://github.com/0xShug0/audio.cpp.git"
 AUDIOCPP_REVISION="3a0dd44293fc706f5c375ec96d3e6fd9c54b6c45"
@@ -118,22 +119,74 @@ cmake -S "$SRC" -B "$OUT_BUILD" -G Ninja \
     -DCMAKE_EXE_LINKER_FLAGS="-static-openmp -llog"
 cmake --build "$OUT_BUILD" --target audiocpp_cli --parallel "${JOBS:-4}"
 
-mkdir -p "$(dirname "$OUTPUT")"
-cp "$OUT_BUILD/bin/audiocpp_cli" "$OUTPUT"
-chmod 0755 "$OUTPUT"
+# Link true JNI shared library (libyue2_jni.so) with 16KB ELF page alignment.
+CLANGXX="$TOOLCHAIN/bin/aarch64-linux-android28-clang++"
+JNI_OBJ_DIR="$BUILD_ROOT/jni-obj"
+mkdir -p "$JNI_OBJ_DIR" "$(dirname "$OUTPUT")"
+
+"$CLANGXX" -std=c++17 -O3 -fPIC -fopenmp=libomp \
+    -DGGML_USE_CPU -DGGML_USE_VULKAN \
+    -Dmain=omni_yue2_cli_main \
+    -I"$OUT_BUILD/generated" \
+    -I"$SRC/include" \
+    -I"$SRC/external/ggml/include" \
+    -I"$VULKAN_STAGE/include" \
+    -c "$SRC/app/cli/main.cpp" \
+    -o "$JNI_OBJ_DIR/yue2_cli_main.o"
+
+"$CLANGXX" -std=c++17 -O3 -fPIC \
+    -c "$ROOT/scripts/native/yue2_jni_bridge.cpp" \
+    -o "$JNI_OBJ_DIR/yue2_jni_bridge.o"
+
+CLI_OBJS=()
+while IFS= read -r obj; do
+    [[ "$(basename "$obj")" == "main.cpp.o" ]] && continue
+    CLI_OBJS+=("$obj")
+done < <(find "$OUT_BUILD/CMakeFiles/audiocpp_cli.dir" -name '*.o' | sort)
+
+STATIC_LIBS=()
+while IFS= read -r lib; do
+    STATIC_LIBS+=("$lib")
+done < <(find "$OUT_BUILD" -name '*.a' | sort)
+
+"$CLANGXX" -shared -fPIC \
+    -static-libstdc++ \
+    -static-openmp \
+    -Wl,-z,max-page-size=16384 \
+    -Wl,--version-script="$ROOT/scripts/native/jni_engine.map" \
+    -Wl,--gc-sections \
+    "$JNI_OBJ_DIR/yue2_jni_bridge.o" \
+    "$JNI_OBJ_DIR/yue2_cli_main.o" \
+    "${CLI_OBJS[@]}" \
+    -Wl,--start-group "${STATIC_LIBS[@]}" -Wl,--end-group \
+    "$OPENMP_STATIC" \
+    -lvulkan -ldl -llog -lm -lz \
+    -o "$OUTPUT"
+
 "$TOOLCHAIN/bin/llvm-strip" --strip-unneeded "$OUTPUT"
+rm -f "$LEGACY_CLI"
 
 DYNAMIC_DEPS="$("$TOOLCHAIN/bin/llvm-readelf" -d "$OUTPUT")"
 grep -q 'Shared library: \[libvulkan.so\]' <<<"$DYNAMIC_DEPS" || {
-    echo "libyue2_cli.so does not declare its Vulkan runtime dependency" >&2
+    echo "libyue2_jni.so does not declare its Vulkan runtime dependency" >&2
     exit 1
 }
 for unwanted in libomp.so libc++_shared.so; do
     if grep -q "Shared library: \[$unwanted\]" <<<"$DYNAMIC_DEPS"; then
-        echo "libyue2_cli.so unexpectedly requires $unwanted" >&2
+        echo "libyue2_jni.so unexpectedly requires $unwanted" >&2
         exit 1
     fi
 done
+PROG_HEADERS="$("$TOOLCHAIN/bin/llvm-readelf" -l "$OUTPUT")"
+grep -Eq 'LOAD.*[[:space:]]0x(4000|10000)[[:space:]]*$' <<<"$PROG_HEADERS" || {
+    echo "libyue2_jni.so is not 16KB page-aligned" >&2
+    exit 1
+}
+DYN_SYMS="$("$TOOLCHAIN/bin/llvm-readelf" --dyn-syms "$OUTPUT")"
+grep -q 'Java_com_tiggy_qwenimage_engine_NativeEngineBridge_nativeRunYue2' <<<"$DYN_SYMS" || {
+    echo "libyue2_jni.so missing JNI entry symbol" >&2
+    exit 1
+}
 printf 'audio.cpp revision: %s\nmodels: %s\nbackends: cpu,vulkan\nNDK revision: %s\nCPU arch: %s\n' \
     "$AUDIOCPP_REVISION" "$MUSIC_MODELS" "$NDK_REVISION" "$CPU_ARCH" | tee "$BUILD_ROOT/build-info.txt"
 ls -lh "$OUTPUT"

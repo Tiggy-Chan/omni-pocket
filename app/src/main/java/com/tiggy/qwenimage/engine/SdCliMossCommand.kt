@@ -4,7 +4,6 @@ import java.io.File
 import java.util.Locale
 
 internal data class SdCliMossOptions(
-    val nativeLib: File,
     val diffusionModel: File,
     val textEncoder: File,
     val vae: File,
@@ -37,10 +36,7 @@ internal fun buildSdCliMossCommand(options: SdCliMossOptions): List<String> {
 
     fun number(value: Double) = String.format(Locale.US, "%.6f", value).trimEnd('0').trimEnd('.')
     return buildList {
-        add("/system/bin/nice")
-        add("-n")
-        add("10")
-        add(options.nativeLib.absolutePath)
+        add("sd-jni")
         add("-M"); add("img_gen")
         add("--diffusion-model"); add(options.diffusionModel.absolutePath)
         add("--llm"); add(options.textEncoder.absolutePath)

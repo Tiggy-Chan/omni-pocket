@@ -20,7 +20,6 @@ internal enum class AudioCppFamily(val wire: String, val displayName: String) {
 }
 
 internal data class Yue2Options(
-    val nativeLib: File,
     val modelDir: File,
     val output: File,
     val outputDir: File,
@@ -39,7 +38,6 @@ internal data class Yue2Options(
 )
 
 internal data class AudioCppMusicOptions(
-    val nativeLib: File,
     val family: AudioCppFamily,
     val modelPath: File,
     val output: File,
@@ -74,7 +72,7 @@ internal fun buildYue2Command(options: Yue2Options): List<String> {
     val minTokens = (maxTokens * 3 / 4).coerceAtMost(maxTokens)
     val backend = if (options.useVulkan) "vulkan" else "cpu"
     return buildList {
-        add(options.nativeLib.absolutePath)
+        add("audiocpp-jni")
         addAll(listOf("--task", "gen", "--family", "yue2", "--backend", backend))
         addAll(listOf("--model", options.modelDir.absolutePath))
         addAll(listOf("--threads", options.threads.toString()))
@@ -99,7 +97,6 @@ internal fun buildAudioCppMusicCommand(options: AudioCppMusicOptions): List<Stri
     if (options.family == AudioCppFamily.Yue2) {
         return buildYue2Command(
             Yue2Options(
-                nativeLib = options.nativeLib,
                 modelDir = options.modelPath,
                 output = options.output,
                 outputDir = options.outputDir,
@@ -130,7 +127,7 @@ internal fun buildAudioCppMusicCommand(options: AudioCppMusicOptions): List<Stri
 
     val backend = if (options.useVulkan) "vulkan" else "cpu"
     return buildList {
-        add(options.nativeLib.absolutePath)
+        add("audiocpp-jni")
         addAll(listOf("--task", "gen", "--family", options.family.wire, "--backend", backend))
         addAll(listOf("--model", options.modelPath.absolutePath))
         addAll(listOf("--threads", options.threads.toString()))

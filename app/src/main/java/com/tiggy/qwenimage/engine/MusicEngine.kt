@@ -34,7 +34,7 @@ class MusicEngine(
     private var preparing = false
     private val handler = Handler(Looper.getMainLooper())
     @Volatile
-    private var activeProcess: Process? = null
+    private var activeWorker: InferenceWorkerClient? = null
 
     @Volatile
     private var cancelRequested = false
@@ -70,7 +70,7 @@ class MusicEngine(
 
     /** Missing or incomplete audio model files; empty when local generation can run. */
     fun missingComponents(modelId: String = ""): List<String> = buildList {
-        if (!File(context.applicationInfo.nativeLibraryDir, NATIVE_LIB).isFile) add(NATIVE_LIB)
+        if (!NativeEngineBridge.isYue2EngineAvailable(context)) add(NativeEngineBridge.YUE2_LIBRARY_FILE)
         if (modelId.isNotBlank()) {
             val hubModel = hubModels.find(modelId)?.takeIf { it.type == HubModelType.MusicAudio }
             if (hubModel == null) {
@@ -207,8 +207,7 @@ class MusicEngine(
 
     fun cancelGeneration() {
         cancelRequested = true
-        val target = activeProcess
-        if (target != null) Thread({ terminateProcessGracefully(target) }, "music-cancel").start()
+        activeWorker?.cancel()
     }
 
     suspend fun executeGeneration(
@@ -227,12 +226,11 @@ class MusicEngine(
         val outputFile = File(musicDir, "$trackId.wav")
         val partialFile = File(musicDir, "$trackId.part.wav")
         val workDir = File(context.cacheDir, "music-$trackId")
-        var process: Process? = null
+        val worker = InferenceWorkerClient(context)
         try {
             if (!workDir.mkdirs()) throw IOException("无法创建音乐临时目录")
             val command = buildAudioCppMusicCommand(
                 AudioCppMusicOptions(
-                    nativeLib = File(context.applicationInfo.nativeLibraryDir, NATIVE_LIB),
                     family = resolved.family,
                     modelPath = resolved.modelPath,
                     output = partialFile,
@@ -260,26 +258,26 @@ class MusicEngine(
                     "${resolved.label} · $accelLabel · seed=${settings.seed} · ${settings.targetDurationSec} 秒 · ${settings.odeSteps} 步"
                 )
             )
-            val builder = ProcessBuilder(command).directory(workDir).redirectErrorStream(true)
-            builder.environment()["LD_LIBRARY_PATH"] = "/vendor/lib64:${context.applicationInfo.nativeLibraryDir}"
-            process = builder.start()
-            activeProcess = process
+            activeWorker = worker
             if (cancelRequested) throw CancellationException("已取消音乐生成")
 
             val parser = Yue2ProgressParser()
-            val input = process.inputStream
-            val buffer = ByteArray(4096)
+            val tailLock = Any()
             var outputTail = ""
-            while (true) {
-                currentCoroutineContext().ensureActive()
-                val count = input.read(buffer)
-                if (count < 0) break
-                val chunk = String(buffer, 0, count, Charsets.UTF_8)
-                outputTail = (outputTail + chunk).takeLast(4_000)
-                parser.feed(chunk).forEach { dispatchYue2Event(it, settings.cotMode, onUpdate) }
+            val exitCode = worker.run(
+                jobId = trackId,
+                engine = InferenceWorkerProtocol.ENGINE_YUE2,
+                args = command,
+                workDir = workDir.absolutePath
+            ) { chunk ->
+                synchronized(tailLock) {
+                    outputTail = (outputTail + chunk).takeLast(4_000)
+                    parser.feed(chunk).forEach { dispatchYue2Event(it, settings.cotMode, onUpdate) }
+                }
             }
-            val exitCode = process.waitFor()
-            parser.finish().forEach { dispatchYue2Event(it, settings.cotMode, onUpdate) }
+            synchronized(tailLock) {
+                parser.finish().forEach { dispatchYue2Event(it, settings.cotMode, onUpdate) }
+            }
             currentCoroutineContext().ensureActive()
             if (cancelRequested) throw CancellationException("已取消音乐生成")
             if (exitCode != 0 || partialFile.length() < 1024L) {
@@ -311,8 +309,7 @@ class MusicEngine(
         } catch (error: Throwable) {
             if (cancelRequested) throw CancellationException("已取消音乐生成") else throw error
         } finally {
-            activeProcess = null
-            terminateProcessGracefully(process)
+            activeWorker = null
             partialFile.delete()
             workDir.deleteRecursively()
         }
@@ -437,7 +434,6 @@ class MusicEngine(
 
     companion object {
         private val AUDIO_EXTENSIONS = setOf("wav", "mp3", "flac", "ogg", "m4a")
-        private const val NATIVE_LIB = "libyue2_cli.so"
         private const val DEFAULT_GUIDANCE = 1.0f
         // Exact sizes of the audio-cpp/Yue2-3B-GGUF files pushed by scripts/push_music_models.sh.
         private val REQUIRED_FILES = mapOf(

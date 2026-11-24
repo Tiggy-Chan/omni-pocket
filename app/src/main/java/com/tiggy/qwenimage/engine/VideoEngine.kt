@@ -34,7 +34,7 @@ class VideoEngine(
     private val localModelDir = File(externalFilesDir ?: context.filesDir, "models/wan22_turbo")
 
     @Volatile
-    private var activeProcess: Process? = null
+    private var activeWorker: InferenceWorkerClient? = null
 
     @Volatile
     private var cancelRequested = false
@@ -43,7 +43,7 @@ class VideoEngine(
         modelId.isNotBlank() && hubModels.find(modelId)?.metadata?.get("arch") == "minimax_h3"
 
     fun runtimeStatus(modelId: String = ""): VideoRuntimeStatus {
-        val nativeLib = resolveSdCliBinary(context.applicationInfo.nativeLibraryDir)
+        val sdReady = NativeEngineBridge.isSdEngineAvailable(context)
         if (modelId.isNotBlank()) {
             val hubModel = hubModels.find(modelId)?.takeIf { it.type == HubModelType.VideoWan }
             if (hubModel == null) {
@@ -67,15 +67,15 @@ class VideoEngine(
                     if (hubModels.resolveCompanionByMeta(hubModel, "t5Companion") == null) add(T5)
                     if (hubModels.resolveCompanionByMeta(hubModel, "taeCompanion") == null) add(VAE)
                 }
-                if (!nativeLib.isFile) add("libsd_cli.so")
+                if (!sdReady) add(NativeEngineBridge.SD_LIBRARY_FILE)
             }
             return VideoRuntimeStatus(missing.isEmpty(), missing)
         }
-        // Exact sizes catch half-pushed files, which would otherwise fail only once sd-cli starts.
+        // Exact sizes catch half-pushed files, which would otherwise fail only once sd-jni starts.
         val missing = requiredLocalFiles().filter { (name, file) ->
             !file.isFile || file.length() != EXPECTED_SIZES.getValue(name)
         }.keys.toList()
-        val allMissing = if (!nativeLib.isFile) missing + "libsd_cli.so" else missing
+        val allMissing = if (!sdReady) missing + NativeEngineBridge.SD_LIBRARY_FILE else missing
         return VideoRuntimeStatus(allMissing.isEmpty(), allMissing)
     }
 
@@ -150,8 +150,7 @@ class VideoEngine(
 
     fun cancelGeneration() {
         cancelRequested = true
-        val target = activeProcess
-        if (target != null) Thread({ terminateProcessGracefully(target) }, "video-cancel").start()
+        activeWorker?.cancel()
     }
 
     override fun close() = cancelGeneration()
@@ -164,12 +163,11 @@ class VideoEngine(
         val weights = resolveVideoWeights(settings.modelId)
         val isMiniMaxH3 = weights.arch == VideoModelArch.MINIMAX_H3
         settings.validateOnDevice(isMiniMaxH3)
-        val nativeLib = resolveSdCliBinary(context.applicationInfo.nativeLibraryDir)
         val videoId = "ondevice_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
         val outputFile = File(videoDir, "$videoId.webm")
         val partialFile = File(videoDir, "$videoId.part.webm")
         var initImageFile: File? = null
-        var process: Process? = null
+        val worker = InferenceWorkerClient(context)
 
         try {
             initImageFile = settings.inputImageUri?.let { copyReferenceImage(it, videoId) }
@@ -201,7 +199,6 @@ class VideoEngine(
             val maxVramGb = if (useDiskStreaming) computeDiskStreamBudgetGb() else null
 
             val options = SdCliVideoOptions(
-                nativeLib = nativeLib,
                 diffusionModel = weights.dit,
                 textEncoder = weights.textEncoder,
                 vae = weights.vae,
@@ -238,28 +235,27 @@ class VideoEngine(
             onUpdate(EngineUpdate(0f, "正在启动 ${weights.label}", "${weights.label} · $accelLabel · seed=${settings.seed} · ${settings.numFrames} 帧 @ ${effectiveFps}fps · ${settings.steps} 步"))
             if (initImageFile != null) onUpdate(EngineUpdate(null, "已载入参考首帧"))
 
-            val builder = ProcessBuilder(command)
-            builder.environment()["LD_LIBRARY_PATH"] = "/vendor/lib64:${context.applicationInfo.nativeLibraryDir}"
-            builder.environment()["GGML_OPENCL_KERNEL_CACHE_DIR"] = File(context.cacheDir, "opencl-kernels").apply { mkdirs() }.absolutePath
-            builder.redirectErrorStream(true)
-            process = builder.start()
-            activeProcess = process
+            activeWorker = worker
             if (cancelRequested) throw CancellationException("已取消视频生成")
 
             val parser = SdCliProgressParser()
-            val input = process.inputStream
-            val buffer = ByteArray(4096)
+            val tailLock = Any()
             var outputTail = ""
-            while (true) {
-                currentCoroutineContext().ensureActive()
-                val count = input.read(buffer)
-                if (count < 0) break
-                val chunk = String(buffer, 0, count, Charsets.UTF_8)
-                outputTail = (outputTail + chunk).takeLast(4_000)
-                parser.feed(chunk).forEach { event -> dispatchEvent(event, onUpdate) }
+            val openClCacheDir = File(context.cacheDir, "opencl-kernels").apply { mkdirs() }.absolutePath
+            val exitCode = worker.run(
+                jobId = videoId,
+                engine = InferenceWorkerProtocol.ENGINE_SD,
+                args = command,
+                openClCacheDir = openClCacheDir
+            ) { chunk ->
+                synchronized(tailLock) {
+                    outputTail = (outputTail + chunk).takeLast(4_000)
+                    parser.feed(chunk).forEach { event -> dispatchEvent(event, onUpdate) }
+                }
             }
-            val exitCode = process.waitFor()
-            parser.finish().forEach { event -> dispatchEvent(event, onUpdate) }
+            synchronized(tailLock) {
+                parser.finish().forEach { event -> dispatchEvent(event, onUpdate) }
+            }
             currentCoroutineContext().ensureActive()
             if (cancelRequested) throw CancellationException("已取消视频生成")
             if (exitCode != 0 || partialFile.length() < 1024L) {
@@ -279,8 +275,7 @@ class VideoEngine(
             onUpdate(EngineUpdate(1f, "视频已保存", "${outputFile.name} · ${item.durationSec.formatSeconds()} · ${outputFile.length() / 1024} KB"))
             return item
         } finally {
-            activeProcess = null
-            terminateProcessGracefully(process)
+            activeWorker = null
             initImageFile?.delete()
             partialFile.delete()
         }
