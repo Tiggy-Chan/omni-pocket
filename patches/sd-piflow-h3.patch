@@ -262,6 +262,50 @@ index e93c70f..9cb434b 100644
              return ggml_add(ctx->ggml_ctx,
                              lower,
                              ggml_mul(ctx->ggml_ctx,
+diff --git a/src/model/te/llm.hpp b/src/model/te/llm.hpp
+index 85f7511..9b21a8f 100644
+--- a/src/model/te/llm.hpp
++++ b/src/model/te/llm.hpp
+@@ -310,6 +310,8 @@ namespace LLM {
+             config.num_layers             = 0;
+             int detected_vision_layers    = 0;
+             bool out_hidden_size_detected = false;
++            int64_t vision_attn_proj_ne0  = 0;
++            int64_t vision_fc1_bias_ne0   = 0;
+             for (const auto& [name, tensor_storage] : tensor_storage_map) {
+                 if (!starts_with(name, prefix)) {
+                     continue;
+@@ -348,6 +350,12 @@ namespace LLM {
+                             }
+                         }
+                     }
++                    if (ends_with(name, "visual.blocks.0.attn.proj.weight")) {
++                        vision_attn_proj_ne0 = tensor_storage.ne[0];
++                    }
++                    if (ends_with(name, "visual.blocks.0.mlp.linear_fc1.bias")) {
++                        vision_fc1_bias_ne0 = tensor_storage.ne[0];
++                    }
+                     if (ends_with(name, "visual.blocks.0.mlp.linear_fc1.weight") ||
+                         ends_with(name, "visual.blocks.0.mlp.gate_proj.weight")) {
+                         config.vision.intermediate_size = tensor_storage.ne[1];
+@@ -458,6 +466,17 @@ namespace LLM {
+                           config.hidden_size);
+                 enable_vision = false;
+             }
++            if (enable_vision &&
++                ((vision_attn_proj_ne0 > 0 && vision_attn_proj_ne0 != config.vision.hidden_size) ||
++                 (vision_fc1_bias_ne0 > 0 && vision_fc1_bias_ne0 != config.vision.intermediate_size))) {
++                LOG_WARN("vision weights appear reshaped/incompatible for quantization (attn.proj ne0=%" PRId64 " vs hidden=%" PRId64
++                         ", fc1 bias=%" PRId64 " vs intermediate=%" PRId64 "), vision disabled",
++                         vision_attn_proj_ne0,
++                         config.vision.hidden_size,
++                         vision_fc1_bias_ne0,
++                         config.vision.intermediate_size);
++                enable_vision = false;
++            }
+             return config;
+         }
+     };
 diff --git a/src/name_conversion.cpp b/src/name_conversion.cpp
 index f37c4dd..037963c 100644
 --- a/src/name_conversion.cpp

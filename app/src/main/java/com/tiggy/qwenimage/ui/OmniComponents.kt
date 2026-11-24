@@ -607,8 +607,8 @@ fun shareMediaFile(context: Context, file: File, mimeType: String, title: String
 }
 
 fun formatMediaDuration(seconds: Float): String {
-    if (!seconds.isFinite() || seconds <= 0) return "--:--"
-    val total = seconds.toInt()
+    if (!seconds.isFinite() || seconds <= 0f) return "--:--"
+    val total = kotlin.math.round(seconds).toInt().coerceAtLeast(1)
     return String.format(Locale.getDefault(), "%02d:%02d", total / 60, total % 60)
 }
 
