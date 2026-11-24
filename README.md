@@ -67,11 +67,11 @@ Every screenshot, animation, image, and video clip below was captured live on a 
 
 | Modality | Built-in & Community Models | Local Runtime & Acceleration | Key Capabilities |
 | :--- | :--- | :--- | :--- |
-| **Chat** | Built-in `Qwen3.5 0.8B / 2B / 4B` (MNN) + any single-file **GGUF** (`Qwen3`, `Gemma 3`, `Llama 3`, `DeepSeek-R1`, `Phi`, `MiniCPM`) & community MNN bundles | `libMNN.so` + `llama.cpp` (`-O3`, `armv8.2-a+dotprod`, dynamic `dlopen` OpenCL GPU offload with CPU fallback, Flash Attention) | Streaming replies, collapsible `<think>` reasoning, custom `512–131072` context window, FP16 / Q8_0 / Q4_0 KV quantization, KV prefix reuse |
+| **Chat** | Built-in `Qwen3.5 0.8B / 2B / 4B` (MNN) + any single-file **GGUF** (`Qwen3.5`, `Gemma 4`, `Qwen3`, `Gemma 3`, `Llama 3`, `DeepSeek-R1`, `Phi`, `MiniCPM`) & community MNN bundles | `libMNN.so` + `llama.cpp` (`-O3`, `armv8.2-a+dotprod`, dynamic `dlopen` OpenCL GPU offload with CPU fallback, Flash Attention) | Streaming replies, collapsible `<think>` reasoning, custom `512–131072` context window, FP16 / Q8_0 / Q4_0 KV quantization, KV prefix reuse |
 | **Decision** | Built-in [`baselabs/elephant-1`](https://huggingface.co/baselabs/elephant-1) 9B (`Q4_K_M`) + community **OneJev 1.6 (0.8B / 4B / 9B)** & **Elephant-1** GGUFs (`qev-labels-v2`) | `llama.cpp` (block-bidirectional full-attention, ARMv8.2 dotprod, configurable threads) | Single-pass calibrated probabilities & confidence scores for **Choice**, **Yes/No**, and **Score** prompts |
-| **Image** | **Qwen-Image 2.1**, **MOSS-Image SFT**, plus community **Z-Image-Turbo**, **FLUX.2-Klein-4B**, and **SD 1.5 / SDXL** checkpoints | MNN (int4 encoder + OpenCL DiT) & unified `libsd_cli.so` (`stable-diffusion.cpp` OpenCL + VAE tiling) | Text-to-image, 1–2 reference image editing, native JSON layouts (`abs_centralized` / `yxyx`), shared companion reuse |
+| **Image** | **Qwen-Image 2.1**, **MOSS-Image SFT**, plus community **FLUX.3 Image Klein**, **ERNIE-Image-Turbo**, **Z-Image-Turbo**, **FLUX.2-Klein 4B/9B**, and **SD 1.5 / SDXL** checkpoints | MNN (int4 encoder + OpenCL DiT) & unified `libsd_cli.so` (`stable-diffusion.cpp` OpenCL + VAE tiling) | Text-to-image, reference-image editing (`Qwen-Image`, `FLUX.3/FLUX.2`), native JSON layouts (`abs_centralized` / `yxyx`), shared companion reuse |
 | **Music** | Built-in **YuE2-3B** + downloadable **ACE-Step 1.5 Turbo/Base**, **HeartMuLa 3B**, and **Stable Audio 3 Small/Medium** GGUFs | Unified `libyue2_cli.so` ([audio.cpp](https://github.com/0xShug0/audio.cpp), `armv8.2-a+dotprod` CPU + **Vulkan GPU**) | 48 kHz stereo WAV synthesis, vocals/instrumentals/SFX, melody CoT with readable **ABC musical notation** |
-| **Video** | Built-in **Wan2.2-TI2V-5B-Turbo** + community **Wan2.2-5B** and **Wan2.1-1.3B** GGUF DiT weights | Unified `libsd_cli.so` (`SD_WEBM=ON`, hybrid `diffusion=GPUOpenCL, te=CPU, vae=CPU`) | Text-to-video & first-frame image-to-video (`480×832` and presets), `4n+1` frames (`5–41`), 1–12 steps, CFG, VAE tiling |
+| **Video** | Built-in **Wan2.2-TI2V-5B-Turbo** + community **MiniMax-H3 (pi-H3 2/4-step AV)**, **Wan2.2-5B**, and **Wan2.1-1.3B** GGUF DiT weights | Unified `libsd_cli.so` (`SD_WEBM=ON`, `pi-Flow` scheduler, disk weight streaming, `diffusion=GPUOpenCL, te=CPU, vae=CPU`) | Text-to-video, first-frame / reference-image video (`FL2VA` / `Ref2VA`), joint audio+video (24 fps WebM), `4n+1` / `17k+5` frames, VAE tiling |
 
 ---
 
@@ -163,7 +163,7 @@ bash scripts/test_decision_host.sh
 - [MNN](https://github.com/alibaba/MNN) — Apache-2.0 (`24c6cb21`)
 - [Qwen-Image runtime](https://github.com/scsonic/libQwenImage21) — Apache-2.0
 - [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image) — Apache-2.0
-- [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) & [ggml](https://github.com/leejet/ggml) — MIT (`95ff7623` + `patches/sd-opencl-conv3d-bias.patch`)
+- [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) & [ggml](https://github.com/leejet/ggml) — MIT (`95ff7623` + `patches/sd-opencl-conv3d-bias.patch` + `patches/sd-piflow-h3.patch` for [pi-Flow / pi-H3](https://github.com/Lakonik/ComfyUI-piFlow))
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) — MIT (`2280f0fd` + `patches/llama-elephant-decision.patch`)
 - [audio.cpp](https://github.com/0xShug0/audio.cpp) — Apache-2.0 (`3a0dd44`); [YuE2](https://github.com/multimodal-art-projection/YuE) weights — CC-BY-NC-4.0
 - [Elephant-1](https://huggingface.co/baselabs/elephant-1) — MIT; [OneJev](https://github.com/OmniJev/OneJev) protocol — Apache-2.0

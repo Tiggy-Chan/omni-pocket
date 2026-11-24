@@ -67,11 +67,11 @@
 
 | 模态 | 内置与社区模型生态 | 本机推理引擎与加速 | 核心能力 |
 | :--- | :--- | :--- | :--- |
-| **对话** | 内置 `Qwen3.5 0.8B / 2B / 4B`（MNN）+ 任意单文件 **GGUF**（`Qwen3`、`Gemma 3`、`Llama 3`、`DeepSeek-R1`、`Phi`、`MiniCPM`）与社区 MNN 包 | `libMNN.so` + `llama.cpp`（`-O3`、`armv8.2-a+dotprod`、`dlopen` 动态 OpenCL GPU 卸载与自动 CPU 回退、Flash Attention） | 流式输出、`<think>` 深度思考折叠、自定义 `512–131072` 上下文窗口、FP16 / Q8_0 / Q4_0 KV 量化、KV 前缀复用 |
+| **对话** | 内置 `Qwen3.5 0.8B / 2B / 4B`（MNN）+ 任意单文件 **GGUF**（`Qwen3.5`、`Gemma 4`、`Qwen3`、`Gemma 3`、`Llama 3`、`DeepSeek-R1`、`Phi`、`MiniCPM`）与社区 MNN 包 | `libMNN.so` + `llama.cpp`（`-O3`、`armv8.2-a+dotprod`、`dlopen` 动态 OpenCL GPU 卸载与自动 CPU 回退、Flash Attention） | 流式输出、`<think>` 深度思考折叠、自定义 `512–131072` 上下文窗口、FP16 / Q8_0 / Q4_0 KV 量化、KV 前缀复用 |
 | **决策** | 内置 [`baselabs/elephant-1`](https://huggingface.co/baselabs/elephant-1) 9B（`Q4_K_M`）+ 社区 **OneJev 1.6（0.8B / 4B / 9B）** 与 **Elephant-1** 单文件 GGUF（`qev-labels-v2`） | `llama.cpp`（块双向全注意力、ARMv8.2 dotprod、可调 CPU 线程） | 单次前向输出 **选择（Choice）**、**判断（Yes/No）**、**评分（Score）** 的校准概率分布与置信度 |
-| **图像** | **Qwen-Image 2.1**、**MOSS-Image SFT**，以及社区 **Z-Image-Turbo**、**FLUX.2-Klein-4B** 与 **SD 1.5 / SDXL** 权重 | MNN（int4 编码器 + OpenCL DiT）与统一 `libsd_cli.so`（`stable-diffusion.cpp` OpenCL + VAE 分块） | 文生图、单/双参考图编辑、官方多区域 JSON 坐标布局（`abs_centralized` / `yxyx`）、共享组件自动复用 |
+| **图像** | **Qwen-Image 2.1**、**MOSS-Image SFT**，以及社区 **FLUX.3 Image Klein**、**ERNIE-Image-Turbo**、**Z-Image-Turbo**、**FLUX.2-Klein 4B/9B** 与 **SD 1.5 / SDXL** 权重 | MNN（int4 编码器 + OpenCL DiT）与统一 `libsd_cli.so`（`stable-diffusion.cpp` OpenCL + VAE 分块） | 文生图、参考图编辑（`Qwen-Image`、`FLUX.3/FLUX.2`）、官方多区域 JSON 坐标布局（`abs_centralized` / `yxyx`）、共享组件自动复用 |
 | **音乐** | 内置 **YuE2-3B** + 可下载 **ACE-Step 1.5 Turbo/Base**、**HeartMuLa 3B**、**Stable Audio 3 Small/Medium** GGUF | 统一 `libyue2_cli.so`（[audio.cpp](https://github.com/0xShug0/audio.cpp)，`armv8.2-a+dotprod` CPU + **Vulkan GPU**） | 48 kHz 立体声 WAV 合成，支持人声/纯音乐/音效，旋律思考链同步输出可读 **ABC 乐谱** |
-| **视频** | 内置 **Wan2.2-TI2V-5B-Turbo** + 社区 **Wan2.2-5B**、**Wan2.1-1.3B** GGUF DiT 权重 | 统一 `libsd_cli.so`（`SD_WEBM=ON`，`diffusion=GPUOpenCL, te=CPU, vae=CPU` 混合稳定架构） | 文生视频与首帧参考图生视频（`480×832` 及多预设）、`4n+1` 帧数（5–41 帧）、1–12 步、CFG、VAE 分块解码 |
+| **视频** | 内置 **Wan2.2-TI2V-5B-Turbo** + 社区 **MiniMax-H3（pi-H3 2/4 步音画同步）**、**Wan2.2-5B**、**Wan2.1-1.3B** GGUF DiT 权重 | 统一 `libsd_cli.so`（`SD_WEBM=ON`、`pi-Flow` 调度器、磁盘分段流式加载、`diffusion=GPUOpenCL, te=CPU, vae=CPU`） | 文生视频与首帧/参考图生视频（`FL2VA` / `Ref2VA`）、原生 24 fps 音画同步 WebM、`4n+1` / `17k+5` 帧数、VAE 分块解码 |
 
 ---
 
@@ -163,7 +163,7 @@ bash scripts/test_decision_host.sh
 - [MNN](https://github.com/alibaba/MNN) — Apache-2.0（`24c6cb21`）
 - [Qwen-Image 运行时](https://github.com/scsonic/libQwenImage21) — Apache-2.0
 - [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image) — Apache-2.0
-- [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) 与 [ggml](https://github.com/leejet/ggml) — MIT（`95ff7623` + `patches/sd-opencl-conv3d-bias.patch`）
+- [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) 与 [ggml](https://github.com/leejet/ggml) — MIT（`95ff7623` + `patches/sd-opencl-conv3d-bias.patch` + `patches/sd-piflow-h3.patch`，集成 [pi-Flow / pi-H3](https://github.com/Lakonik/ComfyUI-piFlow)）
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) — MIT（`2280f0fd` + `patches/llama-elephant-decision.patch`）
 - [audio.cpp](https://github.com/0xShug0/audio.cpp) — Apache-2.0（`3a0dd44`）；[YuE2](https://github.com/multimodal-art-projection/YuE) 权重 — CC-BY-NC-4.0（仅限非商业）
 - [Elephant-1](https://huggingface.co/baselabs/elephant-1) — MIT；[OneJev](https://github.com/OmniJev/OneJev) 协议 — Apache-2.0
