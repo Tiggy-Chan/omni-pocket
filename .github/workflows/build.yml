@@ -65,7 +65,7 @@ jobs:
       - name: Run Python conversion & script syntax checks
         run: |
           python3 -m unittest discover -s export -p 'test_conversion_utils.py'
-          bash -n scripts/build_sd_android.sh scripts/build_yue2_android.sh scripts/push_models.sh scripts/push_llm_models.sh scripts/push_moss_models.sh scripts/push_music_models.sh scripts/push_video_models.sh
+          bash -n scripts/build_sd_android.sh scripts/build_yue2_android.sh scripts/push_models.sh scripts/push_llm_models.sh scripts/push_moss_models.sh scripts/push_music_models.sh scripts/push_video_models.sh scripts/push_h3_models.sh
 
       - name: Run Android unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon
