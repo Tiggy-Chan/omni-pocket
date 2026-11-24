@@ -19,7 +19,8 @@ enum class HubModelType(val wire: String, val label: String) {
     DecisionGguf("decision_gguf", "决策模型"),
     SdImage("sd_image", "图像模型"),
     VideoWan("video_wan", "视频模型"),
-    MusicAudio("music_audio", "音乐模型");
+    MusicAudio("music_audio", "音乐模型"),
+    Embedding("embedding", "向量嵌入");
 
     companion object {
         fun fromWire(value: String): HubModelType? = entries.firstOrNull { it.wire == value }

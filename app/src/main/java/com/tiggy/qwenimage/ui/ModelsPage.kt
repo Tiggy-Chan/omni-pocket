@@ -131,7 +131,8 @@ private enum class LocalModelFilter(@StringRes val labelRes: Int) {
     Decision(R.string.nav_decision),
     Image(R.string.nav_image),
     Music(R.string.nav_music),
-    Video(R.string.nav_video)
+    Video(R.string.nav_video),
+    Embedding(R.string.models_cat_embedding)
 }
 
 private enum class ReferenceSourceTab(@StringRes val labelRes: Int) {
@@ -156,6 +157,7 @@ private fun HubModelType.matchesFilter(filter: LocalModelFilter): Boolean = when
     LocalModelFilter.Image -> this == HubModelType.SdImage
     LocalModelFilter.Music -> this == HubModelType.MusicAudio
     LocalModelFilter.Video -> this == HubModelType.VideoWan
+    LocalModelFilter.Embedding -> this == HubModelType.Embedding
 }
 
 private fun availableReferenceSources(modality: BenchmarkModality): List<ReferenceSourceTab> = when (modality) {
@@ -1654,6 +1656,7 @@ private fun LocalModelImportSheet(
                     Text(tr(R.string.models_import_target_label), color = OmniColors.Muted, style = MaterialTheme.typography.labelMedium)
                     val choices = listOf(
                         HubModelType.GgufChat,
+                        HubModelType.Embedding,
                         HubModelType.DecisionGguf,
                         HubModelType.SdImage,
                         HubModelType.VideoWan,

@@ -42,6 +42,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tiggy.qwenimage.DecisionViewModel
+import com.tiggy.qwenimage.KnowledgeBaseViewModel
 import com.tiggy.qwenimage.LlmPhase
 import com.tiggy.qwenimage.LlmViewModel
 import com.tiggy.qwenimage.ModelHubViewModel
@@ -63,7 +64,8 @@ fun QwenApp(
     viewModel: QwenViewModel,
     llmViewModel: LlmViewModel,
     decisionViewModel: DecisionViewModel,
-    hubViewModel: ModelHubViewModel
+    hubViewModel: ModelHubViewModel,
+    kbViewModel: KnowledgeBaseViewModel
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val llmState by llmViewModel.state.collectAsStateWithLifecycle()
@@ -99,7 +101,7 @@ fun QwenApp(
             )
         }
         val destination = @Composable {
-            Destination(page, state, viewModel, llmViewModel, decisionViewModel, hubViewModel, openMenu,
+            Destination(page, state, viewModel, llmViewModel, decisionViewModel, hubViewModel, kbViewModel, openMenu,
                 onPreview = { previewImagePath = it }, onPage = { page = it })
         }
         BackHandler(enabled = !wide && drawer.isOpen) { scope.launch { drawer.close() } }
@@ -149,18 +151,35 @@ private fun Destination(
     llmViewModel: LlmViewModel,
     decisionViewModel: DecisionViewModel,
     hubViewModel: ModelHubViewModel,
+    kbViewModel: KnowledgeBaseViewModel,
     onMenu: (() -> Unit)?,
     onPreview: (String) -> Unit,
     onPage: (AppPage) -> Unit
 ) {
     when (page) {
         AppPage.Workspace -> when (state.domain) {
-            AppDomain.Conversation -> LlmChatScreen(llmViewModel, onMenu, onModels = { onPage(AppPage.Models) })
+            AppDomain.Conversation -> LlmChatScreen(
+                viewModel = llmViewModel,
+                kbViewModel = kbViewModel,
+                onMenu = onMenu,
+                onModels = { onPage(AppPage.Models) },
+                onManageKnowledgeBases = { onPage(AppPage.KnowledgeBase) }
+            )
             AppDomain.Decision -> DecisionScreen(decisionViewModel, onMenu, onModels = { onPage(AppPage.Models) })
             AppDomain.ImageStudio -> ImageWorkspace(state, viewModel, onMenu, onPreview, onModels = { onPage(AppPage.Models) })
             AppDomain.MusicStudio -> MusicWorkspace(state, viewModel, onMenu, onModels = { onPage(AppPage.Models) })
             AppDomain.VideoStudio -> VideoWorkspace(state, viewModel, onMenu, onModels = { onPage(AppPage.Models) })
         }
+        AppPage.KnowledgeBase -> KnowledgeBasePage(
+            kbViewModel = kbViewModel,
+            onMenu = onMenu,
+            onUseInChat = { base ->
+                llmViewModel.selectKnowledgeBase(base.id, base.name)
+                viewModel.setDomain(AppDomain.Conversation)
+                onPage(AppPage.Workspace)
+            },
+            onOpenModels = { onPage(AppPage.Models) }
+        )
         AppPage.Library -> LibraryScreen(state, viewModel, onMenu, onPreview,
             onOpenWorkspace = { domain -> viewModel.setDomain(domain); onPage(AppPage.Workspace) })
         AppPage.Models -> ModelsPage(
@@ -196,6 +215,10 @@ private fun Destination(
                         viewModel.selectMusicModel(model.id)
                         viewModel.setDomain(AppDomain.MusicStudio)
                         onPage(AppPage.Workspace)
+                    }
+                    HubModelType.Embedding -> {
+                        kbViewModel.selectEmbeddingModel(model.id)
+                        onPage(AppPage.KnowledgeBase)
                     }
                 }
             }

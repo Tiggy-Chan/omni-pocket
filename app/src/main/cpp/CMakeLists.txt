@@ -77,6 +77,8 @@ add_library(omni_decision SHARED
     decision_backend.cpp
     llama_chat_jni.cpp
     LlamaChatSession.cpp
+    llama_embedding_jni.cpp
+    LlamaEmbeddingSession.cpp
 )
 target_include_directories(omni_decision PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}"

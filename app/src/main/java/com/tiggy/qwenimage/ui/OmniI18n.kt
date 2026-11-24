@@ -130,6 +130,7 @@ fun HubSearchCategory.localizedLabel(): String = when (this) {
     HubSearchCategory.SdImage -> tr(R.string.nav_image)
     HubSearchCategory.VideoWan -> tr(R.string.nav_video)
     HubSearchCategory.MusicAudio -> tr(R.string.nav_music)
+    HubSearchCategory.Embedding -> tr(R.string.models_cat_embedding)
 }
 
 @Composable
@@ -140,6 +141,7 @@ fun HubSearchCategory.localizedHint(): String = when (this) {
     HubSearchCategory.SdImage -> tr(R.string.models_hint_image)
     HubSearchCategory.VideoWan -> tr(R.string.models_hint_video)
     HubSearchCategory.MusicAudio -> tr(R.string.models_hint_music)
+    HubSearchCategory.Embedding -> tr(R.string.models_hint_embedding)
 }
 
 @Composable
@@ -150,6 +152,7 @@ fun HubSearchCategory.localizedEmptyMessage(): String = when (this) {
     HubSearchCategory.SdImage -> tr(R.string.hub_empty_image)
     HubSearchCategory.VideoWan -> tr(R.string.hub_empty_video)
     HubSearchCategory.MusicAudio -> tr(R.string.hub_empty_music)
+    HubSearchCategory.Embedding -> tr(R.string.hub_empty_embedding)
 }
 
 @Composable
@@ -160,6 +163,7 @@ fun HubModelType.localizedLabel(): String = when (this) {
     HubModelType.SdImage -> tr(R.string.nav_image)
     HubModelType.VideoWan -> tr(R.string.nav_video)
     HubModelType.MusicAudio -> tr(R.string.nav_music)
+    HubModelType.Embedding -> tr(R.string.models_cat_embedding)
 }
 
 @Composable
@@ -292,6 +296,8 @@ fun HfRepoSummary.localizedSummary(): String {
         "curated_wan21_offgrid" -> R.string.curated_wan21_offgrid
         "curated_audiocpp" -> R.string.curated_audiocpp
         "curated_yue2" -> R.string.curated_yue2
+        "curated_bge_small_zh" -> R.string.curated_bge_small_zh
+        "curated_qwen3_emb_06b" -> R.string.curated_qwen3_emb_06b
         else -> null
     }
     return if (resId != null) tr(resId) else summary

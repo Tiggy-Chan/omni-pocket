@@ -11,7 +11,8 @@ enum class HubSearchCategory(val label: String, val hint: String) {
     DecisionGguf("决策", "搜索决策 GGUF 模型，如 OneJev1.6、elephant-1"),
     SdImage("图像", "搜索 SD / SDXL / Z-Image / FLUX.2 Klein 权重"),
     VideoWan("视频", "搜索 Wan2.2 / Wan2.1 GGUF 视频模型"),
-    MusicAudio("音乐", "搜索 ACE-Step / YuE2 / HeartMuLa / Stable Audio GGUF")
+    MusicAudio("音乐", "搜索 ACE-Step / YuE2 / HeartMuLa / Stable Audio GGUF"),
+    Embedding("向量嵌入", "搜索知识库嵌入模型，如 bge-small-zh、Qwen3-Embedding")
 }
 
 enum class HubSearchSort(val apiValue: String) {
@@ -274,6 +275,11 @@ object HuggingFaceHubClient {
                         add("search=${HubUrlRewriter.encodeSegment(effective)}")
                     }
                 }
+                HubSearchCategory.Embedding -> {
+                    add("filter=gguf")
+                    val effective = if (trimmed.isEmpty()) "embedding" else trimmed
+                    add("search=${HubUrlRewriter.encodeSegment(effective)}")
+                }
             }
         }
         val url = "$base/api/models?${params.joinToString("&")}"
@@ -353,7 +359,38 @@ object HuggingFaceHubClient {
             HubSearchCategory.SdImage -> extractSdImageOptions(repo, revision, files)
             HubSearchCategory.VideoWan -> extractWanVideoOptions(repo, revision, files)
             HubSearchCategory.MusicAudio -> extractMusicAudioOptions(repo, revision, files)
+            HubSearchCategory.Embedding -> extractEmbeddingOptions(repo, revision, files)
         }
+    }
+
+    private fun extractEmbeddingOptions(
+        repo: String,
+        revision: String,
+        files: List<HfDownloadFile>
+    ): List<HfRepoOption> {
+        val ggufs = files.filter { file ->
+            val lower = file.path.lowercase(Locale.ROOT)
+            lower.endsWith(".gguf") && !lower.contains("mmproj") && !lower.contains("imatrix")
+        }
+        return ggufs.map { file ->
+            val fileName = file.path.substringAfterLast('/')
+            val isSplit = SPLIT_GGUF_REGEX.containsMatchIn(fileName)
+            val quant = extractQuantTag(fileName)
+            HfRepoOption(
+                id = sanitizeModelId("embed", repo, file.path),
+                label = fileName,
+                repo = repo,
+                revision = revision,
+                type = HubModelType.Embedding,
+                format = HfFileFormat.Gguf,
+                entryFile = file.path,
+                files = listOf(file),
+                totalBytes = file.size,
+                quantTag = quant,
+                splitWarning = if (isSplit) "分片 GGUF 文件暂不支持单文件直接加载，请选择单文件版本" else null,
+                splitWarningKey = if (isSplit) HubSplitWarning.SplitGguf else null
+            )
+        }.sortedWith(compareBy<HfRepoOption> { it.splitWarning != null }.thenBy { quantPriority(it.quantTag) }.thenBy { it.totalBytes })
     }
 
     private fun extractGgufChatOptions(
@@ -869,6 +906,7 @@ object HuggingFaceHubClient {
         HubSearchCategory.SdImage -> listOf("FLUX.3", "ERNIE-Image", "Z-Image", "FLUX.2-klein", "SDXL-Turbo")
         HubSearchCategory.VideoWan -> listOf("MiniMax-H3", "Wan2.2", "Wan2.1")
         HubSearchCategory.MusicAudio -> listOf("ACE-Step", "Yue2", "HeartMuLa", "Stable-Audio")
+        HubSearchCategory.Embedding -> listOf("Qwen3-Embedding", "bge-small-zh", "bge-m3", "nomic-embed")
     }
 
     fun curatedRecommendations(category: HubSearchCategory): List<HfRepoSummary> = when (category) {
@@ -924,6 +962,10 @@ object HuggingFaceHubClient {
         HubSearchCategory.MusicAudio -> listOf(
             HfRepoSummary("audio-cpp/audio.cpp-gguf", "audio-cpp", "audio.cpp-gguf", 0, 0, "text-to-audio", listOf("ace-step", "heartmula", "stable-audio", "gguf"), false, "含 ACE-Step 1.5 Turbo、HeartMuLa 3B、Stable Audio 3 Small/Medium 单文件 GGUF", "curated_audiocpp"),
             HfRepoSummary("audio-cpp/Yue2-3B-GGUF", "audio-cpp", "Yue2-3B-GGUF", 0, 0, "text-to-audio", listOf("yue2", "gguf"), false, "YuE2-3B 多精度版本（含 2.3 GB 轻量版与 Q8_0 高质量版）", "curated_yue2")
+        )
+        HubSearchCategory.Embedding -> listOf(
+            HfRepoSummary("CompendiumLabs/bge-small-zh-v1.5-gguf", "CompendiumLabs", "bge-small-zh-v1.5-gguf", 0, 0, "feature-extraction", listOf("gguf", "bge", "zh"), false, "轻量中文/双语知识库嵌入模型（Q8_0 仅 26 MB，毫秒级向量化）", "curated_bge_small_zh"),
+            HfRepoSummary("Qwen/Qwen3-Embedding-0.6B-GGUF", "Qwen", "Qwen3-Embedding-0.6B-GGUF", 0, 0, "feature-extraction", listOf("gguf", "qwen3-embedding"), false, "Qwen3-Embedding 0.6B 高精度多语言向量嵌入模型（支持长文档）", "curated_qwen3_emb_06b")
         )
     }
 

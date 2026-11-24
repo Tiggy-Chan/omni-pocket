@@ -72,6 +72,10 @@ object GgufHeaderParser {
     )
 
     private val VIDEO_ARCHS = setOf("wan", "wan2", "minimax_h3", "ltxv", "hunyuan_video", "cogvideox")
+    private val EMBEDDING_ARCHS = setOf(
+        "bert", "nomic-bert", "nomic-bert-moe", "jina-bert-v2", "roberta", "xlm-roberta", "modern-bert"
+    )
+
     private val IMAGE_ARCHS = setOf("flux", "flux2", "flux3", "sd", "sdxl", "sd3", "z_image", "ernie_image", "chroma", "qwen_image")
 
     private val WANTED_KEYS = setOf("general.architecture", "general.name", "general.file_type")
@@ -280,6 +284,24 @@ object GgufHeaderParser {
                 displayName = formatLocalDisplayName(baseTitle, quant),
                 quantTag = quant,
                 archHint = arch
+            )
+        }
+
+        // 5.5 Embedding GGUF models (BERT / BGE / Nomic-BERT / Qwen3-Embedding / E5 / GTE / MiniLM)
+        val combinedNameForEmb = (lower + " " + (header?.modelName?.lowercase(Locale.ROOT) ?: "")).trim()
+        if (arch in EMBEDDING_ARCHS ||
+            combinedNameForEmb.contains("embedding") ||
+            combinedNameForEmb.contains("bge-") || combinedNameForEmb.contains("bge_") ||
+            combinedNameForEmb.contains("nomic-embed") || combinedNameForEmb.contains("m3e-") ||
+            combinedNameForEmb.contains("gte-") || combinedNameForEmb.contains("e5-") ||
+            combinedNameForEmb.contains("minilm")
+        ) {
+            return LocalModelClassification(
+                suggestedType = HubModelType.Embedding,
+                confidence = LocalImportConfidence.High,
+                displayName = formatLocalDisplayName(baseTitle, quant),
+                quantTag = quant,
+                archHint = arch ?: "embedding"
             )
         }
 

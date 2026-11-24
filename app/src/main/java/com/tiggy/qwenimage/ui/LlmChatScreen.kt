@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -68,12 +69,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.tiggy.qwenimage.KnowledgeBaseViewModel
 import com.tiggy.qwenimage.LlmPhase
 import com.tiggy.qwenimage.LlmUiState
 import com.tiggy.qwenimage.LlmUsage
 import com.tiggy.qwenimage.LlmViewModel
 import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.ExtractedDocument
+import com.tiggy.qwenimage.data.KnowledgeBaseSummary
+import com.tiggy.qwenimage.data.LlmCitation
 import com.tiggy.qwenimage.data.LlmMessage
 import com.tiggy.qwenimage.data.LlmMessageStatus
 import com.tiggy.qwenimage.engine.DocumentQuickAction
@@ -81,9 +85,17 @@ import com.tiggy.qwenimage.engine.DocumentSummaryStage
 import java.util.Locale
 
 @Composable
-fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -> Unit) {
+fun LlmChatScreen(
+    viewModel: LlmViewModel,
+    kbViewModel: KnowledgeBaseViewModel,
+    onMenu: (() -> Unit)?,
+    onModels: () -> Unit,
+    onManageKnowledgeBases: () -> Unit
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val kbState by kbViewModel.state.collectAsStateWithLifecycle()
     var picking by remember { mutableStateOf(false) }
+    var pickingKb by remember { mutableStateOf(false) }
     val conversation = state.conversation
     val selectedModel = state.selectedModelChoice
     val modelName = selectedModel?.name ?: if (conversation?.modelId.isNullOrBlank()) tr(R.string.chat_models_sheet_title) else tr(R.string.chat_no_model)
@@ -112,6 +124,21 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
             onSelect = { id -> viewModel.selectModel(id); picking = false },
             onManage = { picking = false; onModels() },
             onDismiss = { picking = false }
+        )
+    }
+    if (pickingKb) {
+        KnowledgeBasePickerSheet(
+            bases = kbState.bases,
+            selectedId = state.selectedKnowledgeBaseId,
+            onSelect = { base ->
+                viewModel.selectKnowledgeBase(base?.id, base?.name)
+                pickingKb = false
+            },
+            onManage = {
+                pickingKb = false
+                onManageKnowledgeBases()
+            },
+            onDismiss = { pickingKb = false }
         )
     }
 
@@ -190,6 +217,14 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
                         enabled = !state.busy && !state.documentLoading,
                         selected = attachedDoc != null,
                         contentDescription = tr(R.string.chat_attach_doc)
+                    )
+                    ComposerChip(
+                        label = state.selectedKnowledgeBaseName?.take(10).orEmpty(),
+                        onClick = { pickingKb = true },
+                        icon = Icons.AutoMirrored.Outlined.LibraryBooks,
+                        enabled = !state.busy,
+                        selected = state.selectedKnowledgeBaseId != null,
+                        contentDescription = tr(R.string.nav_knowledge_base)
                     )
                     ModelChip(modelName, enabled = !state.busy) { picking = true }
                 }
@@ -294,6 +329,9 @@ private fun MessageItem(
         } else if (message.status == LlmMessageStatus.Streaming && message.reasoning.isBlank()) {
             CircularProgressIndicator(Modifier.size(18.dp), color = OmniColors.Accent, strokeWidth = 2.dp)
         }
+        if (message.citations.isNotEmpty()) {
+            CitationsDisclosure(message.id, message.citations)
+        }
         val status = when (message.status) {
             LlmMessageStatus.Complete, LlmMessageStatus.Streaming -> null
             LlmMessageStatus.Cancelled -> tr(R.string.chat_stopped)
@@ -333,6 +371,108 @@ private fun MessageItem(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CitationsDisclosure(messageId: String, citations: List<LlmCitation>) {
+    var expanded by remember(messageId) { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+        Row(
+            Modifier.heightIn(min = 34.dp).clip(RoundedCornerShape(8.dp)).clickable { expanded = !expanded },
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.AutoMirrored.Outlined.LibraryBooks, null, tint = OmniColors.Accent, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(5.dp))
+            Text(
+                tr(R.string.kb_citations_fmt, citations.size),
+                color = OmniColors.Muted,
+                style = MaterialTheme.typography.labelMedium
+            )
+            Icon(
+                if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                null,
+                tint = OmniColors.Muted,
+                modifier = Modifier.padding(start = 2.dp).size(16.dp)
+            )
+        }
+        if (expanded) {
+            Column(
+                Modifier.fillMaxWidth().padding(top = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                citations.forEachIndexed { idx, cite ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = OmniColors.Field,
+                        border = BorderStroke(0.5.dp, OmniColors.Line),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                "[${idx + 1}] ${cite.docName} · #${cite.chunkIndex + 1}",
+                                color = OmniColors.Ink,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Text(
+                                cite.snippet,
+                                color = OmniColors.Muted,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 4,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KnowledgeBasePickerSheet(
+    bases: List<KnowledgeBaseSummary>,
+    selectedId: String?,
+    onSelect: (KnowledgeBaseSummary?) -> Unit,
+    onManage: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    OmniSheet(tr(R.string.kb_picker_title), onDismiss) {
+        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            SettingRow(
+                title = tr(R.string.kb_picker_none),
+                onClick = { onSelect(null) },
+                trailing = {
+                    RadioButton(
+                        selected = selectedId == null,
+                        onClick = null,
+                        colors = RadioButtonDefaults.colors(selectedColor = OmniColors.Accent, unselectedColor = OmniColors.Dim)
+                    )
+                }
+            )
+            HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
+            bases.forEach { base ->
+                SettingRow(
+                    title = base.name,
+                    detail = tr(R.string.kb_stats_fmt, base.documentCount, base.chunkCount, base.embeddedChunkCount),
+                    onClick = { onSelect(base) },
+                    trailing = {
+                        RadioButton(
+                            selected = base.id == selectedId,
+                            onClick = null,
+                            colors = RadioButtonDefaults.colors(selectedColor = OmniColors.Accent, unselectedColor = OmniColors.Dim)
+                        )
+                    }
+                )
+                HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
+            }
+            SettingRow(
+                title = tr(R.string.kb_manage_action),
+                detail = tr(R.string.kb_empty_subtitle),
+                onClick = onManage,
+                trailing = { Icon(Icons.AutoMirrored.Outlined.LibraryBooks, null, tint = OmniColors.Muted, modifier = Modifier.size(20.dp)) }
+            )
         }
     }
 }

@@ -116,13 +116,37 @@ object LlmCatalog {
 
 enum class LlmMessageStatus { Complete, Streaming, Cancelled, Interrupted, MaxTokens, Failed }
 
+data class LlmCitation(
+    val docName: String,
+    val chunkIndex: Int,
+    val snippet: String,
+    val score: Float
+) {
+    fun toJson() = JSONObject().apply {
+        put("docName", docName)
+        put("chunkIndex", chunkIndex)
+        put("snippet", snippet.take(400))
+        put("score", score.toDouble())
+    }
+
+    companion object {
+        fun fromJson(json: JSONObject) = LlmCitation(
+            docName = json.optString("docName"),
+            chunkIndex = json.optInt("chunkIndex"),
+            snippet = json.optString("snippet"),
+            score = json.optDouble("score", 0.0).toFloat()
+        )
+    }
+}
+
 data class LlmMessage(
     val id: String,
     val role: String,
     val content: String,
     val reasoning: String = "",
     val status: LlmMessageStatus = LlmMessageStatus.Complete,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val citations: List<LlmCitation> = emptyList()
 ) {
     init { require(role == "user" || role == "assistant") { "不支持的对话角色" } }
 
@@ -131,6 +155,9 @@ data class LlmMessage(
     fun toJson() = JSONObject().apply {
         put("id", id); put("role", role); put("content", content); put("reasoning", reasoning)
         put("status", status.name); put("createdAt", createdAt)
+        if (citations.isNotEmpty()) {
+            put("citations", JSONArray().apply { citations.forEach { put(it.toJson()) } })
+        }
     }
 
     companion object {
@@ -139,7 +166,10 @@ data class LlmMessage(
             reasoning = json.optString("reasoning"),
             status = runCatching { LlmMessageStatus.valueOf(json.optString("status")) }
                 .getOrDefault(LlmMessageStatus.Complete),
-            createdAt = json.optLong("createdAt")
+            createdAt = json.optLong("createdAt"),
+            citations = json.optJSONArray("citations")?.let { arr ->
+                (0 until arr.length()).map { LlmCitation.fromJson(arr.getJSONObject(it)) }
+            }.orEmpty()
         )
     }
 }

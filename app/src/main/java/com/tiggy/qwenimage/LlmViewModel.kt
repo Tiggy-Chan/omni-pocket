@@ -9,8 +9,11 @@ import com.tiggy.qwenimage.data.DocumentTextExtractor
 import com.tiggy.qwenimage.data.ExtractedDocument
 import com.tiggy.qwenimage.data.HubModelType
 import com.tiggy.qwenimage.data.InstalledHubModelsRepository
+import com.tiggy.qwenimage.data.KnowledgeBaseSearch
+import com.tiggy.qwenimage.data.KnowledgeBaseStore
 import com.tiggy.qwenimage.data.LlmChatSnapshot
 import com.tiggy.qwenimage.data.LlmChatStore
+import com.tiggy.qwenimage.data.LlmCitation
 import com.tiggy.qwenimage.data.LlmConversation
 import com.tiggy.qwenimage.data.LlmDownloadProgress
 import com.tiggy.qwenimage.data.LlmMessage
@@ -28,6 +31,7 @@ import com.tiggy.qwenimage.engine.DocumentSummaryProgress
 import com.tiggy.qwenimage.engine.KvCachePrecision
 import com.tiggy.qwenimage.engine.LocalInferenceCoordinator
 import com.tiggy.qwenimage.engine.LocalLlamaChatEngine
+import com.tiggy.qwenimage.engine.LocalLlamaEmbeddingEngine
 import com.tiggy.qwenimage.engine.LocalLlmEngine
 import com.tiggy.qwenimage.engine.NativeLlmResult
 import kotlinx.coroutines.CancellationException
@@ -100,6 +104,8 @@ data class LlmUiState(
     val attachedDocument: ExtractedDocument? = null,
     val documentLoading: Boolean = false,
     val documentProgress: DocumentSummaryProgress? = null,
+    val selectedKnowledgeBaseId: String? = null,
+    val selectedKnowledgeBaseName: String? = null,
     val showModels: Boolean = false,
     val showConversations: Boolean = false,
     val alert: String? = null,
@@ -412,6 +418,15 @@ class LlmViewModel(
         _state.update { it.copy(attachedDocument = null, documentProgress = null) }
     }
 
+    fun selectKnowledgeBase(kbId: String?, kbName: String?) {
+        _state.update {
+            it.copy(
+                selectedKnowledgeBaseId = kbId,
+                selectedKnowledgeBaseName = kbName
+            )
+        }
+    }
+
     fun runDocumentAction(action: DocumentQuickAction, displayLabel: String) {
         val snapshot = _state.value
         if (!snapshot.ready || snapshot.busy) return
@@ -548,7 +563,32 @@ class LlmViewModel(
                     topK = 40,
                     repeatPenalty = snapshot.repeatPenalty
                 )
-                val messages = conversation.modelMessages(snapshot.systemPrompt)
+                val baseMessages = conversation.modelMessages(snapshot.systemPrompt)
+                val kbId = snapshot.selectedKnowledgeBaseId
+                var ragCitations: List<LlmCitation> = emptyList()
+                val messages = if (!kbId.isNullOrBlank() && baseMessages.lastOrNull()?.first == "user") {
+                    val userQuery = baseMessages.last().second
+                    val hits = retrieveKnowledgeHits(kbId, userQuery)
+                    if (hits.isNotEmpty()) {
+                        ragCitations = hits.map {
+                            LlmCitation(
+                                docName = it.docName,
+                                chunkIndex = it.chunkIndex,
+                                snippet = it.text.trim().take(280),
+                                score = it.score
+                            )
+                        }
+                        val augmented = KnowledgeBaseSearch.buildRagPrompt(hits, userQuery)
+                        baseMessages.dropLast(1) + ("user" to augmented)
+                    } else {
+                        baseMessages
+                    }
+                } else {
+                    baseMessages
+                }
+                if (ragCitations.isNotEmpty()) {
+                    updateMessageCitations(conversationId, messageId, ragCitations)
+                }
 
                 val hubModel = withContext(Dispatchers.IO) { hubRepository.find(modelId) }
                 if (hubModel != null) {
@@ -674,6 +714,7 @@ class LlmViewModel(
                         HubModelType.SdImage -> error("Selected model is an image model and cannot be used for chat")
                         HubModelType.VideoWan -> error("Selected model is a video model and cannot be used for chat")
                         HubModelType.MusicAudio -> error("Selected model is a music model and cannot be used for chat")
+                        HubModelType.Embedding -> error("Selected model is an embedding model and cannot be used for chat")
                     }
                 } else {
                     llamaEngine.unload()
@@ -1117,6 +1158,44 @@ class LlmViewModel(
             }
         }
         return builtIn to choices
+    }
+
+    private suspend fun retrieveKnowledgeHits(
+        kbId: String,
+        query: String
+    ): List<com.tiggy.qwenimage.data.KnowledgeHit> = withContext(Dispatchers.IO) {
+        val kbStore = KnowledgeBaseStore.get(getApplication())
+        val chunks = kbStore.loadChunksForBase(kbId)
+        if (chunks.isEmpty()) return@withContext emptyList()
+        val embModelId = chunks.firstOrNull { !it.embeddingModelId.isNullOrBlank() }?.embeddingModelId
+        val embModel = embModelId?.let { hubRepository.find(it) }
+            ?.takeIf { it.type == HubModelType.Embedding && hubRepository.isPresent(it) }
+        var queryVec: FloatArray? = null
+        if (embModel != null && chunks.any { it.embedding != null }) {
+            val engine = LocalLlamaEmbeddingEngine()
+            try {
+                val err = engine.load(
+                    modelFile = hubRepository.entryFile(embModel),
+                    modelKey = "${embModel.id}:${embModel.installedAt}",
+                    threads = 4,
+                    contextTokens = 1024
+                )
+                if (err == null) {
+                    queryVec = engine.embed(query)
+                }
+            } finally {
+                engine.close()
+            }
+        }
+        KnowledgeBaseSearch.rankHybridHits(query, queryVec, chunks, topK = 4)
+    }
+
+    private fun updateMessageCitations(conversationId: String, messageId: String, citations: List<LlmCitation>) {
+        updateConversation(conversationId) { conversation ->
+            conversation.copy(messages = conversation.messages.map { message ->
+                if (message.id == messageId) message.copy(citations = citations) else message
+            })
+        }
     }
 
     private fun updateActiveMessage(status: LlmMessageStatus) {

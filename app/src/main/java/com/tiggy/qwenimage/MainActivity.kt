@@ -43,6 +43,9 @@ class MainActivity : ComponentActivity() {
     private val hubViewModel: ModelHubViewModel by viewModels {
         appFactory { ModelHubViewModel(application) }
     }
+    private val kbViewModel: KnowledgeBaseViewModel by viewModels {
+        appFactory { KnowledgeBaseViewModel(application, inferenceCoordinator) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,7 +64,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     Surface(modifier = Modifier.fillMaxSize(), color = OmniColors.Background) {
-                        QwenApp(viewModel, llmViewModel, decisionViewModel, hubViewModel)
+                        QwenApp(viewModel, llmViewModel, decisionViewModel, hubViewModel, kbViewModel)
                     }
                 }
             }

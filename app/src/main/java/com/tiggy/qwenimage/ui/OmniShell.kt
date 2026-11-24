@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.automirrored.outlined.FactCheck
+import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Image
@@ -68,7 +69,7 @@ import com.tiggy.qwenimage.data.AppDomain
 import com.tiggy.qwenimage.data.LlmConversation
 
 /** Top-level destinations outside the five workspaces. */
-enum class AppPage { Workspace, Library, Models, Settings, About }
+enum class AppPage { Workspace, KnowledgeBase, Library, Models, Settings, About }
 
 /** What is running in each workspace, shown as a dot in the sidebar. */
 data class WorkspaceActivity(val running: Set<AppDomain> = emptySet())
@@ -183,6 +184,7 @@ fun OmniSidebar(
         }
         HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
         Spacer(Modifier.height(4.dp))
+        SidebarRow(tr(R.string.nav_knowledge_base), Icons.AutoMirrored.Outlined.LibraryBooks, page == AppPage.KnowledgeBase) { onPage(AppPage.KnowledgeBase); onNavigated() }
         SidebarRow(tr(R.string.nav_library), Icons.Outlined.FolderOpen, page == AppPage.Library) { onPage(AppPage.Library); onNavigated() }
         SidebarRow(tr(R.string.nav_models), Icons.Outlined.Memory, page == AppPage.Models) { onPage(AppPage.Models); onNavigated() }
         SidebarRow(tr(R.string.nav_settings), Icons.Outlined.Settings, page == AppPage.Settings) { onPage(AppPage.Settings); onNavigated() }
