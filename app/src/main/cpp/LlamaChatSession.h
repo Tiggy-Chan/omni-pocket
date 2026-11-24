@@ -42,6 +42,26 @@ struct LlamaChatResult {
     int64_t decodeUs = 0;
 };
 
+enum class GgufBackendPref : int {
+    Auto = 0,
+    Cpu = 1,
+    Vulkan = 2,
+    OpenCl = 3,
+    HexagonNpu = 4,
+};
+
+struct BackendCapabilities {
+    bool hasKleidiAi = false;
+    bool hasVulkan = false;
+    std::string vulkanName;
+    bool hasOpenCl = false;
+    std::string openClName;
+    bool hasHexagonCompiled = false;
+    bool hasHexagonRuntime = false;
+    bool hasHexagonFastRpc = false;
+    int recommendedThreads = 4;
+};
+
 class LlamaChatSession {
 public:
     LlamaChatSession();
@@ -51,14 +71,16 @@ public:
 
     // Configure writable kernel cache directory (used by ggml-opencl) before backend init.
     static void SetKernelCacheDir(const std::string& cacheDir);
+    static BackendCapabilities ProbeBackends();
     static bool HasRuntimeGpuDevice();
     static std::string RuntimeGpuDeviceName();
 
-    // kvQuantMode: 0 = F16, 1 = Q8_0, 2 = Q4_0; gpuLayers: 0 = CPU only, >0 = offload layers if GPU backend exists.
+    // kvQuantMode: 0 = F16, 1 = Q8_0, 2 = Q4_0; backendPref: GgufBackendPref integer value.
     bool Load(const std::string& modelPath, int threadCount, int contextTokens, std::string& error,
-              int kvQuantMode = 0, int gpuLayers = 0);
+              int kvQuantMode = 0, int backendPref = 0);
     int EffectiveContextTokens() const;
     int ModelTrainContextTokens() const;
+    std::string ActiveBackendLabel() const;
     LlamaChatResult Generate(const LlamaChatRequest& request,
                              const std::function<bool(const std::string&)>& onToken);
     void Cancel();

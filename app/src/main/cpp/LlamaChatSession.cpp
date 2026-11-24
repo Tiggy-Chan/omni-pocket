@@ -4,6 +4,8 @@
 #include "llama.h"
 
 #include <android/log.h>
+#include <dlfcn.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <chrono>
@@ -11,10 +13,12 @@
 #include <cstring>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <mutex>
 #include <random>
 #include <sstream>
+#include <thread>
 
 namespace omni {
 namespace {
@@ -30,9 +34,129 @@ void LlamaAndroidLog(ggml_log_level level, const char* text, void*) {
     } else if (level == GGML_LOG_LEVEL_WARN) {
         __android_log_print(ANDROID_LOG_WARN, kLogTag, "%s", text);
     } else if (level == GGML_LOG_LEVEL_INFO &&
-               (std::strstr(text, "ggml_opencl") != nullptr || std::strstr(text, "ggml_vulkan") != nullptr)) {
+               (std::strstr(text, "ggml_opencl") != nullptr ||
+                std::strstr(text, "ggml_vulkan") != nullptr ||
+                std::strstr(text, "ggml_hexagon") != nullptr ||
+                std::strstr(text, "kleidiai") != nullptr)) {
         __android_log_print(ANDROID_LOG_INFO, kLogTag, "%s", text);
     }
+}
+
+bool StartsWithCaseInsensitive(const char* text, const char* prefix) {
+    if (text == nullptr || prefix == nullptr) return false;
+    while (*prefix != '\0') {
+        if (*text == '\0') return false;
+        const char a = (*text >= 'A' && *text <= 'Z') ? static_cast<char>(*text - 'A' + 'a') : *text;
+        const char b = (*prefix >= 'A' && *prefix <= 'Z') ? static_cast<char>(*prefix - 'A' + 'a') : *prefix;
+        if (a != b) return false;
+        ++text;
+        ++prefix;
+    }
+    return true;
+}
+
+bool ContainsCaseInsensitive(const char* text, const char* needle) {
+    if (text == nullptr || needle == nullptr || needle[0] == '\0') return false;
+    for (const char* p = text; *p != '\0'; ++p) {
+        if (StartsWithCaseInsensitive(p, needle)) return true;
+    }
+    return false;
+}
+
+std::string DeviceDisplayLabel(ggml_backend_dev_t dev, const char* fallback) {
+    if (dev == nullptr) return fallback;
+    const char* desc = ggml_backend_dev_description(dev);
+    const char* name = ggml_backend_dev_name(dev);
+    if (desc != nullptr && desc[0] != '\0') return std::string(desc);
+    if (name != nullptr && name[0] != '\0') return std::string(name);
+    return fallback;
+}
+
+int DetectRecommendedPerfThreads() {
+    std::vector<long> maxFreqs;
+    for (int cpu = 0; cpu < 16; ++cpu) {
+        std::ifstream f("/sys/devices/system/cpu/cpu" + std::to_string(cpu) + "/cpufreq/cpuinfo_max_freq");
+        long khz = 0;
+        if (f >> khz && khz > 0) {
+            maxFreqs.push_back(khz);
+        }
+    }
+    if (maxFreqs.size() >= 6) {
+        const long minFreq = *std::min_element(maxFreqs.begin(), maxFreqs.end());
+        const long maxFreq = *std::max_element(maxFreqs.begin(), maxFreqs.end());
+        if (maxFreq > minFreq) {
+            int fastCores = 0;
+            for (long khz : maxFreqs) {
+                if (khz > minFreq) ++fastCores;
+            }
+            if (fastCores >= 4) {
+                return std::clamp(fastCores, 4, 6);
+            }
+        }
+    }
+    const unsigned int hw = std::thread::hardware_concurrency();
+    if (hw >= 8) return 6;
+    if (hw >= 4) return 4;
+    return 4;
+}
+
+bool ProbeHexagonFastRpcAvailable() {
+    static std::once_flag once;
+    static bool available = false;
+    std::call_once(once, [] {
+        const bool devAccessible =
+            (access("/dev/adsprpc-smd", R_OK | W_OK) == 0) ||
+            (access("/dev/adsprpc-smd-secure", R_OK | W_OK) == 0) ||
+            (access("/dev/fastrpc-cdsp", R_OK | W_OK) == 0);
+        void* handle = dlopen("libcdsprpc.so", RTLD_LAZY | RTLD_LOCAL);
+        if (handle == nullptr) {
+            handle = dlopen("/vendor/lib64/libcdsprpc.so", RTLD_LAZY | RTLD_LOCAL);
+        }
+        if (handle != nullptr) {
+            dlclose(handle);
+            available = true;
+            __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                                "Hexagon FastRPC library detected (devAccessible=%d)", devAccessible ? 1 : 0);
+        } else {
+            available = devAccessible;
+        }
+    });
+    return available;
+}
+
+ggml_backend_dev_t FindBackendDevice(GgufBackendPref pref) {
+    const size_t count = ggml_backend_dev_count();
+    for (size_t i = 0; i < count; ++i) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        if (dev == nullptr) continue;
+        const char* name = ggml_backend_dev_name(dev);
+        const char* desc = ggml_backend_dev_description(dev);
+        const auto type = ggml_backend_dev_type(dev);
+        switch (pref) {
+            case GgufBackendPref::Vulkan:
+                if ((type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU) &&
+                    (StartsWithCaseInsensitive(name, "Vulkan") || ContainsCaseInsensitive(desc, "Vulkan"))) {
+                    return dev;
+                }
+                break;
+            case GgufBackendPref::OpenCl:
+                if ((type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU) &&
+                    (ContainsCaseInsensitive(name, "OpenCL") || ContainsCaseInsensitive(desc, "OpenCL"))) {
+                    return dev;
+                }
+                break;
+            case GgufBackendPref::HexagonNpu:
+                if (StartsWithCaseInsensitive(name, "HTP") || ContainsCaseInsensitive(name, "Hexagon") ||
+                    ContainsCaseInsensitive(desc, "Hexagon")) {
+                    return dev;
+                }
+                break;
+            case GgufBackendPref::Auto:
+            case GgufBackendPref::Cpu:
+                break;
+        }
+    }
+    return nullptr;
 }
 
 void EnsureLlamaRuntimeInitialized() {
@@ -207,6 +331,7 @@ struct LlamaChatSession::Impl {
     std::atomic<int> contextTokens{4096};
     std::atomic<int> trainContextTokens{0};
     int threadCount = 4;
+    std::string activeBackendLabel = "CPU";
     std::string conversationId;
     bool thinking = false;
     std::vector<llama_token> kvTokens;
@@ -374,34 +499,47 @@ void LlamaChatSession::SetKernelCacheDir(const std::string& cacheDir) {
     setenv("GGML_OPENCL_KERNEL_CACHE_DIR", cacheDir.c_str(), 1);
 }
 
-std::string LlamaChatSession::RuntimeGpuDeviceName() {
-#if defined(OMNI_LLAMA_HAS_OPENCL) || defined(OMNI_LLAMA_HAS_VULKAN)
+BackendCapabilities LlamaChatSession::ProbeBackends() {
+    BackendCapabilities caps;
+#if defined(OMNI_LLAMA_HAS_KLEIDIAI)
+    caps.hasKleidiAi = true;
+#endif
+#if defined(OMNI_LLAMA_HAS_HEXAGON)
+    caps.hasHexagonCompiled = true;
+#endif
+    caps.recommendedThreads = DetectRecommendedPerfThreads();
+    caps.hasHexagonFastRpc = ProbeHexagonFastRpcAvailable();
     try {
         EnsureLlamaRuntimeInitialized();
-        const size_t count = ggml_backend_dev_count();
-        for (size_t i = 0; i < count; ++i) {
-            ggml_backend_dev_t dev = ggml_backend_dev_get(i);
-            if (dev == nullptr) continue;
-            const auto type = ggml_backend_dev_type(dev);
-            if (type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
-                const char* desc = ggml_backend_dev_description(dev);
-                const char* name = ggml_backend_dev_name(dev);
-                if (desc != nullptr && desc[0] != '\0') return std::string(desc);
-                if (name != nullptr && name[0] != '\0') return std::string(name);
-                return "OpenCL GPU";
-            }
+        if (ggml_backend_dev_t vk = FindBackendDevice(GgufBackendPref::Vulkan)) {
+            caps.hasVulkan = true;
+            caps.vulkanName = DeviceDisplayLabel(vk, "Vulkan GPU");
+        }
+        if (ggml_backend_dev_t cl = FindBackendDevice(GgufBackendPref::OpenCl)) {
+            caps.hasOpenCl = true;
+            caps.openClName = DeviceDisplayLabel(cl, "OpenCL GPU");
+        }
+        if (FindBackendDevice(GgufBackendPref::HexagonNpu) != nullptr) {
+            caps.hasHexagonRuntime = true;
         }
     } catch (const std::exception& e) {
-        __android_log_print(ANDROID_LOG_WARN, kLogTag, "GPU probe exception: %s", e.what());
+        __android_log_print(ANDROID_LOG_WARN, kLogTag, "Backend probe exception: %s", e.what());
     } catch (...) {
-        __android_log_print(ANDROID_LOG_WARN, kLogTag, "GPU probe unknown exception");
+        __android_log_print(ANDROID_LOG_WARN, kLogTag, "Backend probe unknown exception");
     }
-#endif
+    return caps;
+}
+
+std::string LlamaChatSession::RuntimeGpuDeviceName() {
+    const auto caps = ProbeBackends();
+    if (caps.hasVulkan) return caps.vulkanName;
+    if (caps.hasOpenCl) return caps.openClName;
     return {};
 }
 
 bool LlamaChatSession::HasRuntimeGpuDevice() {
-    return !RuntimeGpuDeviceName().empty();
+    const auto caps = ProbeBackends();
+    return caps.hasVulkan || caps.hasOpenCl || caps.hasHexagonRuntime;
 }
 
 LlamaChatSession::LlamaChatSession() : impl_(std::make_unique<Impl>()) {}
@@ -412,7 +550,7 @@ LlamaChatSession::~LlamaChatSession() {
 }
 
 bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int contextTokens, std::string& error,
-                            int kvQuantMode, int gpuLayers) {
+                            int kvQuantMode, int backendPrefRaw) {
     std::lock_guard<std::mutex> lock(impl_->executionMutex);
     impl_->cancelled.store(false);
     error.clear();
@@ -429,8 +567,49 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
         impl_->Clear();
         EnsureLlamaRuntimeInitialized();
 
+        const auto pref = (backendPrefRaw >= 0 && backendPrefRaw <= 4)
+            ? static_cast<GgufBackendPref>(backendPrefRaw)
+            : GgufBackendPref::Auto;
+
         auto modelParams = llama_model_default_params();
-        modelParams.n_gpu_layers = std::max(0, gpuLayers);
+        ggml_backend_dev_t selectedDevs[2] = {nullptr, nullptr};
+        bool offloadActive = false;
+        std::string backendLabel =
+#if defined(OMNI_LLAMA_HAS_KLEIDIAI)
+            "CPU · KleidiAI";
+#else
+            "CPU";
+#endif
+
+        if (pref == GgufBackendPref::Vulkan || pref == GgufBackendPref::OpenCl || pref == GgufBackendPref::HexagonNpu) {
+            ggml_backend_dev_t target = FindBackendDevice(pref);
+            if (target == nullptr) {
+                if (pref == GgufBackendPref::HexagonNpu) {
+                    error = ProbeHexagonFastRpcAvailable()
+                        ? "当前公开版未内嵌高通 Hexagon HTP 算子库（需 Hexagon SDK 实验构建）"
+                        : "当前设备未检测到高通 Hexagon HTP NPU";
+                } else if (pref == GgufBackendPref::Vulkan) {
+                    error = "当前设备未检测到可用的 Vulkan GPU 后端";
+                } else {
+                    error = "当前设备未检测到可用的 OpenCL GPU 后端";
+                }
+                return false;
+            }
+            selectedDevs[0] = target;
+            modelParams.devices = selectedDevs;
+            modelParams.n_gpu_layers = -1;
+            offloadActive = true;
+            const char* prefix = pref == GgufBackendPref::Vulkan
+                ? "Vulkan"
+                : (pref == GgufBackendPref::OpenCl ? "OpenCL" : "Hexagon HTP");
+            backendLabel = std::string(prefix) + " · " + DeviceDisplayLabel(target, prefix);
+        } else {
+            // Auto & Cpu: run on CPU (KleidiAI + FP16) which delivers the highest decode stability
+            // and lowest driver-fault risk across Snapdragon/Dimensity/Exynos quantizations.
+            modelParams.n_gpu_layers = 0;
+            offloadActive = false;
+        }
+
         modelParams.load_mode = LLAMA_LOAD_MODE_MMAP;
         modelParams.progress_callback = [](float, void* data) -> bool {
             return !static_cast<std::atomic<bool>*>(data)->load();
@@ -453,12 +632,16 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
         impl_->trainContextTokens = trainCtx;
         const int effectiveCtx = trainCtx > 0 ? std::min(contextTokens, std::max(512, trainCtx)) : contextTokens;
 
+        const int perfThreads = DetectRecommendedPerfThreads();
+        // Use performance core count for batched prompt prefill (pp) even when decode uses fewer threads.
+        const int batchThreads = std::clamp(std::max(threadCount, perfThreads), 2, 8);
+
         auto ctxParams = llama_context_default_params();
         ctxParams.n_ctx = static_cast<uint32_t>(effectiveCtx);
         ctxParams.n_batch = static_cast<uint32_t>(kBatchSize);
         ctxParams.n_ubatch = static_cast<uint32_t>(kBatchSize);
         ctxParams.n_threads = threadCount;
-        ctxParams.n_threads_batch = threadCount;
+        ctxParams.n_threads_batch = batchThreads;
         ctxParams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
         if (kvQuantMode == 1) {
             ctxParams.type_k = GGML_TYPE_Q8_0;
@@ -467,8 +650,8 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
             ctxParams.type_k = GGML_TYPE_Q4_0;
             ctxParams.type_v = GGML_TYPE_Q4_0;
         }
-        ctxParams.offload_kqv = gpuLayers > 0;
-        ctxParams.op_offload = gpuLayers > 0;
+        ctxParams.offload_kqv = offloadActive;
+        ctxParams.op_offload = offloadActive;
         ctxParams.abort_callback = [](void* data) -> bool {
             return static_cast<std::atomic<bool>*>(data)->load();
         };
@@ -489,6 +672,10 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
         llama_set_causal_attn(impl_->context, true);
         impl_->contextTokens = effectiveCtx;
         impl_->threadCount = threadCount;
+        impl_->activeBackendLabel = backendLabel;
+        __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                            "Loaded GGUF model on [%s] n_ctx=%d threads=%d batch_threads=%d",
+                            backendLabel.c_str(), effectiveCtx, threadCount, batchThreads);
         return true;
     } catch (const std::exception& e) {
         __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Load exception: %s", e.what());
@@ -509,6 +696,11 @@ int LlamaChatSession::EffectiveContextTokens() const {
 
 int LlamaChatSession::ModelTrainContextTokens() const {
     return impl_->trainContextTokens.load(std::memory_order_relaxed);
+}
+
+std::string LlamaChatSession::ActiveBackendLabel() const {
+    std::lock_guard<std::mutex> lock(impl_->executionMutex);
+    return impl_->activeBackendLabel;
 }
 
 LlamaChatResult LlamaChatSession::Generate(

@@ -62,6 +62,7 @@ import com.tiggy.qwenimage.data.AppLanguageManager
 import com.tiggy.qwenimage.data.CoTMode
 import com.tiggy.qwenimage.data.LlmConversation
 import com.tiggy.qwenimage.data.ThemeMode
+import com.tiggy.qwenimage.engine.GgufComputeBackend
 import com.tiggy.qwenimage.engine.KvCachePrecision
 import com.tiggy.qwenimage.engine.SUPPORTED_SD_SAMPLERS
 import java.util.Locale
@@ -420,21 +421,46 @@ fun SettingsPage(
                                         onClick = { llmViewModel.setMnnUseOpenCl(!llmState.mnnUseOpenCl) },
                                         trailing = { Switch(checked = llmState.mnnUseOpenCl, onCheckedChange = null) }
                                     )
-                                    SettingRow(
-                                        title = tr(R.string.settings_gguf_opencl),
-                                        detail = if (llmState.ggufGpuAvailable) {
-                                            val gpuTag = llmState.ggufGpuDeviceName.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
-                                            tr(R.string.settings_gguf_opencl_detail, gpuTag)
-                                        } else tr(R.string.settings_gguf_opencl_unavailable),
-                                        onClick = if (llmState.ggufGpuAvailable) ({ llmViewModel.setGgufUseVulkanGpu(!llmState.ggufUseVulkanGpu) }) else null,
-                                        trailing = {
-                                            Switch(
-                                                checked = llmState.ggufUseVulkanGpu && llmState.ggufGpuAvailable,
-                                                onCheckedChange = null,
-                                                enabled = llmState.ggufGpuAvailable
+                                    Text(tr(R.string.settings_gguf_backend), color = OmniColors.Ink, style = MaterialTheme.typography.bodyLarge)
+                                    val caps = llmState.ggufCapabilities
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        items(GgufComputeBackend.entries) { backend ->
+                                            val label = when (backend) {
+                                                GgufComputeBackend.Auto -> tr(R.string.settings_gguf_backend_auto)
+                                                GgufComputeBackend.Cpu -> tr(R.string.settings_gguf_backend_cpu)
+                                                GgufComputeBackend.Vulkan -> tr(R.string.settings_gguf_backend_vulkan)
+                                                GgufComputeBackend.OpenCl -> tr(R.string.settings_gguf_backend_opencl)
+                                                GgufComputeBackend.HexagonNpu -> tr(R.string.settings_gguf_backend_hexagon)
+                                            }
+                                            val available = caps.isSelectable(backend)
+                                            ComposerChip(
+                                                label = label,
+                                                onClick = { if (available) llmViewModel.setGgufBackend(backend) },
+                                                selected = llmState.ggufBackend == backend,
+                                                enabled = available
                                             )
                                         }
-                                    )
+                                    }
+                                    val backendDetail = buildList {
+                                        if (caps.hasKleidiAi) add(tr(R.string.settings_gguf_backend_kleidiai_on))
+                                        when (llmState.ggufBackend) {
+                                            GgufComputeBackend.Auto, GgufComputeBackend.Cpu ->
+                                                add(tr(R.string.settings_gguf_backend_detail_auto))
+                                            GgufComputeBackend.Vulkan ->
+                                                add(tr(R.string.settings_gguf_backend_detail_gpu, caps.vulkanName.ifBlank { "Vulkan GPU" }))
+                                            GgufComputeBackend.OpenCl ->
+                                                add(tr(R.string.settings_gguf_backend_detail_gpu, caps.openClName.ifBlank { "OpenCL GPU" }))
+                                            GgufComputeBackend.HexagonNpu ->
+                                                add(tr(R.string.settings_gguf_backend_hexagon_ready))
+                                        }
+                                        if (!caps.hasHexagonRuntime && caps.hasHexagonFastRpc) {
+                                            add(tr(R.string.settings_gguf_backend_hexagon_fastrpc))
+                                        }
+                                        if (llmState.loadedBackendLabel.isNotBlank()) {
+                                            add(tr(R.string.settings_gguf_backend_active, llmState.loadedBackendLabel))
+                                        }
+                                    }.joinToString(" · ")
+                                    Text(backendDetail, color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }

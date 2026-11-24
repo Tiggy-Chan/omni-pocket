@@ -22,6 +22,8 @@ class LocalLlamaChatEngine : AutoCloseable {
         private set
     @Volatile var modelTrainContextTokens: Int = 0
         private set
+    @Volatile var activeBackendLabel: String = ""
+        private set
 
     suspend fun load(
         modelFile: File,
@@ -29,18 +31,18 @@ class LocalLlamaChatEngine : AutoCloseable {
         threads: Int,
         contextTokens: Int,
         kvPrecision: KvCachePrecision = KvCachePrecision.Fp16,
-        gpuLayers: Int = 0
+        backend: GgufComputeBackend = GgufComputeBackend.Auto
     ): String? =
         execution.withLock {
             withContext(Dispatchers.Default) {
-                val effectiveKey = "$modelKey:$threads:$contextTokens:${kvPrecision.nativeMode}:$gpuLayers"
+                val effectiveKey = "$modelKey:$threads:$contextTokens:${kvPrecision.nativeMode}:${backend.nativeCode}"
                 if (handle != 0L && loadedKey == effectiveKey) return@withContext null
                 replaceHandle(0L)
                 val created = nativeCreate()
                 check(created != 0L) { "无法创建 GGUF 对话会话" }
                 replaceHandle(created)
                 val error = lifecycle.read {
-                    nativeLoad(created, modelFile.absolutePath, threads, contextTokens, kvPrecision.nativeMode, gpuLayers)
+                    nativeLoad(created, modelFile.absolutePath, threads, contextTokens, kvPrecision.nativeMode, backend.nativeCode)
                 }
                 if (error != null) {
                     replaceHandle(0L)
@@ -48,6 +50,7 @@ class LocalLlamaChatEngine : AutoCloseable {
                     loadedKey = effectiveKey
                     effectiveContextTokens = lifecycle.read { if (handle != 0L) nativeEffectiveContext(handle) else 0 }
                     modelTrainContextTokens = lifecycle.read { if (handle != 0L) nativeTrainContext(handle) else 0 }
+                    activeBackendLabel = lifecycle.read { if (handle != 0L) nativeActiveBackendLabel(handle).orEmpty() else "" }
                 }
                 error
             }
@@ -60,6 +63,7 @@ class LocalLlamaChatEngine : AutoCloseable {
         if (next == 0L) {
             effectiveContextTokens = 0
             modelTrainContextTokens = 0
+            activeBackendLabel = ""
         }
         if (previous != next) nativeDestroy(previous)
     }
@@ -121,19 +125,24 @@ class LocalLlamaChatEngine : AutoCloseable {
             }
         }
 
+        fun probeBackends(): GgufBackendCapabilities =
+            runCatching { nativeProbeBackends() }.getOrNull() ?: GgufBackendCapabilities()
+
         fun hasGpuBackend(): Boolean = runCatching { nativeHasGpuBackend() }.getOrDefault(false)
 
         fun gpuDeviceName(): String = runCatching { nativeGpuDeviceName().orEmpty() }.getOrDefault("")
 
         @JvmStatic private external fun nativeSetCacheDir(cacheDir: String)
+        @JvmStatic private external fun nativeProbeBackends(): GgufBackendCapabilities?
         @JvmStatic private external fun nativeHasGpuBackend(): Boolean
         @JvmStatic private external fun nativeGpuDeviceName(): String?
         @JvmStatic private external fun nativeCreate(): Long
         @JvmStatic private external fun nativeLoad(
-            handle: Long, modelPath: String, threads: Int, contextTokens: Int, kvQuantMode: Int, gpuLayers: Int
+            handle: Long, modelPath: String, threads: Int, contextTokens: Int, kvQuantMode: Int, backendPref: Int
         ): String?
         @JvmStatic private external fun nativeEffectiveContext(handle: Long): Int
         @JvmStatic private external fun nativeTrainContext(handle: Long): Int
+        @JvmStatic private external fun nativeActiveBackendLabel(handle: Long): String?
         @JvmStatic private external fun nativeGenerate(
             handle: Long, conversationId: String, roles: Array<String>, contents: Array<String>,
             maxNewTokens: Int, thinking: Boolean, temperature: Float, topP: Float, topK: Int, repeatPenalty: Float,

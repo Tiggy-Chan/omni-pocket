@@ -41,12 +41,12 @@ JNIEXPORT jlong JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nat
 
 JNIEXPORT jstring JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeLoad(
     JNIEnv* env, jclass, jlong handle, jstring modelPath, jint threads, jint contextTokens,
-    jint kvQuantMode, jint gpuLayers) {
+    jint kvQuantMode, jint backendPref) {
     try {
         if (handle == 0) return omni::jni::Utf8ToJString(env, "GGUF 对话会话已释放");
         std::string error;
         const bool loaded = ChatSession(handle)->Load(
-            StringValue(env, modelPath), threads, contextTokens, error, kvQuantMode, gpuLayers);
+            StringValue(env, modelPath), threads, contextTokens, error, kvQuantMode, backendPref);
         if (env->ExceptionCheck()) return nullptr;
         return loaded ? nullptr : omni::jni::Utf8ToJString(env, error);
     } catch (const std::exception& e) {
@@ -64,6 +64,16 @@ JNIEXPORT jint JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nati
 JNIEXPORT jint JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeTrainContext(
     JNIEnv*, jclass, jlong handle) {
     return handle != 0 ? ChatSession(handle)->ModelTrainContextTokens() : 0;
+}
+
+JNIEXPORT jstring JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeActiveBackendLabel(
+    JNIEnv* env, jclass, jlong handle) {
+    try {
+        const std::string label = handle != 0 ? ChatSession(handle)->ActiveBackendLabel() : "";
+        return omni::jni::Utf8ToJString(env, label);
+    } catch (...) {
+        return omni::jni::Utf8ToJString(env, "");
+    }
 }
 
 JNIEXPORT jobject JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeGenerate(
@@ -157,6 +167,42 @@ JNIEXPORT void JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nati
     try {
         omni::LlamaChatSession::SetKernelCacheDir(StringValue(env, cacheDir));
     } catch (...) {
+    }
+}
+
+JNIEXPORT jobject JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeProbeBackends(
+    JNIEnv* env, jclass) {
+    try {
+        const auto caps = omni::LlamaChatSession::ProbeBackends();
+        const jclass cls = env->FindClass("com/tiggy/qwenimage/engine/GgufBackendCapabilities");
+        if (cls == nullptr) return nullptr;
+        const jmethodID ctor = env->GetMethodID(
+            cls, "<init>", "(ZZLjava/lang/String;ZLjava/lang/String;ZZZI)V");
+        if (ctor == nullptr) {
+            env->DeleteLocalRef(cls);
+            return nullptr;
+        }
+        const jstring vkName = omni::jni::Utf8ToJString(env, caps.vulkanName);
+        const jstring clName = omni::jni::Utf8ToJString(env, caps.openClName);
+        jobject obj = (vkName != nullptr && clName != nullptr)
+            ? env->NewObject(
+                cls, ctor,
+                caps.hasKleidiAi ? JNI_TRUE : JNI_FALSE,
+                caps.hasVulkan ? JNI_TRUE : JNI_FALSE,
+                vkName,
+                caps.hasOpenCl ? JNI_TRUE : JNI_FALSE,
+                clName,
+                caps.hasHexagonCompiled ? JNI_TRUE : JNI_FALSE,
+                caps.hasHexagonRuntime ? JNI_TRUE : JNI_FALSE,
+                caps.hasHexagonFastRpc ? JNI_TRUE : JNI_FALSE,
+                static_cast<jint>(caps.recommendedThreads))
+            : nullptr;
+        if (vkName != nullptr) env->DeleteLocalRef(vkName);
+        if (clName != nullptr) env->DeleteLocalRef(clName);
+        env->DeleteLocalRef(cls);
+        return obj;
+    } catch (...) {
+        return nullptr;
     }
 }
 

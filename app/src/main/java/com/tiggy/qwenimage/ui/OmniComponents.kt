@@ -268,6 +268,8 @@ fun ComposerChip(
     selected: Boolean = false,
     contentDescription: String? = null
 ) {
+    val baseContentColor = if (selected) OmniColors.Accent else OmniColors.Muted
+    val contentColor = if (enabled) baseContentColor else baseContentColor.copy(alpha = 0.38f)
     Surface(
         onClick = onClick,
         enabled = enabled,
@@ -277,12 +279,12 @@ fun ComposerChip(
     ) {
         Row(Modifier.padding(horizontal = 8.dp).heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) {
-                Icon(icon, contentDescription ?: label, tint = if (selected) OmniColors.Accent else OmniColors.Muted,
+                Icon(icon, contentDescription ?: label, tint = contentColor,
                     modifier = Modifier.size(18.dp))
                 if (label.isNotEmpty()) Spacer(Modifier.width(4.dp))
             }
             if (label.isNotEmpty()) {
-                Text(label, color = if (selected) OmniColors.Accent else OmniColors.Muted,
+                Text(label, color = contentColor,
                     style = MaterialTheme.typography.labelMedium, maxLines = 1)
             }
         }

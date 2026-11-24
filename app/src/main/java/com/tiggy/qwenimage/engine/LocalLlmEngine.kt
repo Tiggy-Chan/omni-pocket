@@ -37,6 +37,43 @@ enum class KvCachePrecision(val nativeMode: Int, val label: String, val detail: 
     Q4_0(2, "Q4_0", "长上下文极致省内存")
 }
 
+enum class GgufComputeBackend(val nativeCode: Int, val prefKey: String) {
+    Auto(0, "auto"),
+    Cpu(1, "cpu"),
+    Vulkan(2, "vulkan"),
+    OpenCl(3, "opencl"),
+    HexagonNpu(4, "hexagon");
+
+    companion object {
+        fun fromPref(raw: String?, legacyGpuFlag: Boolean = false): GgufComputeBackend {
+            if (!raw.isNullOrBlank()) {
+                entries.firstOrNull { it.prefKey.equals(raw, ignoreCase = true) || it.name.equals(raw, ignoreCase = true) }
+                    ?.let { return it }
+            }
+            return if (legacyGpuFlag) OpenCl else Auto
+        }
+    }
+}
+
+data class GgufBackendCapabilities(
+    val hasKleidiAi: Boolean = false,
+    val hasVulkan: Boolean = false,
+    val vulkanName: String = "",
+    val hasOpenCl: Boolean = false,
+    val openClName: String = "",
+    val hasHexagonCompiled: Boolean = false,
+    val hasHexagonRuntime: Boolean = false,
+    val hasHexagonFastRpc: Boolean = false,
+    val recommendedThreads: Int = 4
+) {
+    fun isSelectable(backend: GgufComputeBackend): Boolean = when (backend) {
+        GgufComputeBackend.Auto, GgufComputeBackend.Cpu -> true
+        GgufComputeBackend.Vulkan -> hasVulkan
+        GgufComputeBackend.OpenCl -> hasOpenCl
+        GgufComputeBackend.HexagonNpu -> hasHexagonRuntime
+    }
+}
+
 class LocalLlmEngine(private val cacheDirectory: File) : AutoCloseable {
     private val execution = Mutex()
     private val lifecycle = ReentrantReadWriteLock()
