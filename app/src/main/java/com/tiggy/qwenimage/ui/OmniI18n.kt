@@ -26,6 +26,7 @@ import com.tiggy.qwenimage.data.HubMirrorMode
 import com.tiggy.qwenimage.data.HubModelType
 import com.tiggy.qwenimage.data.HubProbeResult
 import com.tiggy.qwenimage.data.HubSearchCategory
+import com.tiggy.qwenimage.data.HubSearchSort
 import com.tiggy.qwenimage.data.HubSettings
 import com.tiggy.qwenimage.data.HubSplitWarning
 import com.tiggy.qwenimage.data.ImageGenerationBackend
@@ -216,9 +217,19 @@ fun HfRepoOption.localizedLabel(): String =
     else label
 
 @Composable
+fun HubSearchSort.localizedLabel(): String = when (this) {
+    HubSearchSort.Downloads -> tr(R.string.hub_sort_downloads)
+    HubSearchSort.Likes -> tr(R.string.hub_sort_likes)
+    HubSearchSort.LastModified -> tr(R.string.hub_sort_recent)
+}
+
+@Composable
 fun HfRepoOption.localizedCompanionSummary(): String? = when (companionNoteKey) {
     HubCompanionNote.ZImageShared -> tr(R.string.hub_comp_zimage)
     HubCompanionNote.Flux2Shared -> tr(R.string.hub_comp_flux2)
+    HubCompanionNote.Flux2Klein9BShared -> tr(R.string.hub_comp_flux2_9b)
+    HubCompanionNote.Flux3KleinShared -> tr(R.string.hub_comp_flux3_klein)
+    HubCompanionNote.ErnieImageShared -> tr(R.string.hub_comp_ernie_image)
     HubCompanionNote.WanShared -> tr(R.string.hub_comp_wan, companionNoteArg.orEmpty())
     HubCompanionNote.MiniMaxH3PiShared -> tr(R.string.hub_comp_minimax_h3)
     HubCompanionNote.Yue2Sidecars -> tr(R.string.hub_comp_yue2, companionNoteArg.orEmpty())
@@ -239,6 +250,10 @@ fun HfRepoOption.localizedSplitWarning(): String? = when (splitWarningKey) {
 @Composable
 fun HfRepoSummary.localizedSummary(): String {
     val resId = when (summaryKey) {
+        "curated_qwen35_4b" -> R.string.curated_qwen35_4b
+        "curated_qwen35_9b" -> R.string.curated_qwen35_9b
+        "curated_gemma4_e4b" -> R.string.curated_gemma4_e4b
+        "curated_gemma4_e2b" -> R.string.curated_gemma4_e2b
         "curated_qwen3_06b" -> R.string.curated_qwen3_06b
         "curated_qwen3_17b" -> R.string.curated_qwen3_17b
         "curated_qwen3_4b" -> R.string.curated_qwen3_4b
@@ -247,6 +262,9 @@ fun HfRepoSummary.localizedSummary(): String {
         "curated_gemma3_1b" -> R.string.curated_gemma3_1b
         "curated_dsr1_15b" -> R.string.curated_dsr1_15b
         "curated_llama32_3b" -> R.string.curated_llama32_3b
+        "curated_mnn_qwen35_4b" -> R.string.curated_mnn_qwen35_4b
+        "curated_mnn_qwen35_2b" -> R.string.curated_mnn_qwen35_2b
+        "curated_mnn_qwen35_08b" -> R.string.curated_mnn_qwen35_08b
         "curated_mnn_qwen3_17b" -> R.string.curated_mnn_qwen3_17b
         "curated_mnn_qwen3_4b" -> R.string.curated_mnn_qwen3_4b
         "curated_mnn_dsr1_15b" -> R.string.curated_mnn_dsr1_15b
@@ -256,8 +274,11 @@ fun HfRepoSummary.localizedSummary(): String {
         "curated_onejev_9b" -> R.string.curated_onejev_9b
         "curated_elephant_1" -> R.string.curated_elephant_1
         "curated_elephant_mirror" -> R.string.curated_elephant_mirror
+        "curated_flux3_klein" -> R.string.curated_flux3_klein
+        "curated_ernie_image" -> R.string.curated_ernie_image
         "curated_zimage" -> R.string.curated_zimage
         "curated_flux2" -> R.string.curated_flux2
+        "curated_flux2_9b" -> R.string.curated_flux2_9b
         "curated_sdxl_turbo" -> R.string.curated_sdxl_turbo
         "curated_sd_turbo" -> R.string.curated_sd_turbo
         "curated_dreamshaper" -> R.string.curated_dreamshaper
@@ -280,8 +301,10 @@ fun HfRepoSummary.localizedSummary(): String {
 fun ModelBenchmarkEntry.localizedStrengths(): String {
     val resId = when (id) {
         "qwen3.5-9b" -> R.string.bench_str_qwen35_9b
+        "gemma-4-e4b" -> R.string.bench_str_gemma4_e4b
         "qwen3-4b" -> R.string.bench_str_qwen3_4b
         "qwen3.5-4b" -> R.string.bench_str_qwen35_4b
+        "gemma-4-e2b" -> R.string.bench_str_gemma4_e2b
         "deepseek-r1-distill-qwen-1.5b" -> R.string.bench_str_dsr1_15b
         "qwen3.5-2b" -> R.string.bench_str_qwen35_2b
         "phi-4-mini" -> R.string.bench_str_phi4_mini
@@ -296,7 +319,10 @@ fun ModelBenchmarkEntry.localizedStrengths(): String {
         "onejev-1.6-4b" -> R.string.bench_str_onejev4b
         "onejev-1.6-0.8b" -> R.string.bench_str_onejev08b
         "qwen-image-2.1" -> R.string.bench_str_qwen_img
+        "flux3-image-klein" -> R.string.bench_str_flux3_klein
+        "ernie-image-turbo" -> R.string.bench_str_ernie_image
         "z-image-turbo" -> R.string.bench_str_zimage
+        "flux2-klein-9b" -> R.string.bench_str_flux2_9b
         "flux2-klein-4b" -> R.string.bench_str_flux2
         "moss-image" -> R.string.bench_str_moss
         "sdxl-turbo" -> R.string.bench_str_sdxl_turbo

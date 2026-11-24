@@ -21,6 +21,7 @@ internal data class SdCliGenericImageOptions(
     val useOpenCl: Boolean = false,
     val llmFile: File? = null,
     val vaeFile: File? = null,
+    val refImage: File? = null,
     val sampler: String = "euler",
     val vaeTiling: Boolean = true,
     val flashAttn: Boolean = false
@@ -76,6 +77,9 @@ internal fun buildSdCliGenericImageCommand(options: SdCliGenericImageOptions): L
         add("--seed"); add(options.seed.toString())
         add("--cfg-scale"); add(number(options.cfg))
         add("--sampling-method"); add(options.sampler)
+        options.refImage?.let {
+            add("-r"); add(it.absolutePath)
+        }
         add("-o"); add(options.output.absolutePath)
     }
 }

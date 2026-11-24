@@ -148,6 +148,54 @@ class SdCliCommandTest {
         )
     }
 
+    @Test
+    fun passesRefImageFlagForMiniMaxH3Ref2VaAndGenericImageEdit() {
+        val h3RefCmd = buildSdCliVideoCommand(
+            SdCliVideoOptions(
+                nativeLib = File("/app/libsd_cli.so"),
+                diffusionModel = File("/models/minimax_h3_ref2va_pruned-Q2_K.gguf"),
+                textEncoder = File("/models/qwen3vl-32B-MiniMax-H3-Q2_K.gguf"),
+                vae = File("/models/minimax_h3_video_vae_int8_convrot.safetensors"),
+                output = File("/outputs/h3.part.webm"),
+                prompt = "person speaking",
+                width = 480,
+                height = 288,
+                frames = 22,
+                fps = 24,
+                steps = 2,
+                seed = 1L,
+                shift = 12f,
+                initImage = File("/cache/ref.png"),
+                arch = VideoModelArch.MINIMAX_H3,
+                useRefImageFlag = true
+            )
+        )
+        assertEquals("/cache/ref.png", h3RefCmd.valueAfter("-r"))
+        assertFalse(h3RefCmd.contains("-i"))
+
+        val flux3Cmd = buildSdCliGenericImageCommand(
+            SdCliGenericImageOptions(
+                nativeLib = File("/app/libsd_cli.so"),
+                modelFile = File("/models/flux-3-image-klein-Q4_K_M.gguf"),
+                llmFile = File("/models/Qwen3VL-4B-Instruct-Q4_K_M.gguf"),
+                vaeFile = File("/models/flux2_ae.safetensors"),
+                output = File("/outputs/edit.png"),
+                prompt = "change jacket color to blue",
+                negativePrompt = "",
+                width = 768,
+                height = 768,
+                steps = 4,
+                cfg = 1.0,
+                seed = 42L,
+                refImage = File("/cache/subject.png")
+            )
+        )
+        assertEquals("/models/Qwen3VL-4B-Instruct-Q4_K_M.gguf", flux3Cmd.valueAfter("--llm"))
+        assertEquals("/models/flux2_ae.safetensors", flux3Cmd.valueAfter("--vae"))
+        assertEquals("/cache/subject.png", flux3Cmd.valueAfter("-r"))
+        assertEquals("4", flux3Cmd.valueAfter("--steps"))
+    }
+
     private fun List<String>.valueAfter(flag: String): String {
         val index = lastIndexOf(flag)
         assertTrue("missing $flag", index >= 0 && index + 1 < size)

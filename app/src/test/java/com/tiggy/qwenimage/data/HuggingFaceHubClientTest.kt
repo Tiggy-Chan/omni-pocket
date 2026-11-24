@@ -227,4 +227,55 @@ class HuggingFaceHubClientTest {
         assertNotNull(unpruned.splitWarning)
         assertEquals(HubSplitWarning.MiniMaxH3Unpruned, unpruned.splitWarningKey)
     }
+
+    @Test
+    fun extractsFlux3KleinErnieImageAndFlux2Klein9BWithVerifiedCompanions() {
+        val flux3Json = """[{"type":"file","path":"flux-3-image-klein-UD-Q4_K_XL.gguf","size":4000000000}]"""
+        val flux3Opts = HuggingFaceHubClient.parseRepoTree("unsloth/flux-3-image-klein-GGUF", "main", flux3Json, HubSearchCategory.SdImage)
+        assertEquals(1, flux3Opts.size)
+        val f3 = flux3Opts.single()
+        assertEquals("flux3_klein", f3.metadata["arch"])
+        assertEquals("true", f3.metadata["supportsEdit"])
+        assertEquals("UD-Q4_K_XL", f3.quantTag)
+        assertEquals(HubCompanionNote.Flux3KleinShared, f3.companionNoteKey)
+        assertTrue(f3.files.any { it.sharedCompanionKey == "Qwen3VL-4B-Instruct-Q4_K_M.gguf" })
+        assertTrue(f3.files.any { it.sharedCompanionKey == "flux2_ae.safetensors" })
+
+        val ernieJson = """[{"type":"file","path":"ERNIE-Image-Turbo-Q4_K_M.gguf","size":3800000000}]"""
+        val ernieOpts = HuggingFaceHubClient.parseRepoTree("unsloth/ERNIE-Image-Turbo-GGUF", "main", ernieJson, HubSearchCategory.SdImage)
+        assertEquals(1, ernieOpts.size)
+        val ernie = ernieOpts.single()
+        assertEquals("ernie_image", ernie.metadata["arch"])
+        assertEquals("8", ernie.metadata["defaultSteps"])
+        assertEquals(HubCompanionNote.ErnieImageShared, ernie.companionNoteKey)
+        assertTrue(ernie.files.any { it.sharedCompanionKey == "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf" })
+        assertTrue(ernie.files.any { it.sharedCompanionKey == "flux2_ae.safetensors" })
+
+        val flux29bJson = """[{"type":"file","path":"flux-2-klein-9b-Q4_K_M.gguf","size":5600000000}]"""
+        val f9Opts = HuggingFaceHubClient.parseRepoTree("unsloth/FLUX.2-klein-9B-GGUF", "main", flux29bJson, HubSearchCategory.SdImage)
+        assertEquals(1, f9Opts.size)
+        val f9 = f9Opts.single()
+        assertEquals("flux2_klein_9b", f9.metadata["arch"])
+        assertEquals("true", f9.metadata["supportsEdit"])
+        assertEquals(HubCompanionNote.Flux2Klein9BShared, f9.companionNoteKey)
+        assertTrue(f9.files.any { it.sharedCompanionKey == "Qwen3-8B-Q4_K_M.gguf" })
+    }
+
+    @Test
+    fun parsesUnslothDynamicXlQuantTagsAndMiniMaxH3Ref2VaMode() {
+        assertEquals("UD-Q2_K_XL", HuggingFaceHubClient.extractQuantTag("minimax_h3_ref2va_pruned-UD-Q2_K_XL.gguf"))
+        assertEquals("Q4_K_XL", HuggingFaceHubClient.extractQuantTag("gemma-4-E4B-it-Q4_K_XL.gguf"))
+
+        val json = """[
+            {"type":"file","path":"minimax_h3_ref2va_pruned-UD-Q2_K_XL.gguf","size":7200000000},
+            {"type":"file","path":"minimax_h3_fl2va_pruned-Q2_K.gguf","size":6720000000}
+        ]"""
+        val opts = HuggingFaceHubClient.parseRepoTree("unsloth/MiniMax-H3-GGUF", "main", json, HubSearchCategory.VideoWan)
+        assertEquals(2, opts.size)
+        val refOpt = opts.first { it.entryFile.contains("ref2va") }
+        val flOpt = opts.first { it.entryFile.contains("fl2va") }
+        assertEquals("ref2va", refOpt.metadata["h3Mode"])
+        assertEquals("UD-Q2_K_XL", refOpt.quantTag)
+        assertEquals("fl2va", flOpt.metadata["h3Mode"])
+    }
 }

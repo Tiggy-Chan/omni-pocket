@@ -2,6 +2,7 @@ package com.tiggy.qwenimage.engine
 
 import android.content.Context
 import android.graphics.BitmapFactory
+import android.net.Uri
 import com.tiggy.qwenimage.data.InstalledHubModel
 import com.tiggy.qwenimage.data.InstalledHubModelsRepository
 import com.tiggy.qwenimage.data.MossGenerationResult
@@ -12,6 +13,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.util.Locale
 
@@ -26,7 +28,8 @@ data class CustomSdSettings(
     val seed: Long = 42L,
     val useOpenCl: Boolean = false,
     val sampler: String = "euler",
-    val vaeTiling: Boolean = true
+    val vaeTiling: Boolean = true,
+    val inputImageUri: Uri? = null
 ) {
     fun validate() {
         require(modelId.isNotBlank()) { "请先选择已下载的图像模型" }
@@ -76,19 +79,21 @@ data class CustomSdSettings(
             val metaSteps = model.metadata["defaultSteps"]?.toIntOrNull()?.coerceIn(1, 60)
             val metaCfg = model.metadata["defaultCfg"]?.toDoubleOrNull()?.coerceIn(0.0, 20.0)
             val defaultSampler = if (lower.contains("lcm")) "lcm" else "euler"
+            val supportsEdit = model.metadata["supportsEdit"] == "true"
             return current.copy(
                 modelId = model.id,
                 steps = metaSteps ?: if (isTurbo) 4 else 20,
                 cfg = metaCfg ?: if (isTurbo) 1.0 else 7.0,
-                sampler = defaultSampler
+                sampler = defaultSampler,
+                inputImageUri = if (supportsEdit) current.inputImageUri else null
             )
         }
     }
 }
 
 /**
- * Executes single-file (SD 1.5 / SDXL / Turbo) and modular (Z-Image-Turbo / FLUX.2-Klein)
- * diffusion checkpoints downloaded from Hugging Face / hf-mirror via libsd_cli.so.
+ * Executes single-file (SD 1.5 / SDXL / Turbo) and modular (Z-Image-Turbo / FLUX.2-Klein /
+ * FLUX.3-Klein / ERNIE-Image-Turbo) diffusion checkpoints downloaded from Hugging Face / hf-mirror via libsd_cli.so.
  */
 class LocalSdImageEngine(
     private val context: Context,
@@ -116,7 +121,7 @@ class LocalSdImageEngine(
         val arch = model.metadata["arch"]
         val llmFile = hubModels.resolveCompanionByMeta(model, "llmCompanion")
         val vaeFile = hubModels.resolveCompanionByMeta(model, "vaeCompanion")
-        if (arch == "z_image" || arch == "flux2_klein") {
+        if (arch in MODULAR_IMAGE_ARCHS) {
             check(llmFile != null && llmFile.isFile) { "缺少共享文本编码器组件，请在模型页重新下载 ${model.name}" }
             check(vaeFile != null && vaeFile.isFile) { "缺少共享 VAE 解码器组件，请在模型页重新下载 ${model.name}" }
         }
@@ -128,28 +133,32 @@ class LocalSdImageEngine(
         val outputFile = File(outputDirectory, "$jobId.png")
         val partialFile = File(outputDirectory, "$jobId.part.png")
         partialFile.delete()
-
-        val options = SdCliGenericImageOptions(
-            nativeLib = nativeLib,
-            modelFile = modelFile,
-            output = partialFile,
-            prompt = settings.prompt,
-            negativePrompt = settings.negativePrompt,
-            width = settings.width,
-            height = settings.height,
-            steps = settings.steps,
-            seed = settings.seed,
-            cfg = settings.cfg,
-            threads = threads.coerceIn(2, 8),
-            useOpenCl = settings.useOpenCl,
-            llmFile = llmFile,
-            vaeFile = vaeFile,
-            sampler = settings.sampler,
-            vaeTiling = settings.vaeTiling,
-            flashAttn = settings.useOpenCl
-        )
+        var refImageFile: File? = null
         var process: Process? = null
         try {
+            if (settings.inputImageUri != null && model.metadata["supportsEdit"] == "true") {
+                refImageFile = copyReferenceImage(settings.inputImageUri, jobId)
+            }
+            val options = SdCliGenericImageOptions(
+                nativeLib = nativeLib,
+                modelFile = modelFile,
+                output = partialFile,
+                prompt = settings.prompt,
+                negativePrompt = settings.negativePrompt,
+                width = settings.width,
+                height = settings.height,
+                steps = settings.steps,
+                seed = settings.seed,
+                cfg = settings.cfg,
+                threads = threads.coerceIn(2, 8),
+                useOpenCl = settings.useOpenCl,
+                llmFile = llmFile,
+                vaeFile = vaeFile,
+                refImage = refImageFile,
+                sampler = settings.sampler,
+                vaeTiling = settings.vaeTiling,
+                flashAttn = settings.useOpenCl
+            )
             onUpdate(
                 EngineUpdate(
                     0f,
@@ -157,6 +166,7 @@ class LocalSdImageEngine(
                     "${modelFile.name} · ${if (settings.useOpenCl) "OpenCL" else "CPU"} · ${settings.sampler} · ${settings.steps} 步"
                 )
             )
+            if (refImageFile != null) onUpdate(EngineUpdate(null, "已载入参考图"))
             val builder = ProcessBuilder(buildSdCliGenericImageCommand(options))
             builder.environment()["LD_LIBRARY_PATH"] = "/vendor/lib64:${context.applicationInfo.nativeLibraryDir}"
             builder.environment()["GGML_OPENCL_KERNEL_CACHE_DIR"] =
@@ -206,9 +216,32 @@ class LocalSdImageEngine(
         } finally {
             activeProcess = null
             terminateProcessGracefully(process)
+            refImageFile?.delete()
             partialFile.delete()
             cancelRequested = false
         }
+    }
+
+    private fun copyReferenceImage(uri: Uri, jobId: String): File {
+        val extension = context.contentResolver.getType(uri)?.substringAfter('/')
+            ?.takeIf { it.matches(Regex("[A-Za-z0-9]+")) } ?: "png"
+        val target = File(context.cacheDir, "sd-ref-$jobId.$extension")
+        context.contentResolver.openInputStream(uri).use { input ->
+            if (input == null) throw IOException("无法读取所选参考图")
+            FileOutputStream(target).use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var total = 0L
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > 50L * 1024 * 1024) throw IOException("参考图不能超过 50 MB")
+                    output.write(buffer, 0, count)
+                }
+            }
+        }
+        if (target.length() == 0L) throw IOException("所选参考图为空")
+        return target
     }
 
     fun cancelGeneration() {
@@ -236,5 +269,6 @@ class LocalSdImageEngine(
 
     private companion object {
         val ANSI = Regex("\u001B\\[[0-9;]*[A-Za-z]")
+        val MODULAR_IMAGE_ARCHS = setOf("z_image", "flux2_klein", "flux2_klein_9b", "flux3_klein", "ernie_image")
     }
 }

@@ -14,6 +14,12 @@ enum class HubSearchCategory(val label: String, val hint: String) {
     MusicAudio("音乐", "搜索 ACE-Step / YuE2 / HeartMuLa / Stable Audio GGUF")
 }
 
+enum class HubSearchSort(val apiValue: String) {
+    Downloads("downloads"),
+    Likes("likes"),
+    LastModified("lastModified")
+}
+
 enum class HfFileFormat { Gguf, Safetensors, Ckpt, MnnBundle }
 
 enum class HubSplitWarning {
@@ -25,6 +31,9 @@ enum class HubSplitWarning {
 enum class HubCompanionNote {
     ZImageShared,
     Flux2Shared,
+    Flux2Klein9BShared,
+    Flux3KleinShared,
+    ErnieImageShared,
     WanShared,
     MiniMaxH3PiShared,
     Yue2Sidecars,
@@ -184,6 +193,30 @@ object HubCompanionArtifacts {
         sourceRevision = "main",
         sharedCompanionKey = "Qwen3-4B-Q4_K_M.gguf"
     )
+    val QWEN3_8B_BASE_TE = HfDownloadFile(
+        path = "Qwen3-8B-Q4_K_M.gguf",
+        size = 5_027_784_512L,
+        sha256 = "120307ba529eb2439d6c430d94104dabd578497bc7bfe7e322b5d9933b449bd4",
+        sourceRepo = "unsloth/Qwen3-8B-GGUF",
+        sourceRevision = "main",
+        sharedCompanionKey = "Qwen3-8B-Q4_K_M.gguf"
+    )
+    val QWEN3_VL_4B_INSTRUCT = HfDownloadFile(
+        path = "Qwen3VL-4B-Instruct-Q4_K_M.gguf",
+        size = 2_497_281_664L,
+        sha256 = "66358cb18bb6b3b1b6675aa412c7a88ef01d228f481184d13668e5201c730a0a",
+        sourceRepo = "Qwen/Qwen3-VL-4B-Instruct-GGUF",
+        sourceRevision = "main",
+        sharedCompanionKey = "Qwen3VL-4B-Instruct-Q4_K_M.gguf"
+    )
+    val MINISTRAL_3_3B_INSTRUCT = HfDownloadFile(
+        path = "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf",
+        size = 2_146_497_824L,
+        sha256 = "fd46fc371ff0509bfa8657ac956b7de8534d7d9baaa4947975c0648c3aa397f4",
+        sourceRepo = "unsloth/Ministral-3-3B-Instruct-2512-GGUF",
+        sourceRevision = "main",
+        sharedCompanionKey = "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf"
+    )
 }
 
 object HuggingFaceHubClient {
@@ -191,13 +224,14 @@ object HuggingFaceHubClient {
         query: String,
         category: HubSearchCategory,
         settings: HubSettings,
-        limit: Int = 24
+        limit: Int = 24,
+        sort: HubSearchSort = HubSearchSort.Downloads
     ): List<HfRepoSummary> = withContext(Dispatchers.IO) {
         val trimmed = query.trim()
         val base = settings.effectiveBaseUrl
         val params = buildList {
             add("limit=$limit")
-            add("sort=downloads")
+            add("sort=${sort.apiValue}")
             add("direction=-1")
             when (category) {
                 HubSearchCategory.GgufChat -> {
@@ -219,7 +253,8 @@ object HuggingFaceHubClient {
                 }
                 HubSearchCategory.SdImage -> {
                     val lower = trimmed.lowercase(Locale.ROOT)
-                    val wantsGguf = lower.contains("gguf") || lower.contains("z-image") || lower.contains("flux")
+                    val wantsGguf = lower.contains("gguf") || lower.contains("z-image") || lower.contains("flux") ||
+                        lower.contains("ernie") || lower.contains("qwen") || lower.contains("fibo") || lower.contains("ming")
                     if (!wantsGguf) add("pipeline_tag=text-to-image")
                     if (trimmed.isNotEmpty()) add("search=${HubUrlRewriter.encodeSegment(trimmed)}")
                 }
@@ -431,6 +466,11 @@ object HuggingFaceHubClient {
         val isZImage = repoLower.contains("z-image") || repoLower.contains("z_image")
         val isFlux2Klein4B = repoLower.contains("flux.2-klein-4b") || repoLower.contains("flux-2-klein-4b") ||
             repoLower.contains("flux2-klein-4b") || repoLower.contains("flux.2-klein-base-4b")
+        val isFlux2Klein9B = repoLower.contains("flux.2-klein-9b") || repoLower.contains("flux-2-klein-9b") ||
+            repoLower.contains("flux2-klein-9b") || repoLower.contains("flux.2-klein-base-9b")
+        val isFlux3Klein = repoLower.contains("flux-3-image-klein") || repoLower.contains("flux3-image-klein") ||
+            repoLower.contains("flux.3-image-klein")
+        val isErnieImage = repoLower.contains("ernie-image") || repoLower.contains("ernie_image")
 
         val candidates = files.filter { file ->
             val lower = file.path.lowercase(Locale.ROOT)
@@ -456,9 +496,43 @@ object HuggingFaceHubClient {
             }
             val fileLower = fileName.lowercase(Locale.ROOT)
             val modularZImage = isZImage || fileLower.contains("z-image") || fileLower.contains("z_image")
-            val modularFlux2Klein = isFlux2Klein4B || (fileLower.contains("flux-2-klein-4b") || fileLower.contains("flux2-klein-4b"))
+            val modularFlux2Klein4B = isFlux2Klein4B || fileLower.contains("flux-2-klein-4b") || fileLower.contains("flux2-klein-4b")
+            val modularFlux2Klein9B = isFlux2Klein9B || fileLower.contains("flux-2-klein-9b") || fileLower.contains("flux2-klein-9b")
+            val modularFlux3Klein = isFlux3Klein || fileLower.contains("flux-3-image-klein") || fileLower.contains("flux3-image-klein")
+            val modularErnieImage = isErnieImage || fileLower.contains("ernie-image") || fileLower.contains("ernie_image")
 
             val (bundleFiles, companionNote, meta) = when {
+                modularFlux3Klein -> {
+                    val companions = listOf(HubCompanionArtifacts.QWEN3_VL_4B_INSTRUCT, HubCompanionArtifacts.FLUX2_AE_VAE)
+                    val isBase = repoLower.contains("base") || fileLower.contains("base")
+                    Triple(
+                        listOf(file) + companions,
+                        "自动附带共享 Qwen3-VL-4B 文本编码器 + FLUX.2 VAE（支持文生图与参考图编辑）",
+                        mapOf(
+                            "arch" to "flux3_klein",
+                            "llmCompanion" to HubCompanionArtifacts.QWEN3_VL_4B_INSTRUCT.sharedCompanionKey.orEmpty(),
+                            "vaeCompanion" to HubCompanionArtifacts.FLUX2_AE_VAE.sharedCompanionKey.orEmpty(),
+                            "supportsEdit" to "true",
+                            "defaultSteps" to if (isBase) "20" else "16",
+                            "defaultCfg" to if (isBase) "3.5" else "1.0"
+                        )
+                    )
+                }
+                modularErnieImage -> {
+                    val companions = listOf(HubCompanionArtifacts.MINISTRAL_3_3B_INSTRUCT, HubCompanionArtifacts.FLUX2_AE_VAE)
+                    val isTurbo = repoLower.contains("turbo") || fileLower.contains("turbo")
+                    Triple(
+                        listOf(file) + companions,
+                        "自动附带共享 Ministral-3-3B 文本编码器 + FLUX.2 VAE（已下载则自动复用）",
+                        mapOf(
+                            "arch" to "ernie_image",
+                            "llmCompanion" to HubCompanionArtifacts.MINISTRAL_3_3B_INSTRUCT.sharedCompanionKey.orEmpty(),
+                            "vaeCompanion" to HubCompanionArtifacts.FLUX2_AE_VAE.sharedCompanionKey.orEmpty(),
+                            "defaultSteps" to if (isTurbo) "8" else "20",
+                            "defaultCfg" to if (isTurbo) "1.0" else "5.0"
+                        )
+                    )
+                }
                 modularZImage -> {
                     val companions = listOf(HubCompanionArtifacts.QWEN3_4B_INSTRUCT_2507, HubCompanionArtifacts.FLUX1_AE_VAE)
                     Triple(
@@ -473,16 +547,33 @@ object HuggingFaceHubClient {
                         )
                     )
                 }
-                modularFlux2Klein -> {
+                modularFlux2Klein9B -> {
+                    val companions = listOf(HubCompanionArtifacts.QWEN3_8B_BASE_TE, HubCompanionArtifacts.FLUX2_AE_VAE)
+                    val isBase = repoLower.contains("base") || fileLower.contains("base")
+                    Triple(
+                        listOf(file) + companions,
+                        "自动附带共享 Qwen3-8B 文本编码器 + FLUX.2 VAE（支持文生图与参考图编辑）",
+                        mapOf(
+                            "arch" to "flux2_klein_9b",
+                            "llmCompanion" to HubCompanionArtifacts.QWEN3_8B_BASE_TE.sharedCompanionKey.orEmpty(),
+                            "vaeCompanion" to HubCompanionArtifacts.FLUX2_AE_VAE.sharedCompanionKey.orEmpty(),
+                            "supportsEdit" to "true",
+                            "defaultSteps" to if (isBase) "20" else "4",
+                            "defaultCfg" to if (isBase) "4.0" else "1.0"
+                        )
+                    )
+                }
+                modularFlux2Klein4B -> {
                     val companions = listOf(HubCompanionArtifacts.QWEN3_4B_BASE_TE, HubCompanionArtifacts.FLUX2_AE_VAE)
                     val isBase = repoLower.contains("base") || fileLower.contains("base")
                     Triple(
                         listOf(file) + companions,
-                        "自动附带共享 Qwen3-4B 文本编码器 + FLUX.2 VAE（已下载则自动复用）",
+                        "自动附带共享 Qwen3-4B 文本编码器 + FLUX.2 VAE（支持文生图与参考图编辑）",
                         mapOf(
                             "arch" to "flux2_klein",
                             "llmCompanion" to HubCompanionArtifacts.QWEN3_4B_BASE_TE.sharedCompanionKey.orEmpty(),
                             "vaeCompanion" to HubCompanionArtifacts.FLUX2_AE_VAE.sharedCompanionKey.orEmpty(),
+                            "supportsEdit" to "true",
                             "defaultSteps" to if (isBase) "20" else "4",
                             "defaultCfg" to if (isBase) "4.0" else "1.0"
                         )
@@ -507,8 +598,11 @@ object HuggingFaceHubClient {
                 metadata = meta,
                 splitWarningKey = if (isSplit) HubSplitWarning.SplitGguf else null,
                 companionNoteKey = when {
+                    modularFlux3Klein -> HubCompanionNote.Flux3KleinShared
+                    modularErnieImage -> HubCompanionNote.ErnieImageShared
                     modularZImage -> HubCompanionNote.ZImageShared
-                    modularFlux2Klein -> HubCompanionNote.Flux2Shared
+                    modularFlux2Klein9B -> HubCompanionNote.Flux2Klein9BShared
+                    modularFlux2Klein4B -> HubCompanionNote.Flux2Shared
                     else -> null
                 }
             )
@@ -569,6 +663,7 @@ object HuggingFaceHubClient {
                     companionSummary = "自动附带共享 Qwen3-VL 文本编码器、MiniMax-H3 音视频 VAE 及 pi-H3 2/4 步适配器（磁盘分段流式运行）",
                     metadata = mapOf(
                         "arch" to "minimax_h3",
+                        "h3Mode" to if (fileLower.contains("ref2va")) "ref2va" else "fl2va",
                         "llmCompanion" to HubCompanionArtifacts.MINIMAX_H3_TE_Q2_K.sharedCompanionKey.orEmpty(),
                         "vaeCompanion" to HubCompanionArtifacts.MINIMAX_H3_VIDEO_VAE.sharedCompanionKey.orEmpty(),
                         "audioVaeCompanion" to HubCompanionArtifacts.MINIMAX_H3_AUDIO_VAE.sharedCompanionKey.orEmpty(),
@@ -759,18 +854,33 @@ object HuggingFaceHubClient {
         return results.sortedWith(compareBy<HfRepoOption> { quantPriority(it.quantTag) }.thenBy { it.totalBytes })
     }
 
+    fun quickSearchKeywords(category: HubSearchCategory): List<String> = when (category) {
+        HubSearchCategory.GgufChat -> listOf("Qwen3.5", "Gemma 4", "Qwen3", "DeepSeek-R1", "Llama-3.2", "Phi-4")
+        HubSearchCategory.MnnChat -> listOf("Qwen3.5", "Qwen3", "DeepSeek", "Qwen2.5", "Gemma")
+        HubSearchCategory.DecisionGguf -> listOf("OneJev1.6", "elephant-1", "System-One")
+        HubSearchCategory.SdImage -> listOf("FLUX.3", "ERNIE-Image", "Z-Image", "FLUX.2-klein", "SDXL-Turbo")
+        HubSearchCategory.VideoWan -> listOf("MiniMax-H3", "Wan2.2", "Wan2.1")
+        HubSearchCategory.MusicAudio -> listOf("ACE-Step", "Yue2", "HeartMuLa", "Stable-Audio")
+    }
+
     fun curatedRecommendations(category: HubSearchCategory): List<HfRepoSummary> = when (category) {
         HubSearchCategory.GgufChat -> listOf(
+            HfRepoSummary("unsloth/Qwen3.5-4B-GGUF", "unsloth", "Qwen3.5-4B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3.5"), false, "Qwen3.5 4B 混合线性注意力架构，长上下文内存增长平缓", "curated_qwen35_4b"),
+            HfRepoSummary("unsloth/gemma-4-E4B-it-GGUF", "unsloth", "gemma-4-E4B-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma4"), false, "Google Gemma 4 E4B 新一代端侧主力（4B 有效参数，多语种强）", "curated_gemma4_e4b"),
+            HfRepoSummary("unsloth/gemma-4-E2B-it-GGUF", "unsloth", "gemma-4-E2B-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma4"), false, "Google Gemma 4 E2B 轻量端侧模型，低内存手机运行快", "curated_gemma4_e2b"),
+            HfRepoSummary("unsloth/Qwen3.5-9B-GGUF", "unsloth", "Qwen3.5-9B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3.5"), false, "Qwen3.5 9B 旗舰端侧推理与深度思考（建议 12 GB+ 内存）", "curated_qwen35_9b"),
             HfRepoSummary("unsloth/Qwen3-0.6B-GGUF", "unsloth", "Qwen3-0.6B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "超轻量体验，支持深度思考，约 400 MB", "curated_qwen3_06b"),
             HfRepoSummary("unsloth/Qwen3-1.7B-GGUF", "unsloth", "Qwen3-1.7B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "支持深度思考模式的新一代小模型，含 Q4_K_M", "curated_qwen3_17b"),
             HfRepoSummary("unsloth/Qwen3-4B-GGUF", "unsloth", "Qwen3-4B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3"), false, "4B 级别综合推理与中文能力领先，建议 8 GB+ 内存", "curated_qwen3_4b"),
             HfRepoSummary("Qwen/Qwen2.5-3B-Instruct-GGUF", "Qwen", "Qwen2.5-3B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen2"), false, "均衡稳定，中英问答与总结速度快", "curated_qwen25_3b"),
             HfRepoSummary("unsloth/gemma-3-4b-it-GGUF", "unsloth", "gemma-3-4b-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma3"), false, "Google Gemma 3 4B 多语言端侧模型", "curated_gemma3_4b"),
-            HfRepoSummary("unsloth/gemma-3-1b-it-GGUF", "unsloth", "gemma-3-1b-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma3"), false, "Google Gemma 3 1B 轻量快速模型", "curated_gemma3_1b"),
             HfRepoSummary("bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF", "bartowski", "DeepSeek-R1-Distill-Qwen-1.5B-GGUF", 0, 0, "text-generation", listOf("gguf", "deepseek"), false, "DeepSeek R1 1.5B 数学与逻辑推理蒸馏模型", "curated_dsr1_15b"),
             HfRepoSummary("bartowski/Llama-3.2-3B-Instruct-GGUF", "bartowski", "Llama-3.2-3B-Instruct-GGUF", 0, 0, "text-generation", listOf("gguf", "llama"), false, "Meta 轻量端侧英文/通用对话模型", "curated_llama32_3b")
         )
         HubSearchCategory.MnnChat -> listOf(
+            HfRepoSummary("taobao-mnn/Qwen3.5-4B-MNN", "taobao-mnn", "Qwen3.5-4B-MNN", 0, 0, "text-generation", listOf("mnn", "qwen3.5"), false, "MNN 官方转换 Qwen3.5 4B（OpenCL 加速，长上下文友好）", "curated_mnn_qwen35_4b"),
+            HfRepoSummary("taobao-mnn/Qwen3.5-2B-MNN", "taobao-mnn", "Qwen3.5-2B-MNN", 0, 0, "text-generation", listOf("mnn", "qwen3.5"), false, "MNN 官方转换 Qwen3.5 2B（日常流畅均衡）", "curated_mnn_qwen35_2b"),
+            HfRepoSummary("taobao-mnn/Qwen3.5-0.8B-MNN", "taobao-mnn", "Qwen3.5-0.8B-MNN", 0, 0, "text-generation", listOf("mnn", "qwen3.5"), false, "MNN 官方转换 Qwen3.5 0.8B（秒级加载）", "curated_mnn_qwen35_08b"),
             HfRepoSummary("taobao-mnn/Qwen3-1.7B-MNN", "taobao-mnn", "Qwen3-1.7B-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 Qwen3 1.7B（支持 OpenCL）", "curated_mnn_qwen3_17b"),
             HfRepoSummary("taobao-mnn/Qwen3-4B-MNN", "taobao-mnn", "Qwen3-4B-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 Qwen3 4B", "curated_mnn_qwen3_4b"),
             HfRepoSummary("taobao-mnn/DeepSeek-R1-1.5B-Qwen-MNN", "taobao-mnn", "DeepSeek-R1-1.5B-Qwen-MNN", 0, 0, "text-generation", listOf("mnn"), false, "MNN 官方转换 DeepSeek-R1 1.5B", "curated_mnn_dsr1_15b"),
@@ -784,8 +894,11 @@ object HuggingFaceHubClient {
             HfRepoSummary("waseigo/elephant-1-decision-GGUF", "waseigo", "elephant-1-decision-GGUF", 0, 0, "text-classification", listOf("gguf", "elephant-1", "decision-model"), false, "Elephant-1 9B 社区 GGUF 镜像版本", "curated_elephant_mirror")
         )
         HubSearchCategory.SdImage -> listOf(
+            HfRepoSummary("unsloth/flux-3-image-klein-GGUF", "unsloth", "flux-3-image-klein-GGUF", 0, 0, "text-to-image", listOf("flux3", "gguf"), false, "BFL 新一代 FLUX.3 Image Klein，支持文生图与参考图编辑（AA ELO ~1039）", "curated_flux3_klein"),
+            HfRepoSummary("unsloth/ERNIE-Image-Turbo-GGUF", "unsloth", "ERNIE-Image-Turbo-GGUF", 0, 0, "text-to-image", listOf("ernie-image", "gguf"), false, "百度 ERNIE-Image Turbo，8 步高质量出图与中英文文字排版", "curated_ernie_image"),
             HfRepoSummary("unsloth/Z-Image-Turbo-GGUF", "unsloth", "Z-Image-Turbo-GGUF", 0, 0, "text-to-image", listOf("z-image", "gguf"), false, "通义 Z-Image 6B Turbo，8 步高质量出图与中英文文字渲染", "curated_zimage"),
-            HfRepoSummary("unsloth/FLUX.2-klein-4B-GGUF", "unsloth", "FLUX.2-klein-4B-GGUF", 0, 0, "text-to-image", listOf("flux2", "gguf"), false, "Black Forest Labs 4B 4 步极速出图（Q4 仅 2.5 GB）", "curated_flux2"),
+            HfRepoSummary("unsloth/FLUX.2-klein-4B-GGUF", "unsloth", "FLUX.2-klein-4B-GGUF", 0, 0, "text-to-image", listOf("flux2", "gguf"), false, "Black Forest Labs 4B 4 步极速出图与参考图编辑（Q4 仅 2.5 GB）", "curated_flux2"),
+            HfRepoSummary("unsloth/FLUX.2-klein-9B-GGUF", "unsloth", "FLUX.2-klein-9B-GGUF", 0, 0, "text-to-image", listOf("flux2", "gguf"), false, "BFL FLUX.2 Klein 9B 高画质 4 步生图与编辑（12 GB+ 手机推荐）", "curated_flux2_9b"),
             HfRepoSummary("stabilityai/sdxl-turbo", "stabilityai", "sdxl-turbo", 0, 0, "text-to-image", listOf("sdxl", "turbo"), false, "1–4 步快速出图，单文件 safetensors", "curated_sdxl_turbo"),
             HfRepoSummary("stabilityai/sd-turbo", "stabilityai", "sd-turbo", 0, 0, "text-to-image", listOf("sd2", "turbo"), false, "轻量快速文生图，内存占用低", "curated_sd_turbo"),
             HfRepoSummary("Lykon/DreamShaper", "Lykon", "DreamShaper", 0, 0, "text-to-image", listOf("sd15"), false, "经典 SD 1.5 风格化通用生图模型", "curated_dreamshaper"),
@@ -816,20 +929,25 @@ object HuggingFaceHubClient {
         return if (cleaned.length <= 68) cleaned else "${cleaned.take(58)}-$hash"
     }
 
-    private fun quantPriority(tag: String?): Int = when (tag) {
+    private fun quantPriority(tag: String?): Int = when (tag?.removePrefix("UD-")) {
         "Q4_K_M" -> 0
-        "Q4_K_S" -> 1
-        "Q4_0" -> 2
-        "IQ4_XS" -> 3
-        "Q5_K_M" -> 4
-        "Q6_K" -> 5
-        "Q8_0" -> 6
-        "Q3_K_M" -> 7
-        "Q3_K" -> 8
-        "Q2_K" -> 9
-        else -> 10
+        "Q4_K_XL" -> 1
+        "Q4_K_S" -> 2
+        "Q4_0" -> 3
+        "IQ4_XS" -> 4
+        "Q5_K_M" -> 5
+        "Q5_K_XL" -> 6
+        "Q6_K" -> 7
+        "Q6_K_XL" -> 8
+        "Q8_0", "Q8_K_XL" -> 9
+        "Q3_K_XL" -> 10
+        "Q3_K_M" -> 11
+        "Q3_K" -> 12
+        "Q2_K_XL" -> 13
+        "Q2_K" -> 14
+        else -> 15
     }
 
-    private val QUANT_REGEX = Regex("""(?i)\b(IQ[1-4]_[A-Z0-9]+|Q[2-8]_[01K](?:_[SML])?|F16|BF16|FP16|FP32)\b""")
+    private val QUANT_REGEX = Regex("""(?i)\b((?:UD-)?(?:IQ[1-4]_[A-Z0-9]+|Q[2-8]_[01K](?:_(?:XL|[SML]))?)|F16|BF16|FP16|FP32)\b""")
     private val SPLIT_GGUF_REGEX = Regex("""-\d{5}-of-\d{5}\.gguf$""", RegexOption.IGNORE_CASE)
 }

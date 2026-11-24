@@ -157,7 +157,23 @@ object ModelBenchmarkCatalog {
             minRamGb = 12,
             recommendedRepo = "unsloth/Qwen3.5-9B-GGUF",
             searchCategory = HubSearchCategory.GgufChat,
-            aliases = listOf("qwen3.5-9b", "qwen3_5-9b", "qwen35-9b")
+            aliases = listOf("qwen3.5-9b", "qwen3.5 9b", "qwen3_5-9b", "qwen3-5-9b", "qwen35-9b")
+        ),
+        ModelBenchmarkEntry(
+            id = "gemma-4-e4b",
+            familyName = "Gemma 4 E4B IT",
+            modality = BenchmarkModality.Chat,
+            paramScale = "4B Effective (Edge)",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "Google Gemma 4 Edge Model Card (2026)",
+            primaryScoreLabel = "Edge-First Architecture",
+            secondaryScoreLabel = "128K ctx · llama.cpp native",
+            strengths = "Google 2026 新一代端侧主力模型，多语言理解与长上下文极强，8–12 GB 手机流畅运行",
+            recommendedQuant = "Q4_K_M / IQ4_XS (~4.7 GB)",
+            minRamGb = 8,
+            recommendedRepo = "unsloth/gemma-4-E4B-it-GGUF",
+            searchCategory = HubSearchCategory.GgufChat,
+            aliases = listOf("gemma-4-e4b", "gemma 4 e4b", "gemma4-e4b", "gemma-4-e4b-it")
         ),
         ModelBenchmarkEntry(
             id = "qwen3-4b",
@@ -173,7 +189,7 @@ object ModelBenchmarkCatalog {
             minRamGb = 8,
             recommendedRepo = "unsloth/Qwen3-4B-GGUF",
             searchCategory = HubSearchCategory.GgufChat,
-            aliases = listOf("qwen3-4b", "qwen-3-4b")
+            aliases = listOf("qwen3-4b", "qwen3 4b", "qwen-3-4b")
         ),
         ModelBenchmarkEntry(
             id = "qwen3.5-4b",
@@ -189,7 +205,23 @@ object ModelBenchmarkCatalog {
             minRamGb = 8,
             recommendedRepo = "taobao-mnn/Qwen3.5-4B-MNN",
             searchCategory = HubSearchCategory.MnnChat,
-            aliases = listOf("qwen3.5-4b", "qwen35-4b", "qwen3_5-4b")
+            aliases = listOf("qwen3.5-4b", "qwen3.5 4b", "qwen3-5-4b", "qwen35-4b", "qwen3_5-4b")
+        ),
+        ModelBenchmarkEntry(
+            id = "gemma-4-e2b",
+            familyName = "Gemma 4 E2B IT",
+            modality = BenchmarkModality.Chat,
+            paramScale = "2B Effective (Edge)",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "Google Gemma 4 Edge Model Card (2026)",
+            primaryScoreLabel = "Ultra-Compact Edge 2B",
+            secondaryScoreLabel = "128K ctx · ~3.0 GB IQ4",
+            strengths = "轻量化新一代 Gemma 4 端侧模型，6–8 GB 内存手机高速离线对话",
+            recommendedQuant = "IQ4_XS / Q4_K_M (~3.0 GB)",
+            minRamGb = 6,
+            recommendedRepo = "unsloth/gemma-4-E2B-it-GGUF",
+            searchCategory = HubSearchCategory.GgufChat,
+            aliases = listOf("gemma-4-e2b", "gemma 4 e2b", "gemma4-e2b", "gemma-4-e2b-it")
         ),
         ModelBenchmarkEntry(
             id = "deepseek-r1-distill-qwen-1.5b",
@@ -221,7 +253,7 @@ object ModelBenchmarkCatalog {
             minRamGb = 6,
             recommendedRepo = "taobao-mnn/Qwen3.5-2B-MNN",
             searchCategory = HubSearchCategory.MnnChat,
-            aliases = listOf("qwen3.5-2b", "qwen35-2b", "qwen3_5-2b")
+            aliases = listOf("qwen3.5-2b", "qwen3.5 2b", "qwen3-5-2b", "qwen35-2b", "qwen3_5-2b")
         ),
         ModelBenchmarkEntry(
             id = "phi-4-mini",
@@ -410,12 +442,44 @@ object ModelBenchmarkCatalog {
             paramScale = "20B DiT (4-bit)",
             evidenceTier = EvidenceTier.PublicLeaderboard,
             source = "Artificial Analysis Image Arena",
-            primaryScoreLabel = "AA ELO ~909 (Open)",
+            primaryScoreLabel = "AA ELO ~1048 (#2 Open)",
             secondaryScoreLabel = "T2I + 2-ref Editing",
             strengths = "画质、构图与中文字体渲染极强，支持 MNN OpenCL 本机加速与图片编辑",
             recommendedQuant = "MNN 4-bit (~15 GB)",
             minRamGb = 16,
             aliases = listOf("qwen-image", "qwen_image")
+        ),
+        ModelBenchmarkEntry(
+            id = "flux3-image-klein",
+            familyName = "FLUX.3 Image Klein",
+            modality = BenchmarkModality.Image,
+            paramScale = "DiT + Qwen3-VL 4B",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "Artificial Analysis / Black Forest Labs",
+            primaryScoreLabel = "AA ELO ~1039 (#3 Open)",
+            secondaryScoreLabel = "16-step · T2I + Editing",
+            strengths = "2026 新一代紧凑流匹配旗舰，Q4 仅 ~3.7 GB，支持高质量文字渲染与参考图编辑",
+            recommendedQuant = "Q4_K_M (~3.7 GB + shared)",
+            minRamGb = 12,
+            recommendedRepo = "unsloth/flux-3-image-klein-GGUF",
+            searchCategory = HubSearchCategory.SdImage,
+            aliases = listOf("flux-3-image-klein", "flux3-image-klein", "flux 3 image klein", "flux.3-image-klein")
+        ),
+        ModelBenchmarkEntry(
+            id = "ernie-image-turbo",
+            familyName = "ERNIE-Image-Turbo",
+            modality = BenchmarkModality.Image,
+            paramScale = "8B DiT + Ministral 3B",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "Baidu ERNIE-Image / stable-diffusion.cpp",
+            primaryScoreLabel = "8-step Turbo · CFG 1.0",
+            secondaryScoreLabel = "Bilingual CJK/EN Text",
+            strengths = "8 步极速出图，中英文海报文字与写实细节表现出色，低显存/内存友好",
+            recommendedQuant = "Q4_K_M (~5.0 GB + shared)",
+            minRamGb = 12,
+            recommendedRepo = "unsloth/ERNIE-Image-Turbo-GGUF",
+            searchCategory = HubSearchCategory.SdImage,
+            aliases = listOf("ernie-image-turbo", "ernie-image", "ernie_image")
         ),
         ModelBenchmarkEntry(
             id = "z-image-turbo",
@@ -432,6 +496,22 @@ object ModelBenchmarkCatalog {
             recommendedRepo = "unsloth/Z-Image-Turbo-GGUF",
             searchCategory = HubSearchCategory.SdImage,
             aliases = listOf("z-image-turbo", "z_image_turbo", "z-image")
+        ),
+        ModelBenchmarkEntry(
+            id = "flux2-klein-9b",
+            familyName = "FLUX.2 Klein 9B",
+            modality = BenchmarkModality.Image,
+            paramScale = "9B DiT + Qwen3-8B",
+            evidenceTier = EvidenceTier.OfficialReport,
+            source = "Black Forest Labs / stable-diffusion.cpp",
+            primaryScoreLabel = "4-step · T2I + Editing",
+            secondaryScoreLabel = "9B High-Detail Tier",
+            strengths = "4 步高细节写实与参考图编辑，适合 16 GB+ 旗舰大内存手机",
+            recommendedQuant = "Q4_0 / Q4_K (~5.6 GB + shared)",
+            minRamGb = 16,
+            recommendedRepo = "unsloth/FLUX.2-klein-9B-GGUF",
+            searchCategory = HubSearchCategory.SdImage,
+            aliases = listOf("flux.2-klein-9b", "flux-2-klein-9b", "flux2-klein-9b")
         ),
         ModelBenchmarkEntry(
             id = "flux2-klein-4b",
@@ -568,16 +648,16 @@ object ModelBenchmarkCatalog {
             familyName = "MiniMax-H3 · pi-H3 (2–4 Step AV)",
             modality = BenchmarkModality.Video,
             paramScale = "17B Pruned DiT + Qwen3-VL",
-            evidenceTier = EvidenceTier.OfficialReport,
-            source = "MiniMax-H3 / Lakonik pi-Flow",
-            primaryScoreLabel = "2–4 Step Joint Video+Audio",
-            secondaryScoreLabel = "24 fps · Disk Streaming",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "Artificial Analysis Video Arena / pi-Flow",
+            primaryScoreLabel = "AA Video ELO 1163 (#1 Open)",
+            secondaryScoreLabel = "2–4 Step Joint Video+Audio · 24 fps",
             strengths = "原生音画同步视频生成，搭配 pi-H3 仅需 2–4 步去噪，通过磁盘分段流式加载可在 12 GB+ 手机运行（需约 18 GB 存储空间）",
             recommendedQuant = "Q2_K / Q3_K (~6.3–8.2 GB + shared)",
             minRamGb = 12,
             recommendedRepo = "unsloth/MiniMax-H3-GGUF",
             searchCategory = HubSearchCategory.VideoWan,
-            aliases = listOf("minimax-h3", "minimax_h3", "pi-h3", "pi_h3")
+            aliases = listOf("minimax-h3", "minimax_h3", "minimax h3", "pi-h3", "pi_h3")
         ),
         ModelBenchmarkEntry(
             id = "wan2.2-ti2v-5b",
@@ -632,7 +712,8 @@ object ModelBenchmarkCatalog {
 
     /** Empirical perplexity/quality retention reference for GGUF quant levels. */
     fun quantQualityHint(quantTag: String?): QuantQualityHint? {
-        val tag = quantTag?.uppercase(Locale.ROOT) ?: return null
+        val raw = quantTag?.uppercase(Locale.ROOT) ?: return null
+        val tag = raw.removePrefix("UD-")
         return when {
             tag == "F16" || tag == "BF16" || tag == "FP16" || tag == "FP32" ->
                 QuantQualityHint(tag, 100, "无损原精度，体积最大", QuantHintKey.Lossless)
@@ -640,20 +721,22 @@ object ModelBenchmarkCatalog {
                 QuantQualityHint(tag, 99, "几乎无损，大内存首选", QuantHintKey.Q8)
             tag.startsWith("Q6") ->
                 QuantQualityHint(tag, 98, "极低折损，画质/推理极佳", QuantHintKey.Q6)
-            tag.startsWith("Q5_K_M") || tag.startsWith("Q5_K_L") || tag == "Q5_1" ->
+            tag.startsWith("Q5_K_M") || tag.startsWith("Q5_K_L") || tag.startsWith("Q5_K_XL") || tag == "Q5_1" ->
                 QuantQualityHint(tag, 97, "高质量均衡档", QuantHintKey.Q5High)
             tag.startsWith("Q5") ->
                 QuantQualityHint(tag, 96, "高质量偏轻档", QuantHintKey.Q5)
-            tag == "Q4_K_M" || tag == "Q4_K_L" || tag == "Q4_K" ->
+            tag == "Q4_K_M" || tag == "Q4_K_L" || tag == "Q4_K_XL" || tag == "Q4_K" ->
                 QuantQualityHint(tag, 94, "端侧黄金甜点，速度与精度最均衡", QuantHintKey.Q4SweetSpot)
             tag == "IQ4_XS" || tag == "IQ4_NL" || tag == "Q4_K_S" ->
                 QuantQualityHint(tag, 92, "紧凑 4-bit，省内存推荐", QuantHintKey.Q4Compact)
             tag == "Q4_0" || tag == "Q4_1" ->
                 QuantQualityHint(tag, 91, "ARM dotprod 原生最快，略有折损", QuantHintKey.Q4Fast)
-            tag.startsWith("Q3_K_M") || tag.startsWith("Q3_K_L") || tag == "Q3_K" ->
+            tag.startsWith("Q3_K_M") || tag.startsWith("Q3_K_L") || tag.startsWith("Q3_K_XL") || tag == "Q3_K" ->
                 QuantQualityHint(tag, 87, "3-bit 压缩，复杂推理略有下降", QuantHintKey.Q3Balanced)
             tag.startsWith("Q3") || tag.startsWith("IQ3") ->
                 QuantQualityHint(tag, 84, "高压缩 3-bit，适合小内存尝鲜", QuantHintKey.Q3Compact)
+            tag == "Q2_K_XL" ->
+                QuantQualityHint(tag, 80, "动态 2-bit 强化，兼顾极限体积与可用性", QuantHintKey.Q2Fallback)
             tag.startsWith("Q2") || tag.startsWith("IQ2") ->
                 QuantQualityHint(tag, 75, "极限 2-bit，精度折损明显，仅建议兜底", QuantHintKey.Q2Fallback)
             else -> null

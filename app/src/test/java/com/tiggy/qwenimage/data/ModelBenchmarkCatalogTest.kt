@@ -29,6 +29,26 @@ class ModelBenchmarkCatalogTest {
         val ace = ModelBenchmarkCatalog.matchRepoOrName("audio-cpp/ACE-Step-1.5-Turbo-Q8_0.gguf")
         assertNotNull(ace)
         assertEquals("ace-step-1.5", ace!!.id)
+
+        val gemma4 = ModelBenchmarkCatalog.matchRepoOrName("unsloth/gemma-4-E4B-it-GGUF")
+        assertNotNull(gemma4)
+        assertEquals("gemma-4-e4b", gemma4!!.id)
+
+        val flux3 = ModelBenchmarkCatalog.matchRepoOrName("unsloth/flux-3-image-klein-GGUF")
+        assertNotNull(flux3)
+        assertEquals("flux3-image-klein", flux3!!.id)
+
+        val ernie = ModelBenchmarkCatalog.matchRepoOrName("unsloth/ERNIE-Image-Turbo-GGUF")
+        assertNotNull(ernie)
+        assertEquals("ernie-image-turbo", ernie!!.id)
+
+        val h3 = ModelBenchmarkCatalog.matchRepoOrName("MiniMax H3 (768p)")
+        assertNotNull(h3)
+        assertEquals("minimax-h3-pih3", h3!!.id)
+
+        val udQ4 = ModelBenchmarkCatalog.quantQualityHint("UD-Q4_K_XL")
+        assertNotNull(udQ4)
+        assertTrue(udQ4!!.retentionPercent >= 94)
     }
 
     @Test

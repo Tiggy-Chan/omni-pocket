@@ -1328,8 +1328,17 @@ class QwenViewModel(
 
     fun updateCustomSdSettings(transform: (CustomSdSettings) -> CustomSdSettings) = _state.update {
         val next = transform(it.customSdSettings)
-        preferences.edit().putString("customSdSettings", next.copy(prompt = "").toJson().toString()).apply()
+        preferences.edit().putString("customSdSettings", next.copy(prompt = "", inputImageUri = null).toJson().toString()).apply()
         it.copy(customSdSettings = next)
+    }
+
+    fun setCustomSdInputImage(uri: Uri?) {
+        if (uri != null) runCatching {
+            getApplication<Application>().contentResolver.takePersistableUriPermission(
+                uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+        updateCustomSdSettings { it.copy(inputImageUri = uri) }
     }
 
     fun selectCustomImageModel(modelId: String) = _state.update { state ->
@@ -1337,7 +1346,7 @@ class QwenViewModel(
         val nextCustom = CustomSdSettings.defaultsFor(model, state.customSdSettings)
         preferences.edit()
             .putString("imageBackend", ImageGenerationBackend.CustomSd.name)
-            .putString("customSdSettings", nextCustom.copy(prompt = "").toJson().toString())
+            .putString("customSdSettings", nextCustom.copy(prompt = "", inputImageUri = null).toJson().toString())
             .apply()
         state.copy(
             imageBackend = ImageGenerationBackend.CustomSd,
@@ -1408,7 +1417,8 @@ class QwenViewModel(
                     steps = sd.steps,
                     seed = sd.seed.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                     width = sd.width,
-                    height = sd.height
+                    height = sd.height,
+                    inputUri = if (model.metadata["supportsEdit"] == "true") sd.inputImageUri else null
                 )
                 GenerationJob(
                     id = UUID.randomUUID().toString(),
@@ -1744,7 +1754,8 @@ class QwenViewModel(
                 seed = job.settings.seed.toLong().coerceAtLeast(0L),
                 useOpenCl = job.customSdUseOpenCl ?: sdSnapshot.useOpenCl,
                 sampler = job.customSdSampler ?: sdSnapshot.sampler,
-                vaeTiling = job.customSdVaeTiling ?: sdSnapshot.vaeTiling
+                vaeTiling = job.customSdVaeTiling ?: sdSnapshot.vaeTiling,
+                inputImageUri = job.settings.inputUri
             )
             appendLog(TaskDomain.Image, "${job.customModelName ?: modelId} · ${settings.width}×${settings.height} · ${settings.steps} 步", job.id)
             val result = localSdImageEngine.executeGeneration(job.id, settings, _state.value.cpuThreads) { update ->

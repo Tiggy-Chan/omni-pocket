@@ -33,6 +33,7 @@ internal data class SdCliVideoOptions(
     val audioVae: File? = null,
     val piH3Adapter: File? = null,
     val endImage: File? = null,
+    val useRefImageFlag: Boolean = false,
     val diskStreaming: Boolean = false,
     val maxVramGb: Float? = null,
     val scheduler: String? = null,
@@ -122,7 +123,7 @@ internal fun buildSdCliVideoCommand(options: SdCliVideoOptions): List<String> {
         }
         add("--flow-shift"); add(fmt(options.shift))
         options.initImage?.let {
-            add("-i")
+            add(if (options.useRefImageFlag) "-r" else "-i")
             add(it.absolutePath)
         }
         options.endImage?.let {

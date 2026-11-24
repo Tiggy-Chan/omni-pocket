@@ -105,4 +105,21 @@ class LiveLeaderboardParserTest {
         assertTrue(entries[0].openWeights)
         assertEquals(HubSearchCategory.GgufChat, entries[0].searchCategory)
     }
+
+    @Test
+    fun ranksArtificialAnalysisModelsByCompositeScoreEvenWhenLegacyIntelligenceIndexIsNull() {
+        val rscPayload = """{"initialModels":[
+            {"id":"1","slug":"qwen3-5-2b","name":"Qwen3.5 2B","shortName":"Qwen3.5 2B","parameters":2.0,"score":176.7,"intelligenceIndex":null,"modelCreator":{"name":"Alibaba"},"modelWeightsSourceUrl":"https://huggingface.co/Qwen/Qwen3.5-2B"},
+            {"id":"2","slug":"k2-horizon-3-7b","name":"K2 Horizon 3.7B","shortName":"K2 Horizon 3.7B","parameters":3.7,"score":241.7,"intelligenceIndex":8.02,"modelCreator":{"name":"IFM"}}
+        ]}"""
+        val escaped = rscPayload.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "")
+        val html = """<script>self.__next_f.push([1,"$escaped"])</script>"""
+
+        val entries = LiveLeaderboardClient.parseAaOpenSourceModels(html, LiveChatTier.Tiny)
+        assertEquals(2, entries.size)
+        assertEquals("K2 Horizon 3.7B", entries[0].name)
+        assertTrue(entries[0].primaryMetricLabel.contains("242"))
+        assertEquals("Qwen3.5 2B", entries[1].name)
+        assertTrue(entries[1].primaryMetricLabel.contains("177"))
+    }
 }

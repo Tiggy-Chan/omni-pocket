@@ -614,6 +614,17 @@ private fun VideoParamsSheet(
                     title = tr(R.string.video_fps),
                     detail = "24 FPS"
                 )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(tr(R.string.video_pih3_preset), color = OmniColors.Muted, style = MaterialTheme.typography.bodyMedium)
+                    OmniTabs(
+                        items = listOf(2, 4),
+                        selected = if (settings.steps <= 2) 2 else 4,
+                        label = {
+                            localized.getString(if (it == 2) R.string.video_pih3_2step else R.string.video_pih3_4step)
+                        },
+                        onSelect = viewModel::setVideoSteps
+                    )
+                }
             } else {
                 VideoIntSlider(tr(R.string.video_fps), "${settings.fps} FPS", settings.fps, 8..30, viewModel::setVideoFps)
             }

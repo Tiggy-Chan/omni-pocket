@@ -129,6 +129,7 @@ fun ImageWorkspace(
     val selectedCustomModel = state.customImageModels.firstOrNull { it.id == customSd.modelId }
     val isQwen = backend == ImageGenerationBackend.QwenLocal
     val isCustomSd = backend == ImageGenerationBackend.CustomSd
+    val customSdSupportsEdit = isCustomSd && selectedCustomModel?.metadata?.get("supportsEdit") == "true"
     val features = state.modelStatus?.manifest?.features.orEmpty()
     val editAvailable = "image-edit" in features
     val layoutMode = backend.isMoss && moss.inputMode == MossInputMode.Layout
@@ -144,7 +145,10 @@ fun ImageWorkspace(
     var sheet by remember { mutableStateOf<ImageSheet?>(null) }
 
     val firstPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) viewModel.setInput(uri)
+        if (uri != null) {
+            if (customSdSupportsEdit) viewModel.setCustomSdInputImage(uri)
+            else viewModel.setInput(uri)
+        }
     }
     val secondPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.setInput(uri, second = true)
@@ -156,13 +160,14 @@ fun ImageWorkspace(
     }
     val placeholder = when {
         layoutMode -> tr(R.string.image_prompt_overall_hint)
-        isQwen && settings.mode == GenerationMode.ImageEdit -> tr(R.string.image_edit_hint)
+        (isQwen && settings.mode == GenerationMode.ImageEdit) || (customSdSupportsEdit && customSd.inputImageUri != null) -> tr(R.string.image_edit_hint)
         else -> tr(R.string.image_prompt_hint)
     }
     val composerError = state.imageTask.error
         ?.takeIf { !state.imageTask.running && it != state.jobs.lastOrNull()?.error }
     val modelHint = !backendReady && state.jobs.isNotEmpty()
-    val hasStatus = composerError != null || needsReference || modelHint || (isQwen && settings.inputUri != null)
+    val hasStatus = composerError != null || needsReference || modelHint ||
+        (isQwen && settings.inputUri != null) || (customSdSupportsEdit && customSd.inputImageUri != null)
     val statusContent: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             composerError?.let {
@@ -202,6 +207,13 @@ fun ImageWorkspace(
                     }
                 }
             }
+            if (customSdSupportsEdit && customSd.inputImageUri != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ComposerReference(customSd.inputImageUri, 1) {
+                        viewModel.setCustomSdInputImage(null)
+                    }
+                }
+            }
         }
     }
 
@@ -225,11 +237,11 @@ fun ImageWorkspace(
                 sendEnabled = sendEnabled,
                 status = if (hasStatus) statusContent else null,
                 tools = {
-                    if (isQwen && editAvailable) {
-                        val canAttach = settings.inputUri2 == null
+                    if ((isQwen && editAvailable) || customSdSupportsEdit) {
+                        val canAttach = if (customSdSupportsEdit) true else settings.inputUri2 == null
                         IconButton(
                             onClick = {
-                                if (settings.inputUri == null) firstPicker.launch(arrayOf(ImagePickerMime))
+                                if (customSdSupportsEdit || settings.inputUri == null) firstPicker.launch(arrayOf(ImagePickerMime))
                                 else secondPicker.launch(arrayOf(ImagePickerMime))
                             },
                             enabled = canAttach,
@@ -237,7 +249,7 @@ fun ImageWorkspace(
                         ) {
                             Icon(
                                 Icons.Outlined.AddPhotoAlternate,
-                                if (settings.inputUri == null) tr(R.string.image_add_ref) else tr(R.string.image_add_ref2),
+                                if (customSdSupportsEdit || settings.inputUri == null) tr(R.string.image_add_ref) else tr(R.string.image_add_ref2),
                                 tint = if (canAttach) OmniColors.Muted else OmniColors.Dim,
                                 modifier = Modifier.size(20.dp)
                             )

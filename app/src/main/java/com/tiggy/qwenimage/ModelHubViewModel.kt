@@ -15,6 +15,7 @@ import com.tiggy.qwenimage.data.HubMirrorMode
 import com.tiggy.qwenimage.data.HubPreferences
 import com.tiggy.qwenimage.data.HubProbeResult
 import com.tiggy.qwenimage.data.HubSearchCategory
+import com.tiggy.qwenimage.data.HubSearchSort
 import com.tiggy.qwenimage.data.HubSettings
 import com.tiggy.qwenimage.data.HuggingFaceHubClient
 import com.tiggy.qwenimage.data.InstalledHubModel
@@ -48,6 +49,7 @@ data class ModelHubUiState(
     val settingsError: String? = null,
     val category: HubSearchCategory = HubSearchCategory.GgufChat,
     val query: String = "",
+    val searchSort: HubSearchSort = HubSearchSort.Downloads,
     val searching: Boolean = false,
     val searchResults: List<HfRepoSummary> = HuggingFaceHubClient.curatedRecommendations(HubSearchCategory.GgufChat),
     val showingRecommendations: Boolean = true,
@@ -56,6 +58,8 @@ data class ModelHubUiState(
     val inspectedRepo: String? = null,
     val loadingRepo: Boolean = false,
     val repoOptions: List<HfRepoOption> = emptyList(),
+    /** Shared companion bytes already cached on device per option ID. */
+    val inspectedReusedBytes: Map<String, Long> = emptyMap(),
     val repoError: String? = null,
     val repoEmptyCategory: HubSearchCategory? = null,
     val installedModels: List<InstalledHubModel> = emptyList(),
@@ -196,6 +200,14 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
         if (trimmed.isNotEmpty()) executeSearch()
     }
 
+    fun setSearchSort(sort: HubSearchSort) {
+        if (_state.value.searchSort == sort) return
+        _state.update { it.copy(searchSort = sort) }
+        if (!_state.value.showingRecommendations && _state.value.query.isNotBlank()) {
+            executeSearch()
+        }
+    }
+
     fun executeSearch() {
         val snapshot = _state.value
         val query = snapshot.query.trim()
@@ -208,7 +220,12 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
         _state.update { it.copy(searching = true, searchError = null, searchErrorDetail = null, showingRecommendations = false) }
         searchJob = viewModelScope.launch {
             try {
-                val results = HuggingFaceHubClient.search(query, snapshot.category, hubPreferences.current())
+                val results = HuggingFaceHubClient.search(
+                    query = query,
+                    category = snapshot.category,
+                    settings = hubPreferences.current(),
+                    sort = snapshot.searchSort
+                )
                 _state.update { it.copy(searching = false, searchResults = results, searchError = null, searchErrorDetail = null) }
             } catch (error: CancellationException) {
                 throw error
@@ -303,6 +320,7 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
                 inspectedRepo = repo,
                 loadingRepo = true,
                 repoOptions = emptyList(),
+                inspectedReusedBytes = emptyMap(),
                 repoError = null,
                 repoEmptyCategory = null
             )
@@ -310,10 +328,23 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
         inspectJob = viewModelScope.launch {
             try {
                 val options = HuggingFaceHubClient.listDownloadableOptions(repo, category, hubPreferences.current())
+                val reused = withContext(Dispatchers.IO) {
+                    options.associate { opt ->
+                        val bytes = opt.files.sumOf { file ->
+                            val key = file.sharedCompanionKey ?: return@sumOf 0L
+                            val existing = runCatching { installedRepo.companionFile(key) }.getOrNull()
+                            if (existing != null && existing.isFile && (file.size <= 0L || existing.length() == file.size)) {
+                                existing.length()
+                            } else 0L
+                        }
+                        opt.id to bytes
+                    }
+                }
                 _state.update {
                     it.copy(
                         loadingRepo = false,
                         repoOptions = options,
+                        inspectedReusedBytes = reused,
                         repoError = null,
                         repoEmptyCategory = if (options.isEmpty()) category else null
                     )
@@ -339,6 +370,7 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
                 inspectedRepo = null,
                 loadingRepo = false,
                 repoOptions = emptyList(),
+                inspectedReusedBytes = emptyMap(),
                 repoError = null,
                 repoEmptyCategory = null
             )

@@ -401,7 +401,8 @@ object LiveLeaderboardClient {
             val index: Double?,
             val score: Double?,
             val reasoning: Boolean,
-            val releaseDate: String
+            val releaseDate: String,
+            val weightsUrl: String?
         )
 
         val seen = HashSet<String>()
@@ -424,6 +425,8 @@ object LiveLeaderboardClient {
             val creator = obj.optJSONObject("modelCreator")?.optString("name").orEmpty()
                 .ifBlank { obj.optJSONObject("creator")?.optString("name").orEmpty() }
             val ctx = obj.optLong("contextWindowTokens", 0L)
+            val weightsUrl = if (obj.isNull("modelWeightsSourceUrl")) null
+            else obj.optString("modelWeightsSourceUrl").takeIf { it.isNotBlank() }
             items += RawLlm(
                 slug = slug,
                 name = name,
@@ -434,20 +437,26 @@ object LiveLeaderboardClient {
                 index = intel,
                 score = rawScore,
                 reasoning = obj.optBoolean("isReasoning", false),
-                releaseDate = obj.optString("releaseDate")
+                releaseDate = obj.optString("releaseDate"),
+                weightsUrl = weightsUrl
             )
         }
 
+        // Artificial Analysis ranks open-source models primarily by composite `score`,
+        // falling back to `intelligenceIndex` when `score` is absent.
         val sorted = items.sortedWith(
-            compareByDescending<RawLlm> { it.index != null }
-                .thenByDescending { it.index ?: -1.0 }
+            compareByDescending<RawLlm> { it.score != null }
                 .thenByDescending { it.score ?: -1.0 }
+                .thenByDescending { it.index != null }
+                .thenByDescending { it.index ?: -1.0 }
         ).take(40)
 
         return sorted.mapIndexed { idxPos, item ->
             val primary = when {
-                item.index != null -> String.format(Locale.US, "Intelligence %.1f", item.index)
+                item.score != null && item.index != null ->
+                    String.format(Locale.US, "AA Score %.0f · Intel %.1f", item.score, item.index)
                 item.score != null -> String.format(Locale.US, "AA Score %.0f", item.score)
+                item.index != null -> String.format(Locale.US, "Intelligence %.1f", item.index)
                 else -> "Open Weights"
             }
             val secondary = buildList {
@@ -467,6 +476,7 @@ object LiveLeaderboardClient {
             }.joinToString(" · ")
             val matched = ModelBenchmarkCatalog.matchRepoOrName(item.name)
                 ?: ModelBenchmarkCatalog.matchRepoOrName(item.slug)
+                ?: item.weightsUrl?.let(ModelBenchmarkCatalog::matchRepoOrName)
             val estBytes = item.paramsB?.let { (it * 650_000_000.0).toLong() }
             LiveLeaderboardEntry(
                 rank = idxPos + 1,

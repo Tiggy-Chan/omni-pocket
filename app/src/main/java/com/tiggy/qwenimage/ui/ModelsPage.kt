@@ -98,6 +98,8 @@ import com.tiggy.qwenimage.data.HfRepoSummary
 import com.tiggy.qwenimage.data.HubMirrorMode
 import com.tiggy.qwenimage.data.HubModelType
 import com.tiggy.qwenimage.data.HubSearchCategory
+import com.tiggy.qwenimage.data.HubSearchSort
+import com.tiggy.qwenimage.data.HuggingFaceHubClient
 import com.tiggy.qwenimage.data.InstalledHubModel
 import com.tiggy.qwenimage.data.LiveBoardSource
 import com.tiggy.qwenimage.data.LiveChatTier
@@ -720,6 +722,36 @@ fun ModelsPage(
                                         onClick = submitSearch,
                                         enabled = !hubState.searching && hubState.query.isNotBlank()
                                     )
+                                }
+                                val quickKeywords = remember(hubState.category) {
+                                    HuggingFaceHubClient.quickSearchKeywords(hubState.category)
+                                }
+                                if (quickKeywords.isNotEmpty()) {
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        items(quickKeywords) { kw ->
+                                            ComposerChip(
+                                                label = kw,
+                                                onClick = {
+                                                    keyboardController?.hide()
+                                                    focusManager.clearFocus()
+                                                    hubViewModel.searchInCategory(kw, hubState.category)
+                                                },
+                                                selected = !hubState.showingRecommendations &&
+                                                    hubState.query.trim().equals(kw, ignoreCase = true)
+                                            )
+                                        }
+                                    }
+                                }
+                                if (!hubState.showingRecommendations) {
+                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        items(HubSearchSort.entries) { sortOption ->
+                                            ComposerChip(
+                                                label = sortOption.localizedLabel(),
+                                                onClick = { hubViewModel.setSearchSort(sortOption) },
+                                                selected = hubState.searchSort == sortOption
+                                            )
+                                        }
+                                    }
                                 }
                                 hubState.searchErrorDetail?.let { detail ->
                                     Text(
@@ -1403,6 +1435,19 @@ private fun HubRepoFilesSheet(
                                     Text(fitLine, color = deviceFitColor(fit), style = MaterialTheme.typography.labelSmall)
                                     companionNote?.let {
                                         Text(it, color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    val reusedBytes = state.inspectedReusedBytes[option.id] ?: 0L
+                                    if (reusedBytes > 0L && !installed) {
+                                        val remainingBytes = (option.totalBytes - reusedBytes).coerceAtLeast(0L)
+                                        Text(
+                                            tr(
+                                                R.string.hub_reused_companions_fmt,
+                                                formatBytesCompact(reusedBytes),
+                                                formatBytesCompact(remainingBytes)
+                                            ),
+                                            color = OmniColors.Success,
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
                                     }
                                     splitWarn?.let {
                                         Text(it, color = OmniColors.Warning, style = MaterialTheme.typography.labelSmall)

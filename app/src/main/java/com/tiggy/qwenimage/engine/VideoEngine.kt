@@ -223,6 +223,7 @@ class VideoEngine(
                 arch = weights.arch,
                 audioVae = weights.audioVae,
                 piH3Adapter = piH3Adapter,
+                useRefImageFlag = weights.isRef2Va,
                 diskStreaming = useDiskStreaming,
                 maxVramGb = maxVramGb,
                 scheduler = scheduler,
@@ -293,7 +294,8 @@ class VideoEngine(
         val arch: VideoModelArch = VideoModelArch.WAN,
         val audioVae: File? = null,
         val piH3Adapter2Step: File? = null,
-        val piH3Adapter4Step: File? = null
+        val piH3Adapter4Step: File? = null,
+        val isRef2Va: Boolean = false
     )
 
     private fun resolveVideoWeights(modelId: String): ResolvedVideoWeights {
@@ -309,6 +311,8 @@ class VideoEngine(
                 val audioVae = hubModels.resolveCompanionByMeta(hubModel, "audioVaeCompanion")
                 val adapter2 = hubModels.resolveCompanionByMeta(hubModel, "piH3Adapter2Step")
                 val adapter4 = hubModels.resolveCompanionByMeta(hubModel, "piH3Adapter4Step")
+                val isRef2Va = hubModel.metadata["h3Mode"] == "ref2va" ||
+                    hubModel.entryFile.contains("ref2va", ignoreCase = true)
                 return ResolvedVideoWeights(
                     dit = dit,
                     textEncoder = llm,
@@ -317,7 +321,8 @@ class VideoEngine(
                     arch = VideoModelArch.MINIMAX_H3,
                     audioVae = audioVae,
                     piH3Adapter2Step = adapter2,
-                    piH3Adapter4Step = adapter4
+                    piH3Adapter4Step = adapter4,
+                    isRef2Va = isRef2Va
                 )
             }
             val t5 = hubModels.resolveCompanionByMeta(hubModel, "t5Companion")
