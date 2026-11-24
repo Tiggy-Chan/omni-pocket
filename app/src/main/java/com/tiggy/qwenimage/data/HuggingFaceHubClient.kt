@@ -728,7 +728,15 @@ object HuggingFaceHubClient {
                 companionNoteKey = HubCompanionNote.WanShared,
                 companionNoteArg = tae.sharedCompanionKey
             )
-        }.sortedWith(compareBy<HfRepoOption> { it.splitWarning != null }.thenBy { quantPriority(it.quantTag) }.thenBy { it.totalBytes })
+        }.sortedWith(
+            compareBy<HfRepoOption> { it.splitWarning != null }
+                .thenBy { if (it.metadata["arch"] == "minimax_h3" && it.metadata["h3Mode"] == "ref2va") 1 else 0 }
+                .thenBy {
+                    if (it.metadata["arch"] == "minimax_h3") miniMaxH3QuantPriority(it.quantTag)
+                    else quantPriority(it.quantTag)
+                }
+                .thenBy { it.totalBytes }
+        )
     }
 
     private fun extractMusicAudioOptions(
@@ -927,6 +935,19 @@ object HuggingFaceHubClient {
         val cleaned = raw.lowercase(Locale.ROOT).replace(Regex("[^a-z0-9_.-]+"), "-").trim('-')
         val hash = Integer.toHexString("$repo:$path".hashCode())
         return if (cleaned.length <= 68) cleaned else "${cleaned.take(58)}-$hash"
+    }
+
+    private fun miniMaxH3QuantPriority(tag: String?): Int = when (tag?.removePrefix("UD-")) {
+        "Q2_K" -> 0
+        "Q2_K_XL" -> 1
+        "Q3_K_M", "Q3_K_XL" -> 2
+        "Q3_K_S", "Q3_K" -> 3
+        "Q4_K_M", "Q4_K_XL" -> 4
+        "Q4_K_S", "Q4_0" -> 5
+        "Q5_K_M", "Q5_K_XL" -> 6
+        "Q6_K", "Q6_K_XL" -> 7
+        "Q8_0", "Q8_K_XL" -> 8
+        else -> 9
     }
 
     private fun quantPriority(tag: String?): Int = when (tag?.removePrefix("UD-")) {

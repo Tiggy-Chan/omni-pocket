@@ -267,15 +267,19 @@ class HuggingFaceHubClientTest {
         assertEquals("Q4_K_XL", HuggingFaceHubClient.extractQuantTag("gemma-4-E4B-it-Q4_K_XL.gguf"))
 
         val json = """[
+            {"type":"file","path":"minimax_h3_ref2va_pruned-Q6_K.gguf","size":15500000000},
             {"type":"file","path":"minimax_h3_ref2va_pruned-UD-Q2_K_XL.gguf","size":7200000000},
+            {"type":"file","path":"minimax_h3_fl2va_pruned-Q6_K.gguf","size":15600000000},
             {"type":"file","path":"minimax_h3_fl2va_pruned-Q2_K.gguf","size":6720000000}
         ]"""
         val opts = HuggingFaceHubClient.parseRepoTree("unsloth/MiniMax-H3-GGUF", "main", json, HubSearchCategory.VideoWan)
-        assertEquals(2, opts.size)
-        val refOpt = opts.first { it.entryFile.contains("ref2va") }
-        val flOpt = opts.first { it.entryFile.contains("fl2va") }
-        assertEquals("ref2va", refOpt.metadata["h3Mode"])
-        assertEquals("UD-Q2_K_XL", refOpt.quantTag)
-        assertEquals("fl2va", flOpt.metadata["h3Mode"])
+        assertEquals(4, opts.size)
+        // Mobile-first ordering: fl2va Q2_K first, fl2va Q6_K before ref2va, ref2va Q2_K_XL before ref2va Q6_K
+        assertEquals("minimax_h3_fl2va_pruned-Q2_K.gguf", opts[0].entryFile)
+        assertEquals("fl2va", opts[0].metadata["h3Mode"])
+        assertEquals("minimax_h3_fl2va_pruned-Q6_K.gguf", opts[1].entryFile)
+        assertEquals("minimax_h3_ref2va_pruned-UD-Q2_K_XL.gguf", opts[2].entryFile)
+        assertEquals("ref2va", opts[2].metadata["h3Mode"])
+        assertEquals("UD-Q2_K_XL", opts[2].quantTag)
     }
 }

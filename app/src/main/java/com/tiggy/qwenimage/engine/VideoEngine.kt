@@ -466,13 +466,13 @@ class VideoEngine(
 
     private companion object {
         const val DIT = "Wan2.2 DiT"
-        const val T5 = "UMT5 文本编码器"
-        const val VAE = "TAE 视频解码器"
-        const val H3_TE = "Qwen3-VL-32B 文本编码器"
-        const val H3_VAE = "MiniMax-H3 视频 VAE"
-        const val H3_AUDIO_VAE = "MiniMax-H3 音频 VAE"
-        const val H3_PI_2STEP = "pi-H3 2 步适配器"
-        const val H3_PI_4STEP = "pi-H3 4 步适配器"
+        const val T5 = "UMT5-XXL"
+        const val VAE = "TAE-Wan2.2"
+        const val H3_TE = "Qwen3-VL-32B"
+        const val H3_VAE = "MiniMax-H3 Video VAE"
+        const val H3_AUDIO_VAE = "MiniMax-H3 Audio VAE"
+        const val H3_PI_2STEP = "pi-H3 2-step"
+        const val H3_PI_4STEP = "pi-H3 4-step"
         val EXPECTED_SIZES = mapOf(
             DIT to 3_033_897_696L,
             T5 to 2_858_489_696L,

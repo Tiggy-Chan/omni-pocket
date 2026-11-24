@@ -256,17 +256,33 @@ object LiveLeaderboardClient {
     }
 
     private fun httpGet(urlString: String): String {
+        var lastError: IOException? = null
+        for (attempt in 1..3) {
+            try {
+                return httpGetOnce(urlString)
+            } catch (e: IOException) {
+                lastError = e
+                if (attempt < 3) {
+                    runCatching { Thread.sleep(450L * attempt) }
+                }
+            }
+        }
+        throw lastError ?: IOException("Network request failed")
+    }
+
+    private fun httpGetOnce(urlString: String): String {
         var currentUrl = urlString
         var redirects = 0
         while (redirects < 5) {
             val conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = false
-                connectTimeout = 15_000
-                readTimeout = 20_000
+                connectTimeout = 20_000
+                readTimeout = 25_000
                 requestMethod = "GET"
                 setRequestProperty("User-Agent", USER_AGENT)
                 setRequestProperty("Accept", "text/html,application/json;q=0.9,*/*;q=0.8")
                 setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+                setRequestProperty("Connection", "close")
             }
             try {
                 val code = conn.responseCode
