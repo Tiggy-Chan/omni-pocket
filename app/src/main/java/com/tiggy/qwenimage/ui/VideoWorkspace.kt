@@ -45,6 +45,8 @@ import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +60,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,6 +86,8 @@ import com.tiggy.qwenimage.data.VideoItem
 import com.tiggy.qwenimage.data.VideoJob
 import com.tiggy.qwenimage.data.VideoSettings
 import com.tiggy.qwenimage.data.formatBytesCompact
+import com.tiggy.qwenimage.engine.MediaExportBridge
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -111,7 +116,10 @@ fun VideoWorkspace(
     onModels: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val shareVideoTitle = tr(R.string.video_share_title)
+    val exportingMp4Toast = tr(R.string.export_converting_mp4)
+    val exportFailedFmt = tr(R.string.export_failed_fmt, "%s")
     val settings = state.videoSettings
     val task = state.videoTask
     val activeCustomModel = state.customVideoModels.firstOrNull { it.id == settings.modelId }
@@ -241,7 +249,20 @@ fun VideoWorkspace(
                                         playingId = video.id
                                     },
                                     onReuse = { viewModel.reuseVideoItem(video) },
-                                    onShare = { shareVideo(context, video, shareVideoTitle)?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() } },
+                                    onShareRaw = { shareVideo(context, video, shareVideoTitle)?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() } },
+                                    onShareMp4 = {
+                                        scope.launch {
+                                            Toast.makeText(context, exportingMp4Toast, Toast.LENGTH_SHORT).show()
+                                            runCatching {
+                                                val src = File(video.videoPath)
+                                                val cached = File(MediaExportBridge.exportDir(context), "${src.nameWithoutExtension}_${src.lastModified()}.mp4")
+                                                val mp4 = if (cached.isFile && cached.length() > 0L) cached else MediaExportBridge.exportWebmToMp4(src, cached)
+                                                shareMediaFile(context, mp4, "video/mp4", shareVideoTitle)
+                                            }.onFailure { err ->
+                                                Toast.makeText(context, String.format(exportFailedFmt, err.message ?: ""), Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    },
                                     onDelete = { pendingDelete = video }
                                 )
                             }
@@ -386,7 +407,8 @@ private fun VideoResultBlock(
     loaded: Boolean,
     onLoad: () -> Unit,
     onReuse: () -> Unit,
-    onShare: () -> Unit,
+    onShareRaw: () -> Unit,
+    onShareMp4: () -> Unit,
     onDelete: () -> Unit
 ) {
     val metadata = videoMetadata(video)
@@ -394,6 +416,8 @@ private fun VideoResultBlock(
     val pauseLabel = tr(R.string.common_pause)
     val cannotPlayText = tr(R.string.video_cannot_play)
     var playing by remember(video.id, loaded) { mutableStateOf(false) }
+    var showShareMenu by remember(video.id) { mutableStateOf(false) }
+    val isWebm = video.videoPath.endsWith(".webm", ignoreCase = true)
     val playerRef = remember(video.id) { arrayOfNulls<VideoView>(1) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         VideoRequest(videoDisplayName(video), firstFrame)
@@ -428,8 +452,25 @@ private fun VideoResultBlock(
                 IconButton(onClick = onReuse, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Outlined.Replay, tr(R.string.video_reuse_prompt), tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
                 }
-                IconButton(onClick = onShare, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Outlined.Share, tr(R.string.video_share_title), tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                Box {
+                    IconButton(
+                        onClick = { if (isWebm) showShareMenu = true else onShareRaw() },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(Icons.Outlined.Share, tr(R.string.video_share_title), tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                    }
+                    if (isWebm) {
+                        DropdownMenu(expanded = showShareMenu, onDismissRequest = { showShareMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(tr(R.string.export_share_mp4)) },
+                                onClick = { showShareMenu = false; onShareMp4() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(tr(R.string.export_share_webm)) },
+                                onClick = { showShareMenu = false; onShareRaw() }
+                            )
+                        }
+                    }
                 }
                 IconButton(onClick = onDelete, modifier = Modifier.size(48.dp)) {
                     Icon(Icons.Outlined.DeleteOutline, tr(R.string.common_delete), tint = OmniColors.Muted, modifier = Modifier.size(20.dp))

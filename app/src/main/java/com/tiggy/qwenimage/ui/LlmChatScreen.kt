@@ -43,8 +43,11 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,6 +63,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,6 +86,9 @@ import com.tiggy.qwenimage.data.LlmMessage
 import com.tiggy.qwenimage.data.LlmMessageStatus
 import com.tiggy.qwenimage.engine.DocumentQuickAction
 import com.tiggy.qwenimage.engine.DocumentSummaryStage
+import com.tiggy.qwenimage.engine.ExportFormatters
+import com.tiggy.qwenimage.engine.MediaExportBridge
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 @Composable
@@ -96,6 +103,11 @@ fun LlmChatScreen(
     val kbState by kbViewModel.state.collectAsStateWithLifecycle()
     var picking by remember { mutableStateOf(false) }
     var pickingKb by remember { mutableStateOf(false) }
+    var showExportMenu by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val exportShareTitle = tr(R.string.export_share_title)
+    val exportFailedFmt = tr(R.string.export_failed_fmt, "%s")
     val conversation = state.conversation
     val selectedModel = state.selectedModelChoice
     val modelName = selectedModel?.name ?: if (conversation?.modelId.isNullOrBlank()) tr(R.string.chat_models_sheet_title) else tr(R.string.chat_no_model)
@@ -153,6 +165,50 @@ fun LlmChatScreen(
         subtitle = modelName,
         onMenu = onMenu,
         actions = {
+            if (conversation != null && conversation.messages.isNotEmpty() && !state.busy) {
+                Box {
+                    IconButton(onClick = { showExportMenu = true }, modifier = Modifier.size(48.dp)) {
+                        Icon(
+                            Icons.Outlined.Share,
+                            tr(R.string.export_action),
+                            tint = OmniColors.Muted,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    DropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(tr(R.string.export_markdown)) },
+                            onClick = {
+                                showExportMenu = false
+                                val md = ExportFormatters.formatConversationMarkdown(conversation, modelName)
+                                scope.launch {
+                                    runCatching {
+                                        val file = MediaExportBridge.exportTextToMarkdown(context, conversationTitle, md)
+                                        shareMediaFile(context, file, "text/markdown", exportShareTitle)
+                                    }.onFailure { err ->
+                                        Toast.makeText(context, String.format(exportFailedFmt, err.message ?: ""), Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(tr(R.string.export_pdf)) },
+                            onClick = {
+                                showExportMenu = false
+                                val md = ExportFormatters.formatConversationMarkdown(conversation, modelName)
+                                scope.launch {
+                                    runCatching {
+                                        val file = MediaExportBridge.exportTextToPdf(context, conversationTitle, md)
+                                        shareMediaFile(context, file, "application/pdf", exportShareTitle)
+                                    }.onFailure { err ->
+                                        Toast.makeText(context, String.format(exportFailedFmt, err.message ?: ""), Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
+            }
             IconButton(onClick = { viewModel.setThinking(!thinking) }, enabled = !state.busy, modifier = Modifier.size(48.dp)) {
                 Box(
                     Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))

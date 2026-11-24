@@ -615,4 +615,15 @@
     <string name="kb_picker_title">Sohbet için bilgi bankası</string>
     <string name="kb_picker_none">Yok</string>
     <string name="kb_manage_action">Bilgi bankalarını yönet</string>
+    <string name="export_action">Dışa aktar</string>
+    <string name="export_share_title">Dışa aktarılan dosyayı paylaş</string>
+    <string name="export_markdown">Markdown (.md) dışa aktar</string>
+    <string name="export_pdf">PDF (.pdf) dışa aktar</string>
+    <string name="export_share_mp4">MP4 olarak paylaş (evrensel)</string>
+    <string name="export_share_webm">Orijinal WebM paylaş</string>
+    <string name="export_share_m4a">M4A olarak paylaş (hafif)</string>
+    <string name="export_share_wav">Orijinal WAV paylaş</string>
+    <string name="export_converting_mp4">MP4’e dönüştürülüyor…</string>
+    <string name="export_converting_m4a">M4A’ya dönüştürülüyor…</string>
+    <string name="export_failed_fmt">Dışa aktarma başarısız: %1$s</string>
 </resources>

@@ -615,4 +615,15 @@
     <string name="kb_picker_title">チャットで使うナレッジベース</string>
     <string name="kb_picker_none">使用しない</string>
     <string name="kb_manage_action">ナレッジベースを管理</string>
+    <string name="export_action">エクスポート</string>
+    <string name="export_share_title">ファイルを共有</string>
+    <string name="export_markdown">Markdown (.md) を出力</string>
+    <string name="export_pdf">PDF (.pdf) を出力</string>
+    <string name="export_share_mp4">MP4 として共有（汎用）</string>
+    <string name="export_share_webm">元の WebM を共有</string>
+    <string name="export_share_m4a">M4A として共有（軽量）</string>
+    <string name="export_share_wav">元の WAV を共有</string>
+    <string name="export_converting_mp4">MP4 に変換中…</string>
+    <string name="export_converting_m4a">M4A に変換中…</string>
+    <string name="export_failed_fmt">エクスポート失敗：%1$s</string>
 </resources>

@@ -1,6 +1,8 @@
 package com.tiggy.qwenimage.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,6 +22,9 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -34,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,7 +57,10 @@ import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.DecisionAnswer
 import com.tiggy.qwenimage.data.DecisionKind
 import com.tiggy.qwenimage.data.decisionSlotLabels
+import com.tiggy.qwenimage.engine.ExportFormatters
+import com.tiggy.qwenimage.engine.MediaExportBridge
 import dev.chrisbanes.haze.HazeState
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 private const val MAX_QUESTIONS = 32
@@ -64,7 +73,13 @@ private val slotLabels: List<String> by lazy { decisionSlotLabels() }
 fun DecisionScreen(viewModel: DecisionViewModel, onMenu: (() -> Unit)?, onModels: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var pickingModel by remember { mutableStateOf(false) }
+    var showExportMenu by remember { mutableStateOf(false) }
     val activeModelName = state.selectedModelChoice?.name ?: "Elephant-1 9B"
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val exportTitle = tr(R.string.nav_decision)
+    val exportShareTitle = tr(R.string.export_share_title)
+    val exportFailedFmt = tr(R.string.export_failed_fmt, "%s")
 
     if (pickingModel) {
         DecisionModelPicker(
@@ -80,6 +95,46 @@ fun DecisionScreen(viewModel: DecisionViewModel, onMenu: (() -> Unit)?, onModels
         subtitle = tr(R.string.common_on_device_tag, activeModelName) + if (state.loaded) tr(R.string.decision_loaded_suffix) else "",
         onMenu = onMenu,
         actions = {
+            val result = state.result
+            if (result != null && !state.busy) {
+                Box {
+                    IconButton(onClick = { showExportMenu = true }, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Outlined.Share, tr(R.string.export_action), tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                    }
+                    DropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(tr(R.string.export_markdown)) },
+                            onClick = {
+                                showExportMenu = false
+                                val md = ExportFormatters.formatDecisionMarkdown(activeModelName, state.stateText, state.questions, result)
+                                scope.launch {
+                                    runCatching {
+                                        val file = MediaExportBridge.exportTextToMarkdown(context, exportTitle, md)
+                                        shareMediaFile(context, file, "text/markdown", exportShareTitle)
+                                    }.onFailure { err ->
+                                        Toast.makeText(context, String.format(exportFailedFmt, err.message ?: ""), Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(tr(R.string.export_pdf)) },
+                            onClick = {
+                                showExportMenu = false
+                                val md = ExportFormatters.formatDecisionMarkdown(activeModelName, state.stateText, state.questions, result)
+                                scope.launch {
+                                    runCatching {
+                                        val file = MediaExportBridge.exportTextToPdf(context, exportTitle, md)
+                                        shareMediaFile(context, file, "application/pdf", exportShareTitle)
+                                    }.onFailure { err ->
+                                        Toast.makeText(context, String.format(exportFailedFmt, err.message ?: ""), Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
+            }
             TextButton(onClick = viewModel::showExample, enabled = !state.busy) { Text(tr(R.string.decision_example)) }
         },
         composer = { haze ->

@@ -40,6 +40,8 @@ import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +57,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,6 +81,8 @@ import com.tiggy.qwenimage.data.MusicSettings
 import com.tiggy.qwenimage.data.MusicTrack
 import com.tiggy.qwenimage.data.TaskUiState
 import com.tiggy.qwenimage.data.formatBytesCompact
+import com.tiggy.qwenimage.engine.MediaExportBridge
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -367,8 +372,13 @@ private fun MusicTrackBlock(
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val untitled = tr(R.string.music_untitled)
     val shareTitle = tr(R.string.music_share_title)
+    val exportingM4aToast = tr(R.string.export_converting_m4a)
+    val exportFailedFmt = tr(R.string.export_failed_fmt, "%s")
+    var showShareMenu by remember(track.id) { mutableStateOf(false) }
+    val isWav = track.audioPath.endsWith(".wav", ignoreCase = true)
     val pauseLabel = tr(R.string.common_pause)
     val playLabel = tr(R.string.common_play)
     val shareLabel = tr(R.string.common_share)
@@ -413,8 +423,38 @@ private fun MusicTrackBlock(
                     IconButton(onClick = onReuse, modifier = Modifier.size(44.dp)) {
                         Icon(Icons.Outlined.Replay, tr(R.string.music_reuse), tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
                     }
-                    IconButton(onClick = { shareMusicTrack(context, track, shareTitle) }, modifier = Modifier.size(44.dp)) {
-                        Icon(Icons.Outlined.Share, "$shareLabel $title", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                    Box {
+                        IconButton(
+                            onClick = { if (isWav) showShareMenu = true else shareMusicTrack(context, track, shareTitle) },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Icon(Icons.Outlined.Share, "$shareLabel $title", tint = OmniColors.Muted, modifier = Modifier.size(20.dp))
+                        }
+                        if (isWav) {
+                            DropdownMenu(expanded = showShareMenu, onDismissRequest = { showShareMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(tr(R.string.export_share_m4a)) },
+                                    onClick = {
+                                        showShareMenu = false
+                                        scope.launch {
+                                            Toast.makeText(context, exportingM4aToast, Toast.LENGTH_SHORT).show()
+                                            runCatching {
+                                                val src = File(track.audioPath)
+                                                val cached = File(MediaExportBridge.exportDir(context), "${src.nameWithoutExtension}_${src.lastModified()}.m4a")
+                                                val m4a = if (cached.isFile && cached.length() > 0L) cached else MediaExportBridge.exportWavToM4a(src, cached)
+                                                shareMediaFile(context, m4a, "audio/mp4", shareTitle)
+                                            }.onFailure { err ->
+                                                Toast.makeText(context, String.format(exportFailedFmt, err.message ?: ""), Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(tr(R.string.export_share_wav)) },
+                                    onClick = { showShareMenu = false; shareMusicTrack(context, track, shareTitle) }
+                                )
+                            }
+                        }
                     }
                     if (!track.id.startsWith("preset_")) {
                         IconButton(onClick = onDelete, modifier = Modifier.size(44.dp)) {

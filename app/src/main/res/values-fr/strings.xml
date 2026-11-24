@@ -615,4 +615,15 @@
     <string name="kb_picker_title">Base pour la discussion</string>
     <string name="kb_picker_none">Aucune</string>
     <string name="kb_manage_action">Gérer les bases</string>
+    <string name="export_action">Exporter</string>
+    <string name="export_share_title">Partager le fichier exporté</string>
+    <string name="export_markdown">Exporter en Markdown (.md)</string>
+    <string name="export_pdf">Exporter en PDF (.pdf)</string>
+    <string name="export_share_mp4">Partager en MP4 (universel)</string>
+    <string name="export_share_webm">Partager le WebM original</string>
+    <string name="export_share_m4a">Partager en M4A (compact)</string>
+    <string name="export_share_wav">Partager le WAV original</string>
+    <string name="export_converting_mp4">Conversion en MP4…</string>
+    <string name="export_converting_m4a">Conversion en M4A…</string>
+    <string name="export_failed_fmt">Échec de l’export : %1$s</string>
 </resources>

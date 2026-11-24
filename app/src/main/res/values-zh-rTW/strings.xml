@@ -615,4 +615,15 @@
     <string name="kb_picker_title">為對話掛載知識庫</string>
     <string name="kb_picker_none">不使用知識庫</string>
     <string name="kb_manage_action">管理知識庫</string>
+    <string name="export_action">匯出</string>
+    <string name="export_share_title">分享匯出檔案</string>
+    <string name="export_markdown">匯出 Markdown (.md)</string>
+    <string name="export_pdf">匯出 PDF (.pdf)</string>
+    <string name="export_share_mp4">分享為 MP4（通用格式）</string>
+    <string name="export_share_webm">分享原始 WebM</string>
+    <string name="export_share_m4a">分享為 M4A（輕量通用）</string>
+    <string name="export_share_wav">分享原始 WAV</string>
+    <string name="export_converting_mp4">正在匯出 MP4…</string>
+    <string name="export_converting_m4a">正在匯出 M4A…</string>
+    <string name="export_failed_fmt">匯出失敗：%1$s</string>
 </resources>

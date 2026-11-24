@@ -615,4 +615,15 @@
     <string name="kb_picker_title">Base para el chat</string>
     <string name="kb_picker_none">Ninguna</string>
     <string name="kb_manage_action">Gestionar bases</string>
+    <string name="export_action">Exportar</string>
+    <string name="export_share_title">Compartir archivo exportado</string>
+    <string name="export_markdown">Exportar Markdown (.md)</string>
+    <string name="export_pdf">Exportar PDF (.pdf)</string>
+    <string name="export_share_mp4">Compartir como MP4 (universal)</string>
+    <string name="export_share_webm">Compartir WebM original</string>
+    <string name="export_share_m4a">Compartir como M4A (ligero)</string>
+    <string name="export_share_wav">Compartir WAV original</string>
+    <string name="export_converting_mp4">Convirtiendo a MP4…</string>
+    <string name="export_converting_m4a">Convirtiendo a M4A…</string>
+    <string name="export_failed_fmt">Error al exportar: %1$s</string>
 </resources>

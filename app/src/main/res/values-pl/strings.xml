@@ -615,4 +615,15 @@
     <string name="kb_picker_title">Baza wiedzy dla czatu</string>
     <string name="kb_picker_none">Brak</string>
     <string name="kb_manage_action">Zarządzaj bazami</string>
+    <string name="export_action">Eksportuj</string>
+    <string name="export_share_title">Udostępnij plik</string>
+    <string name="export_markdown">Eksportuj Markdown (.md)</string>
+    <string name="export_pdf">Eksportuj PDF (.pdf)</string>
+    <string name="export_share_mp4">Udostępnij jako MP4 (uniwersalny)</string>
+    <string name="export_share_webm">Udostępnij oryginalny WebM</string>
+    <string name="export_share_m4a">Udostępnij jako M4A (lekki)</string>
+    <string name="export_share_wav">Udostępnij oryginalny WAV</string>
+    <string name="export_converting_mp4">Konwertowanie do MP4…</string>
+    <string name="export_converting_m4a">Konwertowanie do M4A…</string>
+    <string name="export_failed_fmt">Błąd eksportu: %1$s</string>
 </resources>

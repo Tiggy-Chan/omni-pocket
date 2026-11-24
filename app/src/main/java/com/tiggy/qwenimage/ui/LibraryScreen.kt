@@ -1,5 +1,6 @@
 package com.tiggy.qwenimage.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -48,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -66,6 +68,8 @@ import com.tiggy.qwenimage.data.AppDomain
 import com.tiggy.qwenimage.data.GenerationJob
 import com.tiggy.qwenimage.data.MusicTrack
 import com.tiggy.qwenimage.data.VideoItem
+import com.tiggy.qwenimage.engine.MediaExportBridge
+import kotlinx.coroutines.launch
 import java.io.File
 
 private enum class LibraryTab(@StringRes val labelRes: Int) {
@@ -86,6 +90,7 @@ fun LibraryScreen(
     onOpenWorkspace: (AppDomain) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var tab by rememberSaveable { mutableStateOf(LibraryTab.Images) }
     var deleteImage by remember { mutableStateOf<GenerationJob?>(null) }
     var deleteTrack by remember { mutableStateOf<MusicTrack?>(null) }
@@ -113,6 +118,10 @@ fun LibraryScreen(
     val shareImageTitle = tr(R.string.image_share_title)
     val shareMusicTitle = tr(R.string.music_share_title)
     val shareVideoTitle = tr(R.string.video_share_title)
+    val shareMp4Label = tr(R.string.export_share_mp4)
+    val shareWebmLabel = tr(R.string.export_share_webm)
+    val convertingMp4Toast = tr(R.string.export_converting_mp4)
+    val exportFailedFmt = tr(R.string.export_failed_fmt, "%s")
 
     WorkspaceScaffold(title = tr(R.string.nav_library), onMenu = onMenu) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -185,15 +194,32 @@ fun LibraryScreen(
                                     caption = video.prompt.ifBlank { videoFallbackLabel },
                                     detail = "${formatMediaDuration(video.durationSec)} · ${video.resolution}",
                                     onOpen = open,
-                                    actions = listOf(
-                                        MenuAction(openLabel) { open() },
-                                        MenuAction(shareLabel) {
-                                            runCatching {
-                                                shareMediaFile(context, File(video.videoPath), video.mimeType(), shareVideoTitle)
-                                            }
-                                        },
-                                        MenuAction(deleteLabel, danger = true) { deleteVideo = video }
-                                    )
+                                    actions = buildList {
+                                        add(MenuAction(openLabel) { open() })
+                                        if (video.videoPath.endsWith(".webm", ignoreCase = true)) {
+                                            add(MenuAction(shareMp4Label) {
+                                                scope.launch {
+                                                    Toast.makeText(context, convertingMp4Toast, Toast.LENGTH_SHORT).show()
+                                                    runCatching {
+                                                        val src = File(video.videoPath)
+                                                        val cached = File(MediaExportBridge.exportDir(context), "${src.nameWithoutExtension}_${src.lastModified()}.mp4")
+                                                        val mp4 = if (cached.isFile && cached.length() > 0L) cached else MediaExportBridge.exportWebmToMp4(src, cached)
+                                                        shareMediaFile(context, mp4, "video/mp4", shareVideoTitle)
+                                                    }.onFailure { err ->
+                                                        Toast.makeText(context, String.format(exportFailedFmt, err.message ?: ""), Toast.LENGTH_LONG).show()
+                                                    }
+                                                }
+                                            })
+                                            add(MenuAction(shareWebmLabel) {
+                                                runCatching { shareMediaFile(context, File(video.videoPath), video.mimeType(), shareVideoTitle) }
+                                            })
+                                        } else {
+                                            add(MenuAction(shareLabel) {
+                                                runCatching { shareMediaFile(context, File(video.videoPath), video.mimeType(), shareVideoTitle) }
+                                            })
+                                        }
+                                        add(MenuAction(deleteLabel, danger = true) { deleteVideo = video })
+                                    }
                                 ) {
                                     val thumbnail = video.thumbnailPath
                                     if (thumbnail != null) {

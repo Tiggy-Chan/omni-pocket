@@ -615,4 +615,15 @@
     <string name="kb_picker_title">Kennisbank voor chat</string>
     <string name="kb_picker_none">Geen</string>
     <string name="kb_manage_action">Kennisbanken beheren</string>
+    <string name="export_action">Exporteren</string>
+    <string name="export_share_title">Geëxporteerd bestand delen</string>
+    <string name="export_markdown">Exporteren als Markdown (.md)</string>
+    <string name="export_pdf">Exporteren als PDF (.pdf)</string>
+    <string name="export_share_mp4">Delen als MP4 (universeel)</string>
+    <string name="export_share_webm">Originele WebM delen</string>
+    <string name="export_share_m4a">Delen als M4A (compact)</string>
+    <string name="export_share_wav">Originele WAV delen</string>
+    <string name="export_converting_mp4">Converteren naar MP4…</string>
+    <string name="export_converting_m4a">Converteren naar M4A…</string>
+    <string name="export_failed_fmt">Exporteren mislukt: %1$s</string>
 </resources>

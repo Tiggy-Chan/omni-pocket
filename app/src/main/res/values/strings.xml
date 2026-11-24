@@ -615,4 +615,15 @@
     <string name="kb_picker_title">Knowledge base for Chat</string>
     <string name="kb_picker_none">None (normal chat)</string>
     <string name="kb_manage_action">Manage knowledge bases</string>
+    <string name="export_action">Export</string>
+    <string name="export_share_title">Share exported file</string>
+    <string name="export_markdown">Export Markdown (.md)</string>
+    <string name="export_pdf">Export PDF (.pdf)</string>
+    <string name="export_share_mp4">Share as MP4 (universal)</string>
+    <string name="export_share_webm">Share original WebM</string>
+    <string name="export_share_m4a">Share as M4A (compact)</string>
+    <string name="export_share_wav">Share original WAV</string>
+    <string name="export_converting_mp4">Converting to MP4…</string>
+    <string name="export_converting_m4a">Converting to M4A…</string>
+    <string name="export_failed_fmt">Export failed: %1$s</string>
 </resources>

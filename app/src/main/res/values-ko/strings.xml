@@ -615,4 +615,15 @@
     <string name="kb_picker_title">대화에 연결할 지식 베이스</string>
     <string name="kb_picker_none">사용 안 함</string>
     <string name="kb_manage_action">지식 베이스 관리</string>
+    <string name="export_action">내보내기</string>
+    <string name="export_share_title">내보낸 파일 공유</string>
+    <string name="export_markdown">Markdown (.md) 내보내기</string>
+    <string name="export_pdf">PDF (.pdf) 내보내기</string>
+    <string name="export_share_mp4">MP4로 공유 (범용)</string>
+    <string name="export_share_webm">원본 WebM 공유</string>
+    <string name="export_share_m4a">M4A로 공유 (경량)</string>
+    <string name="export_share_wav">원본 WAV 공유</string>
+    <string name="export_converting_mp4">MP4 변환 중…</string>
+    <string name="export_converting_m4a">M4A 변환 중…</string>
+    <string name="export_failed_fmt">내보내기 실패: %1$s</string>
 </resources>

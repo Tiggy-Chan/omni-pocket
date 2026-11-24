@@ -615,4 +615,15 @@
     <string name="kb_picker_title">База знаний для чата</string>
     <string name="kb_picker_none">Не использовать</string>
     <string name="kb_manage_action">Управление базами</string>
+    <string name="export_action">Экспорт</string>
+    <string name="export_share_title">Поделиться файлом</string>
+    <string name="export_markdown">Экспорт в Markdown (.md)</string>
+    <string name="export_pdf">Экспорт в PDF (.pdf)</string>
+    <string name="export_share_mp4">Поделиться как MP4 (универсальный)</string>
+    <string name="export_share_webm">Поделиться исходным WebM</string>
+    <string name="export_share_m4a">Поделиться как M4A (компактный)</string>
+    <string name="export_share_wav">Поделиться исходным WAV</string>
+    <string name="export_converting_mp4">Конвертация в MP4…</string>
+    <string name="export_converting_m4a">Конвертация в M4A…</string>
+    <string name="export_failed_fmt">Ошибка экспорта: %1$s</string>
 </resources>
