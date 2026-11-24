@@ -95,7 +95,7 @@ index 02630c0..019f105 100644
                                             ggml_backend_t backend,
                                             ggml_tensor* x,
 diff --git a/src/model/adapter/lora.hpp b/src/model/adapter/lora.hpp
-index 1e5377c..eafd17c 100644
+index 1e5377c..bbd6817 100644
 --- a/src/model/adapter/lora.hpp
 +++ b/src/model/adapter/lora.hpp
 @@ -85,7 +85,8 @@ struct LoraModel : public GGMLRunner {
@@ -174,6 +174,15 @@ index 1e5377c..eafd17c 100644
      ggml_tensor* get_weight_diff(const std::string& model_tensor_name, ggml_backend_t backend, ggml_context* ctx, ggml_tensor* model_tensor, bool with_lora_and_lokr = true) {
          // lora
          ggml_tensor* diff = nullptr;
+@@ -901,7 +950,7 @@ struct LoraModel : public GGMLRunner {
+                                       forward_params.conv2d.scale);
+             }
+ 
+-            auto curr_out_diff = ggml_ext_scale(ctx, lx, scale_value, true);
++            auto curr_out_diff = ggml_ext_scale(ctx, lx, scale_value, false);
+             if (out_diff == nullptr) {
+                 out_diff = curr_out_diff;
+             } else {
 @@ -959,9 +1008,10 @@ struct LoraModel : public GGMLRunner {
              std::string model_tensor_name = it.first;
              ggml_tensor* model_tensor     = it.second;
@@ -225,8 +234,32 @@ index 1e5377c..eafd17c 100644
              ggml_tensor* diff = lora_model->get_weight_diff(weight_name, backend, ctx, weight, with_lora_and_lokr);
              if (diff == nullptr) {
                  continue;
+@@ -1114,7 +1185,7 @@ public:
+             if (out_diff == nullptr) {
+                 continue;
+             }
+-            out = ggml_add_inplace(ctx, out, out_diff);
++            out = ggml_add(ctx, out, out_diff);
+         }
+         return out;
+     }
+@@ -1136,12 +1207,12 @@ public:
+                                                         nullptr,
+                                                         forward_params.linear.force_prec_f32,
+                                                         forward_params.linear.scale);
+-                output                = ggml_add_inplace(ctx, output, out_diff);
++                output                = ggml_add(ctx, output, out_diff);
+             }
+ 
+             ggml_tensor* out_diff = lora_model->get_out_diff(ctx, backend, x, w, forward_params, prefix + "weight");
+             if (out_diff != nullptr) {
+-                output = ggml_add_inplace(ctx, output, out_diff);
++                output = ggml_add(ctx, output, out_diff);
+             }
+         }
+         return output;
 diff --git a/src/model/common/ggml_block.hpp b/src/model/common/ggml_block.hpp
-index 7529848..0f0baf4 100644
+index 7529848..2a83510 100644
 --- a/src/model/common/ggml_block.hpp
 +++ b/src/model/common/ggml_block.hpp
 @@ -236,6 +236,13 @@ public:
@@ -243,6 +276,33 @@ index 7529848..0f0baf4 100644
          if (w->type == GGML_TYPE_I8) {
              if (x->type != GGML_TYPE_F32) {
                  x = ggml_ext_cast_f32(ctx->ggml_ctx, ctx->backend, x);
+@@ -301,7 +308,7 @@ public:
+                 }
+             }
+             if (b != nullptr) {
+-                out = ggml_add_inplace(ctx->ggml_ctx, out, b);
++                out = ggml_add(ctx->ggml_ctx, out, b);
+             }
+             return out;
+         }
+@@ -683,7 +690,7 @@ public:
+             }
+             if (b) {
+                 b   = ggml_reshape_4d(ctx->ggml_ctx, b, 1, 1, b->ne[0], 1);
+-                res = ggml_add_inplace(ctx->ggml_ctx, res, b);
++                res = ggml_add(ctx->ggml_ctx, res, b);
+             }
+             return res;
+         }
+@@ -943,7 +950,7 @@ public:
+             w = ctx->weight_adapter->patch_weight(ctx->ggml_ctx, ctx->backend, w, prefix + "weight");
+         }
+         x = ggml_rms_norm(ctx->ggml_ctx, x, eps);
+-        x = ggml_mul_inplace(ctx->ggml_ctx, x, w);
++        x = ggml_mul(ctx->ggml_ctx, x, w);
+         return x;
+     }
+ };
 diff --git a/src/model/diffusion/minimax_h3.hpp b/src/model/diffusion/minimax_h3.hpp
 index e93c70f..9cb434b 100644
 --- a/src/model/diffusion/minimax_h3.hpp

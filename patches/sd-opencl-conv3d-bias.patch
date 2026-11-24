@@ -1,7 +1,34 @@
 diff --git a/src/core/ggml_extend.cpp b/src/core/ggml_extend.cpp
-index b2d79240..4a6bc9d3 100644
+index 1099f4b..2144b29 100644
 --- a/src/core/ggml_extend.cpp
 +++ b/src/core/ggml_extend.cpp
+@@ -236,7 +236,7 @@ ggml_tensor* ggml_ext_linear(ggml_context* ctx,
+         x = ggml_ext_scale(ctx, x, 1.f / scale);
+     }
+     if (b != nullptr) {
+-        x = ggml_add_inplace(ctx, x, b);
++        x = ggml_add(ctx, x, b);
+     }
+     return x;
+ }
+@@ -274,7 +274,7 @@ ggml_tensor* ggml_ext_linear_i8_tensorwise(ggml_context* ctx,
+     if (scale != 1.f) {
+         x = ggml_ext_scale(ctx, x, 1.f / scale);
+         if (b != nullptr) {
+-            x = ggml_add_inplace(ctx, x, b);
++            x = ggml_add(ctx, x, b);
+         }
+     }
+     return x;
+@@ -401,7 +401,7 @@ ggml_tensor* ggml_ext_conv_1d(ggml_context* ctx,
+             b = ggml_cont(ctx, b);
+         }
+         b      = ggml_reshape_3d(ctx, b, 1, w->ne[2], 1);
+-        result = ggml_add_inplace(ctx, result, b);
++        result = ggml_add(ctx, result, b);
+     }
+     return result;
+ }
 @@ -443,7 +443,7 @@ ggml_tensor* ggml_ext_conv_2d(ggml_context* ctx,
      }
      if (b != nullptr) {
@@ -16,6 +43,44 @@ index b2d79240..4a6bc9d3 100644
      if (b != nullptr) {
          b = ggml_reshape_4d(ctx, b, 1, 1, 1, b->ne[0]);  // [OC, 1, 1, 1]
 -        x = ggml_add_inplace(ctx, x, b);
++        x = ggml_add(ctx, x, b);
+     }
+     return x;
+ }
+@@ -791,11 +791,11 @@ ggml_tensor* ggml_ext_attention_ext(ggml_context* ctx,
+ 
+         auto kq = ggml_mul_mat(ctx, k, q);  // [N * n_head, L_q, L_k]
+         ggml_prec_set_acc(kq, GGML_PREC_F32);
+-        kq = ggml_scale_inplace(ctx, kq, scale);
++        kq = ggml_scale(ctx, kq, scale);
+         if (mask) {
+-            kq = ggml_add_inplace(ctx, kq, mask);
++            kq = ggml_add(ctx, kq, mask);
+         }
+-        kq = ggml_soft_max_inplace(ctx, kq);
++        kq = ggml_soft_max(ctx, kq);
+ 
+         kqv = ggml_mul_mat(ctx, v, kq);  // [N * n_head, L_q, d_head]
+ 
+@@ -816,9 +816,9 @@ ggml_tensor* ggml_ext_layer_norm(ggml_context* ctx,
+                                  float eps) {
+     x = ggml_norm(ctx, x, eps);
+     if (w != nullptr) {
+-        x = ggml_mul_inplace(ctx, x, w);
++        x = ggml_mul(ctx, x, w);
+         if (b != nullptr) {
+-            x = ggml_add_inplace(ctx, x, b);
++            x = ggml_add(ctx, x, b);
+         }
+     }
+     return x;
+@@ -837,8 +837,8 @@ ggml_tensor* ggml_ext_group_norm(ggml_context* ctx,
+ 
+     x = ggml_group_norm(ctx, x, num_groups, eps);
+     if (w != nullptr && b != nullptr) {
+-        x = ggml_mul_inplace(ctx, x, w);
+-        x = ggml_add_inplace(ctx, x, b);
++        x = ggml_mul(ctx, x, w);
 +        x = ggml_add(ctx, x, b);
      }
      return x;
