@@ -2,8 +2,11 @@ package com.tiggy.qwenimage
 
 import android.app.Application
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.tiggy.qwenimage.data.DocumentTextExtractor
+import com.tiggy.qwenimage.data.ExtractedDocument
 import com.tiggy.qwenimage.data.HubModelType
 import com.tiggy.qwenimage.data.InstalledHubModelsRepository
 import com.tiggy.qwenimage.data.LlmChatSnapshot
@@ -19,6 +22,9 @@ import com.tiggy.qwenimage.data.ModelDownloadManager
 import com.tiggy.qwenimage.data.formatBytesCompact
 import com.tiggy.qwenimage.data.splitReasoning
 import com.tiggy.qwenimage.engine.ChatSamplingParams
+import com.tiggy.qwenimage.engine.DocumentQuickAction
+import com.tiggy.qwenimage.engine.DocumentSummaryPipeline
+import com.tiggy.qwenimage.engine.DocumentSummaryProgress
 import com.tiggy.qwenimage.engine.KvCachePrecision
 import com.tiggy.qwenimage.engine.LocalInferenceCoordinator
 import com.tiggy.qwenimage.engine.LocalLlamaChatEngine
@@ -91,6 +97,9 @@ data class LlmUiState(
     val download: LlmDownloadProgress? = null,
     val usage: LlmUsage? = null,
     val loadedModelId: String? = null,
+    val attachedDocument: ExtractedDocument? = null,
+    val documentLoading: Boolean = false,
+    val documentProgress: DocumentSummaryProgress? = null,
     val showModels: Boolean = false,
     val showConversations: Boolean = false,
     val alert: String? = null,
@@ -373,9 +382,93 @@ class LlmViewModel(
 
     fun clearAlert() = _state.update { it.copy(alert = null) }
 
+    fun attachDocument(uri: Uri) {
+        if (_state.value.busy) return
+        _state.update { it.copy(documentLoading = true, error = null) }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { DocumentTextExtractor.extractFromUri(getApplication(), uri) }
+            }
+            result.onSuccess { doc ->
+                _state.update {
+                    it.copy(
+                        attachedDocument = doc,
+                        documentLoading = false,
+                        error = null
+                    )
+                }
+            }.onFailure { err ->
+                _state.update {
+                    it.copy(
+                        documentLoading = false,
+                        error = err.message ?: err.toString()
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearAttachedDocument() {
+        _state.update { it.copy(attachedDocument = null, documentProgress = null) }
+    }
+
+    fun runDocumentAction(action: DocumentQuickAction, displayLabel: String) {
+        val snapshot = _state.value
+        if (!snapshot.ready || snapshot.busy) return
+        val doc = snapshot.attachedDocument ?: return
+        if (doc.text.isBlank()) {
+            _state.update { it.copy(alert = "该文档未提取到可阅读文本（若为扫描版 PDF，请先转为可复制文本）") }
+            return
+        }
+        val conversation = snapshot.conversation ?: return
+        val choice = snapshot.chatModels.firstOrNull { it.id == conversation.modelId }
+        if (choice?.ready != true) {
+            _state.update { it.copy(alert = "请先下载或选择已就绪的对话模型") }
+            return
+        }
+        val question = if (action == DocumentQuickAction.Ask) snapshot.draft.trim() else ""
+        val userDisplay = if (question.isNotBlank()) {
+            "[${doc.fileName}]\n$question"
+        } else {
+            "[${doc.fileName}] $displayLabel"
+        }
+        cancelRequested = false
+        val user = LlmMessage(UUID.randomUUID().toString(), "user", userDisplay)
+        val assistant = LlmMessage(UUID.randomUUID().toString(), "assistant", "", status = LlmMessageStatus.Streaming)
+        updateConversation(conversation.id) { current ->
+            current.copy(
+                title = if (current.messages.isEmpty()) conversationTitle(userDisplay) else current.title,
+                messages = current.messages + user + assistant,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+        _state.update {
+            it.copy(
+                drafts = if (action == DocumentQuickAction.Ask) it.drafts + (conversation.id to "") else it.drafts,
+                phase = LlmPhase.Loading,
+                workingModelId = conversation.modelId,
+                documentProgress = null,
+                usage = null,
+                error = null
+            )
+        }
+        activeConversationId = conversation.id
+        activeMessageId = assistant.id
+        operation = viewModelScope.launch {
+            generateForDocument(conversation.id, assistant.id, doc, action, question)
+        }
+    }
+
     fun send() {
         val snapshot = _state.value
         if (!snapshot.ready || snapshot.busy) return
+        val attached = snapshot.attachedDocument
+        if (attached != null && attached.text.isNotBlank()) {
+            val question = snapshot.draft.trim()
+            if (question.isEmpty()) return
+            runDocumentAction(DocumentQuickAction.Ask, question)
+            return
+        }
         val conversation = snapshot.conversation ?: return
         val text = snapshot.draft.trim()
         if (text.isEmpty()) return
@@ -642,6 +735,184 @@ class LlmViewModel(
                 )
             }
         } finally {
+            activeConversationId = null
+            activeMessageId = null
+            activeBackend = null
+            operation = null
+        }
+    }
+
+    private suspend fun generateForDocument(
+        conversationId: String,
+        messageId: String,
+        doc: ExtractedDocument,
+        action: DocumentQuickAction,
+        userQuestion: String
+    ) {
+        try {
+            val owner = "llm:$conversationId"
+            val result = coordinator.withInference(owner) {
+                val snapshot = _state.value
+                val conversation = requireNotNull(snapshot.conversations.firstOrNull { it.id == conversationId })
+                val modelId = conversation.modelId
+                val threads = snapshot.threads
+                val contextTokens = snapshot.contextTokens
+                val sampling = ChatSamplingParams(
+                    temperature = snapshot.temperature.coerceAtMost(0.5f),
+                    topP = snapshot.topP,
+                    topK = 40,
+                    repeatPenalty = snapshot.repeatPenalty
+                )
+                val systemPrompt = snapshot.systemPrompt.trim().ifBlank { LlmConversation.SYSTEM_PROMPT }
+                val hubModel = withContext(Dispatchers.IO) { hubRepository.find(modelId) }
+
+                val effectiveCtx: Int
+                val runner: suspend (String, Int, Boolean) -> NativeLlmResult
+
+                if (hubModel != null && hubModel.type == HubModelType.GgufChat) {
+                    check(hubRepository.isPresent(hubModel)) { "模型文件缺失，请重新下载" }
+                    val entry = hubRepository.entryFile(hubModel)
+                    mnnEngine.unload()
+                    activeBackend = ChatEngineBackend.LlamaGguf
+                    if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
+                    val requestedGpuLayers = if (snapshot.ggufUseVulkanGpu && snapshot.ggufGpuAvailable) 99 else 0
+                    var activeGpuLayers = requestedGpuLayers
+                    var error = llamaEngine.load(
+                        modelFile = entry,
+                        modelKey = "${hubModel.id}:${hubModel.installedAt}",
+                        threads = threads,
+                        contextTokens = contextTokens,
+                        kvPrecision = snapshot.ggufKvPrecision,
+                        gpuLayers = activeGpuLayers
+                    )
+                    if (error != null && activeGpuLayers > 0 && !cancelRequested) {
+                        llamaEngine.unload()
+                        activeGpuLayers = 0
+                        error = llamaEngine.load(
+                            modelFile = entry,
+                            modelKey = "${hubModel.id}:${hubModel.installedAt}",
+                            threads = threads,
+                            contextTokens = contextTokens,
+                            kvPrecision = snapshot.ggufKvPrecision,
+                            gpuLayers = 0
+                        )
+                    }
+                    if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
+                    check(error == null) { error.orEmpty() }
+                    effectiveCtx = llamaEngine.effectiveContextTokens.takeIf { it > 0 } ?: contextTokens
+                    _state.update {
+                        it.copy(
+                            loadedModelId = modelId,
+                            loadedEffectiveContext = effectiveCtx,
+                            loadedTrainContext = llamaEngine.modelTrainContextTokens,
+                            phase = LlmPhase.Generating
+                        )
+                    }
+                    var stepCounter = 0
+                    runner = { prompt, stepMaxTokens, streamToUser ->
+                        stepCounter++
+                        val stepConvId = "doc-$conversationId-$messageId-$stepCounter"
+                        val msgs = listOf("system" to systemPrompt, "user" to prompt)
+                        var raw = ""
+                        llamaEngine.generate(stepConvId, msgs, stepMaxTokens, false, sampling) { chunk ->
+                            raw += chunk
+                            if (streamToUser && activeConversationId == conversationId && activeMessageId == messageId) {
+                                updateMessage(conversationId, messageId, raw, LlmMessageStatus.Streaming, implicitThinking = false)
+                            }
+                            !cancelRequested && activeConversationId == conversationId && activeMessageId == messageId
+                        }
+                    }
+                } else {
+                    llamaEngine.unload()
+                    activeBackend = ChatEngineBackend.Mnn
+                    val configFile: File
+                    val modelKey: String
+                    if (hubModel != null && hubModel.type == HubModelType.MnnChat) {
+                        check(hubRepository.isPresent(hubModel)) { "模型文件缺失，请重新下载" }
+                        configFile = hubRepository.entryFile(hubModel)
+                        modelKey = "${hubModel.id}:${hubModel.installedAt}"
+                    } else {
+                        val status = withContext(Dispatchers.IO) {
+                            var current = repository.status(modelId)
+                            if (!current.ready && current.present == current.spec.artifacts.size) {
+                                runCatching { repository.verify(modelId) }
+                                current = repository.status(modelId)
+                            }
+                            current
+                        }
+                        check(status.ready) { "模型未通过校验：${status.message}" }
+                        configFile = File(status.directory, "config.json")
+                        modelKey = status.spec.revision
+                    }
+                    if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
+                    effectiveCtx = contextTokens.coerceAtMost(65536)
+                    val error = mnnEngine.load(
+                        config = configFile,
+                        modelKey = modelKey,
+                        threads = threads,
+                        contextTokens = effectiveCtx,
+                        useOpenCl = snapshot.mnnUseOpenCl
+                    )
+                    if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
+                    check(error == null) { error.orEmpty() }
+                    _state.update {
+                        it.copy(
+                            loadedModelId = modelId,
+                            loadedEffectiveContext = effectiveCtx,
+                            loadedTrainContext = 0,
+                            phase = LlmPhase.Generating
+                        )
+                    }
+                    var stepCounter = 0
+                    runner = { prompt, stepMaxTokens, streamToUser ->
+                        stepCounter++
+                        val stepConvId = "doc-$conversationId-$messageId-$stepCounter"
+                        val msgs = listOf("system" to systemPrompt, "user" to prompt)
+                        var raw = ""
+                        mnnEngine.generate(stepConvId, msgs, stepMaxTokens, false, sampling) { chunk ->
+                            raw += chunk
+                            if (streamToUser && activeConversationId == conversationId && activeMessageId == messageId) {
+                                updateMessage(conversationId, messageId, raw, LlmMessageStatus.Streaming, implicitThinking = false)
+                            }
+                            !cancelRequested && activeConversationId == conversationId && activeMessageId == messageId
+                        }
+                    }
+                }
+
+                val maxNew = snapshot.maxNewTokens.coerceAtMost((effectiveCtx - 256).coerceAtLeast(128))
+                DocumentSummaryPipeline.execute(
+                    doc = doc,
+                    action = action,
+                    userQuestion = userQuestion,
+                    contextTokens = effectiveCtx,
+                    maxNewTokens = maxNew,
+                    isCancelled = { cancelRequested },
+                    onProgress = { progress ->
+                        _state.update { it.copy(documentProgress = progress) }
+                    },
+                    runInference = runner
+                )
+            }
+            checkNotNull(result) { "另一个任务正在运行，请稍后重试" }
+            applyResult(conversationId, messageId, result)
+        } catch (error: CancellationException) {
+            if (_state.value.ready) {
+                updateActiveMessage(LlmMessageStatus.Interrupted)
+                _state.update { it.copy(phase = LlmPhase.Idle, workingModelId = null, documentProgress = null) }
+            }
+            throw error
+        } catch (error: Throwable) {
+            updateActiveMessage(LlmMessageStatus.Failed)
+            _state.update {
+                it.copy(
+                    phase = LlmPhase.Idle,
+                    workingModelId = null,
+                    documentProgress = null,
+                    error = if (it.selectedId == conversationId) error.message ?: error.toString() else it.error
+                )
+            }
+        } finally {
+            _state.update { it.copy(documentProgress = null) }
             activeConversationId = null
             activeMessageId = null
             activeBackend = null

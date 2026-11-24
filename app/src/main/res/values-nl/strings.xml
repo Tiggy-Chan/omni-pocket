@@ -576,4 +576,15 @@
     <string name="models_import_start">Importeren</string>
     <string name="models_source_local">Lokale import</string>
     <string name="models_import_folder_files_fmt">%1$d bestanden · %2$s</string>
+    <string name="chat_attach_doc">Document bijvoegen</string>
+    <string name="chat_doc_reading">Document lezen…</string>
+    <string name="chat_doc_summarize">Samenvatten</string>
+    <string name="chat_doc_keypoints">Hoofdpunten</string>
+    <string name="chat_doc_ask_placeholder">Stel een vraag over dit document</string>
+    <string name="chat_doc_remove">Document verwijderen</string>
+    <string name="chat_doc_chars_fmt">%1$d tekens geëxtraheerd</string>
+    <string name="chat_doc_scanned_pdf_warn">Geen leesbare tekst gevonden (mogelijk gescande PDF)</string>
+    <string name="chat_doc_stage_single">Document lezen…</string>
+    <string name="chat_doc_stage_chunk">Deel %1$d/%2$d lezen…</string>
+    <string name="chat_doc_stage_reduce">Eindantwoord samenstellen…</string>
 </resources>

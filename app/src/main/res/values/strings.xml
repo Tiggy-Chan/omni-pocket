@@ -576,4 +576,15 @@
     <string name="models_import_start">Import</string>
     <string name="models_source_local">Local import</string>
     <string name="models_import_folder_files_fmt">%1$d files · %2$s</string>
+    <string name="chat_attach_doc">Attach document</string>
+    <string name="chat_doc_reading">Reading document…</string>
+    <string name="chat_doc_summarize">Summarize</string>
+    <string name="chat_doc_keypoints">Key points</string>
+    <string name="chat_doc_ask_placeholder">Ask about this document</string>
+    <string name="chat_doc_remove">Remove document</string>
+    <string name="chat_doc_chars_fmt">%1$d chars extracted</string>
+    <string name="chat_doc_scanned_pdf_warn">No extractable text found (possibly a scanned PDF)</string>
+    <string name="chat_doc_stage_single">Reading document…</string>
+    <string name="chat_doc_stage_chunk">Reading part %1$d/%2$d…</string>
+    <string name="chat_doc_stage_reduce">Synthesizing final answer…</string>
 </resources>

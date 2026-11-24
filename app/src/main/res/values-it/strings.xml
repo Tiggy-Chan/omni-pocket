@@ -576,4 +576,15 @@
     <string name="models_import_start">Importa</string>
     <string name="models_source_local">Importazione locale</string>
     <string name="models_import_folder_files_fmt">%1$d file · %2$s</string>
+    <string name="chat_attach_doc">Allega documento</string>
+    <string name="chat_doc_reading">Lettura del documento…</string>
+    <string name="chat_doc_summarize">Riassumi</string>
+    <string name="chat_doc_keypoints">Punti chiave</string>
+    <string name="chat_doc_ask_placeholder">Fai una domanda su questo documento</string>
+    <string name="chat_doc_remove">Rimuovi documento</string>
+    <string name="chat_doc_chars_fmt">%1$d caratteri estratti</string>
+    <string name="chat_doc_scanned_pdf_warn">Nessun testo estraibile trovato (forse PDF scansionato)</string>
+    <string name="chat_doc_stage_single">Lettura del documento…</string>
+    <string name="chat_doc_stage_chunk">Lettura parte %1$d/%2$d…</string>
+    <string name="chat_doc_stage_reduce">Sintesi della risposta finale…</string>
 </resources>

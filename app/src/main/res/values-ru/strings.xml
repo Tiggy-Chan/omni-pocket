@@ -576,4 +576,15 @@
     <string name="models_import_start">Импортировать</string>
     <string name="models_source_local">Локальный импорт</string>
     <string name="models_import_folder_files_fmt">%1$d файлов · %2$s</string>
+    <string name="chat_attach_doc">Прикрепить документ</string>
+    <string name="chat_doc_reading">Чтение документа…</string>
+    <string name="chat_doc_summarize">Сводка</string>
+    <string name="chat_doc_keypoints">Ключевые тезисы</string>
+    <string name="chat_doc_ask_placeholder">Задать вопрос по документу</string>
+    <string name="chat_doc_remove">Убрать документ</string>
+    <string name="chat_doc_chars_fmt">Извлечено %1$d симв.</string>
+    <string name="chat_doc_scanned_pdf_warn">Текст не найден (возможно, это скан PDF)</string>
+    <string name="chat_doc_stage_single">Чтение документа…</string>
+    <string name="chat_doc_stage_chunk">Чтение части %1$d/%2$d…</string>
+    <string name="chat_doc_stage_reduce">Формирование итогового ответа…</string>
 </resources>

@@ -576,4 +576,15 @@
     <string name="models_import_start">インポート</string>
     <string name="models_source_local">ローカル</string>
     <string name="models_import_folder_files_fmt">%1$d 件 · %2$s</string>
+    <string name="chat_attach_doc">ドキュメントを添付</string>
+    <string name="chat_doc_reading">ドキュメントを解析中…</string>
+    <string name="chat_doc_summarize">要約を作成</string>
+    <string name="chat_doc_keypoints">要点を抽出</string>
+    <string name="chat_doc_ask_placeholder">このドキュメントについて質問</string>
+    <string name="chat_doc_remove">ドキュメントを削除</string>
+    <string name="chat_doc_chars_fmt">%1$d 文字を抽出済み</string>
+    <string name="chat_doc_scanned_pdf_warn">テキストが見つかりません（スキャン PDF の可能性があります）</string>
+    <string name="chat_doc_stage_single">ドキュメントを読み込み中…</string>
+    <string name="chat_doc_stage_chunk">セクション %1$d/%2$d を読み込み中…</string>
+    <string name="chat_doc_stage_reduce">最終結果をまとめています…</string>
 </resources>

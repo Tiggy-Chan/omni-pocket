@@ -576,4 +576,15 @@
     <string name="models_import_start">開始匯入</string>
     <string name="models_source_local">本機匯入</string>
     <string name="models_import_folder_files_fmt">%1$d 個檔案 · %2$s</string>
+    <string name="chat_attach_doc">附加文件</string>
+    <string name="chat_doc_reading">正在解析文件…</string>
+    <string name="chat_doc_summarize">產生摘要</string>
+    <string name="chat_doc_keypoints">提煉重點</string>
+    <string name="chat_doc_ask_placeholder">圍繞此文件提問</string>
+    <string name="chat_doc_remove">移除文件</string>
+    <string name="chat_doc_chars_fmt">已提取 %1$d 字</string>
+    <string name="chat_doc_scanned_pdf_warn">未提取到文字（可能是掃描版 PDF）</string>
+    <string name="chat_doc_stage_single">正在閱讀文件…</string>
+    <string name="chat_doc_stage_chunk">正在分段閱讀 %1$d/%2$d…</string>
+    <string name="chat_doc_stage_reduce">正在彙整最終結果…</string>
 </resources>

@@ -4,6 +4,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,7 +33,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Memory
@@ -66,8 +73,11 @@ import com.tiggy.qwenimage.LlmUiState
 import com.tiggy.qwenimage.LlmUsage
 import com.tiggy.qwenimage.LlmViewModel
 import com.tiggy.qwenimage.R
+import com.tiggy.qwenimage.data.ExtractedDocument
 import com.tiggy.qwenimage.data.LlmMessage
 import com.tiggy.qwenimage.data.LlmMessageStatus
+import com.tiggy.qwenimage.engine.DocumentQuickAction
+import com.tiggy.qwenimage.engine.DocumentSummaryStage
 import java.util.Locale
 
 @Composable
@@ -80,6 +90,11 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
     val thinking = conversation?.thinking == true
     val loading = state.phase == LlmPhase.Loading
     val running = loading || state.phase == LlmPhase.Generating
+    val docPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.attachDocument(uri)
+    }
+    val summarizeActionLabel = tr(R.string.chat_doc_summarize)
+    val keyPointsActionLabel = tr(R.string.chat_doc_keypoints)
 
     state.alert?.let { message ->
         AlertDialog(
@@ -126,9 +141,33 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
             }
         },
         composer = { haze ->
-            val status: (@Composable () -> Unit)? = if (loading || state.error != null) ({
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    if (loading) Text(tr(R.string.chat_loading_model), color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
+            val attachedDoc = state.attachedDocument
+            val docProgress = state.documentProgress
+            val hasStatus = loading || state.documentLoading || attachedDoc != null || docProgress != null || state.error != null
+            val status: (@Composable () -> Unit)? = if (hasStatus) ({
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (state.documentLoading) {
+                        Text(tr(R.string.chat_doc_reading), color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (attachedDoc != null) {
+                        AttachedDocumentBar(
+                            doc = attachedDoc,
+                            busy = state.busy,
+                            onSummarize = { viewModel.runDocumentAction(DocumentQuickAction.Summarize, summarizeActionLabel) },
+                            onKeyPoints = { viewModel.runDocumentAction(DocumentQuickAction.KeyPoints, keyPointsActionLabel) },
+                            onClear = viewModel::clearAttachedDocument
+                        )
+                    }
+                    if (docProgress != null) {
+                        val stageText = when (docProgress.stage) {
+                            DocumentSummaryStage.SinglePass -> tr(R.string.chat_doc_stage_single)
+                            DocumentSummaryStage.MapChunk -> tr(R.string.chat_doc_stage_chunk, docProgress.currentChunk, docProgress.totalChunks)
+                            DocumentSummaryStage.ReduceFinal -> tr(R.string.chat_doc_stage_reduce)
+                        }
+                        Text(stageText, color = OmniColors.Accent, style = MaterialTheme.typography.bodySmall)
+                    } else if (loading) {
+                        Text(tr(R.string.chat_loading_model), color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
+                    }
                     state.error?.let { Text(it, color = OmniColors.Danger, style = MaterialTheme.typography.bodySmall) }
                 }
             }) else null
@@ -136,14 +175,24 @@ fun LlmChatScreen(viewModel: LlmViewModel, onMenu: (() -> Unit)?, onModels: () -
                 hazeState = haze,
                 value = state.draft,
                 onValueChange = viewModel::updateDraft,
-                placeholder = tr(R.string.chat_input_placeholder),
+                placeholder = if (attachedDoc != null) tr(R.string.chat_doc_ask_placeholder) else tr(R.string.chat_input_placeholder),
                 onSend = viewModel::send,
                 sendEnabled = !state.busy && state.draft.isNotBlank(),
                 running = running,
                 onStop = viewModel::cancel,
                 enabled = state.ready,
                 status = status,
-                tools = { ModelChip(modelName, enabled = !state.busy) { picking = true } }
+                tools = {
+                    ComposerChip(
+                        label = "",
+                        onClick = { docPicker.launch(arrayOf("text/*", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/json", "*/*")) },
+                        icon = Icons.Outlined.AttachFile,
+                        enabled = !state.busy && !state.documentLoading,
+                        selected = attachedDoc != null,
+                        contentDescription = tr(R.string.chat_attach_doc)
+                    )
+                    ModelChip(modelName, enabled = !state.busy) { picking = true }
+                }
             )
         }
     ) { padding ->
@@ -282,6 +331,64 @@ private fun MessageItem(
                     IconButton(onClick = onRegenerate, modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Outlined.Refresh, tr(R.string.chat_regenerate), tint = OmniColors.Dim, modifier = Modifier.size(18.dp))
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachedDocumentBar(
+    doc: ExtractedDocument,
+    busy: Boolean,
+    onSummarize: () -> Unit,
+    onKeyPoints: () -> Unit,
+    onClear: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = OmniColors.Field,
+        border = BorderStroke(0.5.dp, OmniColors.Line),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Description, null, tint = OmniColors.Accent, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        doc.fileName,
+                        color = OmniColors.Ink,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val meta = if (doc.isLikelyScannedPdf) {
+                        tr(R.string.chat_doc_scanned_pdf_warn)
+                    } else {
+                        tr(R.string.chat_doc_chars_fmt, doc.text.length)
+                    }
+                    Text(
+                        meta,
+                        color = if (doc.isLikelyScannedPdf) OmniColors.Warning else OmniColors.Muted,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+                IconButton(onClick = onClear, enabled = !busy, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Outlined.Close, tr(R.string.chat_doc_remove), tint = OmniColors.Muted, modifier = Modifier.size(16.dp))
+                }
+            }
+            if (!busy && doc.text.isNotBlank()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ComposerChip(
+                        label = tr(R.string.chat_doc_summarize),
+                        onClick = onSummarize,
+                        selected = true
+                    )
+                    ComposerChip(
+                        label = tr(R.string.chat_doc_keypoints),
+                        onClick = onKeyPoints
+                    )
                 }
             }
         }
