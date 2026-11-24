@@ -27,13 +27,18 @@ object ResumableHttpDownloader {
         expectedSize: Long?,
         operation: CoroutineContext,
         hubSettings: HubSettings = HubSettings(mode = HubMirrorMode.Official),
-        maxAttempts: Int = 3,
+        maxAttempts: Int = 5,
         progress: (downloaded: Long, total: Long) -> Unit
     ): Long {
         val rewrittenUrl = HubUrlRewriter.rewriteDownloadUrl(url, hubSettings)
         var lastError: Throwable? = null
-        for (attempt in 1..maxAttempts) {
+        var consecutiveFailures = 0
+        var totalSegments = 0
+        val maxTotalSegments = 48
+        while (consecutiveFailures < maxAttempts && totalSegments < maxTotalSegments) {
             operation.ensureActive()
+            totalSegments++
+            val beforeBytes = if (part.isFile) part.length() else 0L
             try {
                 return downloadOnce(rewrittenUrl, part, expectedSize, operation, hubSettings, progress)
             } catch (error: NonRetryableHttpException) {
@@ -42,14 +47,18 @@ object ResumableHttpDownloader {
                 // Protocol / Range contract error should fail fast without retrying.
                 throw error
             } catch (error: IllegalStateException) {
-                if (attempt == maxAttempts) throw error
+                val afterBytes = if (part.isFile) part.length() else 0L
+                consecutiveFailures = if (afterBytes > beforeBytes) 0 else consecutiveFailures + 1
                 lastError = error
+                if (consecutiveFailures >= maxAttempts || totalSegments >= maxTotalSegments) throw error
             } catch (error: IOException) {
-                if (attempt == maxAttempts) throw error
+                val afterBytes = if (part.isFile) part.length() else 0L
+                consecutiveFailures = if (afterBytes > beforeBytes) 0 else consecutiveFailures + 1
                 lastError = error
+                if (consecutiveFailures >= maxAttempts || totalSegments >= maxTotalSegments) throw error
             }
             // Brief blocking backoff on IO dispatcher between retries.
-            val sleepMs = (attempt * 1500L).coerceAtMost(5_000L)
+            val sleepMs = ((consecutiveFailures.coerceAtLeast(1)) * 1200L).coerceAtMost(5_000L)
             val deadline = System.currentTimeMillis() + sleepMs
             while (System.currentTimeMillis() < deadline) {
                 operation.ensureActive()
@@ -165,29 +174,50 @@ object ResumableHttpDownloader {
         hubSettings: HubSettings,
         maxBytes: Int = 2 * 1024 * 1024,
         connectTimeoutMs: Int = 15_000,
-        readTimeoutMs: Int = 30_000
+        readTimeoutMs: Int = 30_000,
+        maxAttempts: Int = 3
     ): String {
         val rewritten = HubUrlRewriter.rewriteDownloadUrl(url, hubSettings)
-        val connection = openWithRedirects(
-            url = rewritten,
-            hubSettings = hubSettings,
-            rangeStart = null,
-            connectTimeoutMs = connectTimeoutMs,
-            readTimeoutMs = readTimeoutMs,
-            accept = "application/json"
-        )
-        try {
-            val code = connection.responseCode
-            if (code == 401 || code == 403) {
-                throw IOException("无权访问该仓库（HTTP $code），可能需要填写 Hugging Face Token")
+        var lastError: IOException? = null
+        for (attempt in 1..maxAttempts) {
+            val connection = try {
+                openWithRedirects(
+                    url = rewritten,
+                    hubSettings = hubSettings,
+                    rangeStart = null,
+                    connectTimeoutMs = connectTimeoutMs,
+                    readTimeoutMs = readTimeoutMs,
+                    accept = "application/json"
+                )
+            } catch (e: IOException) {
+                lastError = e
+                if (attempt < maxAttempts) runCatching { Thread.sleep(450L * attempt) }
+                continue
             }
-            if (code !in 200..299) {
-                throw IOException("请求失败：HTTP $code")
+            try {
+                val code = connection.responseCode
+                if (code == 401 || code == 403) {
+                    throw NonRetryableHttpException("无权访问该仓库（HTTP $code），可能需要填写 Hugging Face Token")
+                }
+                if (code == 404) {
+                    throw NonRetryableHttpException("请求失败：HTTP 404")
+                }
+                if (code !in 200..299) {
+                    val err = IOException("请求失败：HTTP $code")
+                    if (code == 408 || code == 429 || code in 500..599) throw err
+                    throw NonRetryableHttpException(err.message ?: "HTTP $code")
+                }
+                return connection.inputStream.use { readLimited(it, maxBytes) }
+            } catch (e: NonRetryableHttpException) {
+                throw e
+            } catch (e: IOException) {
+                lastError = e
+                if (attempt < maxAttempts) runCatching { Thread.sleep(450L * attempt) }
+            } finally {
+                connection.disconnect()
             }
-            return connection.inputStream.use { readLimited(it, maxBytes) }
-        } finally {
-            connection.disconnect()
         }
+        throw lastError ?: IOException("网络请求失败")
     }
 
     internal fun openWithRedirects(
