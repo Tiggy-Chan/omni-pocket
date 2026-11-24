@@ -563,4 +563,17 @@
     <string name="video_pih3_preset">pi-H3 Snelheidsprofiel</string>
     <string name="video_pih3_2step">2 stappen (Snel)</string>
     <string name="video_pih3_4step">4 stappen (Hogere kwaliteit)</string>
+    <string name="models_import_local">Lokaal importeren</string>
+    <string name="models_import_title">Lokaal model importeren</string>
+    <string name="models_import_desc">Importeer lokale .gguf / .safetensors-bestanden of een MNN-map zonder extra rechten.</string>
+    <string name="models_import_pick_file">Modelbestand</string>
+    <string name="models_import_pick_folder">MNN-map</string>
+    <string name="models_import_inspecting">Modelheader analyseren…</string>
+    <string name="models_import_target_label">Doeltype</string>
+    <string name="models_import_as_companion">Opslaan als gedeeld onderdeel (%1$s)</string>
+    <string name="models_import_companions_cached">Gedeelde onderdelen gereed: %1$d</string>
+    <string name="models_import_companions_missing">Extra onderdelen nodig: %1$s</string>
+    <string name="models_import_start">Importeren</string>
+    <string name="models_source_local">Lokale import</string>
+    <string name="models_import_folder_files_fmt">%1$d bestanden · %2$s</string>
 </resources>

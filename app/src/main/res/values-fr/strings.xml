@@ -563,4 +563,17 @@
     <string name="video_pih3_preset">Préréglage pi-H3</string>
     <string name="video_pih3_2step">2 étapes (Rapide)</string>
     <string name="video_pih3_4step">4 étapes (Qualité supérieure)</string>
+    <string name="models_import_local">Importer</string>
+    <string name="models_import_title">Importer un modèle local</string>
+    <string name="models_import_desc">Importez un fichier .gguf / .safetensors ou un dossier MNN local sans permission supplémentaire.</string>
+    <string name="models_import_pick_file">Fichier modèle</string>
+    <string name="models_import_pick_folder">Dossier MNN</string>
+    <string name="models_import_inspecting">Analyse de l’en-tête du modèle…</string>
+    <string name="models_import_target_label">Type de modèle</string>
+    <string name="models_import_as_companion">Enregistrer comme composant partagé (%1$s)</string>
+    <string name="models_import_companions_cached">Composants partagés prêts : %1$d</string>
+    <string name="models_import_companions_missing">Composants requis avant exécution : %1$s</string>
+    <string name="models_import_start">Importer</string>
+    <string name="models_source_local">Import local</string>
+    <string name="models_import_folder_files_fmt">%1$d fichiers · %2$s</string>
 </resources>

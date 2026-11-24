@@ -563,4 +563,17 @@
     <string name="video_pih3_preset">pi-H3 速度檔位</string>
     <string name="video_pih3_2step">2 步（快速）</string>
     <string name="video_pih3_4step">4 步（更高畫質）</string>
+    <string name="models_import_local">匯入本機</string>
+    <string name="models_import_title">匯入本機模型</string>
+    <string name="models_import_desc">直接從裝置儲存空間匯入 .gguf / .safetensors 權重或 MNN 資料夾，無需額外儲存權限。</string>
+    <string name="models_import_pick_file">選擇模型檔案</string>
+    <string name="models_import_pick_folder">選擇 MNN 資料夾</string>
+    <string name="models_import_inspecting">正在解析模型標頭…</string>
+    <string name="models_import_target_label">目標類型</string>
+    <string name="models_import_as_companion">儲存為共用配套元件（%1$s）</string>
+    <string name="models_import_companions_cached">已就緒共用元件：%1$d 項</string>
+    <string name="models_import_companions_missing">執行前還需匯入或下載配套元件：%1$s</string>
+    <string name="models_import_start">開始匯入</string>
+    <string name="models_source_local">本機匯入</string>
+    <string name="models_import_folder_files_fmt">%1$d 個檔案 · %2$s</string>
 </resources>

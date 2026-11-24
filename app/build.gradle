@@ -33,6 +33,9 @@ android {
 
     signingConfigs {
         release {
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
             def ksPath = System.getenv('OMNI_KEYSTORE_PATH') ?: project.findProperty('OMNI_KEYSTORE_PATH')
             if (ksPath) {
                 storeFile file(ksPath)

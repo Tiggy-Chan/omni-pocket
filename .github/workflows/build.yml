@@ -111,6 +111,13 @@ jobs:
           if [[ "${{ steps.sign.outputs.signed }}" == "true" ]]; then
             apk="out/omni-pocket-${V}-arm64-v8a.apk"
             cp app/build/outputs/apk/release/app-release.apk "$apk"
+            APKSIGNER="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)"
+            "$APKSIGNER" verify -v --print-certs "$apk"
+            VERIFY_OUT="$("$APKSIGNER" verify -v --min-sdk-version 21 "$apk")"
+            echo "$VERIFY_OUT"
+            grep -q "Verified using v1 scheme (JAR signing): true" <<<"$VERIFY_OUT"
+            grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" <<<"$VERIFY_OUT"
+            grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" <<<"$VERIFY_OUT"
           else
             apk="out/omni-pocket-${V}-${H}-debug.apk"
             cp app/build/outputs/apk/debug/app-debug.apk "$apk"

@@ -305,16 +305,6 @@ class InstalledHubModelsRepository(private val context: Context) {
             onProgress(file.path.substringAfterLast('/'), completed, total.coerceAtLeast(completed))
         }
 
-        val targetDir = modelDir(option.id)
-        val backupDir = File(root, ".${option.id}.backup")
-        if (backupDir.exists()) backupDir.deleteRecursively()
-        if (targetDir.exists()) check(targetDir.renameTo(backupDir)) { "无法备份旧模型" }
-        if (!staging.renameTo(targetDir)) {
-            if (backupDir.exists()) backupDir.renameTo(targetDir)
-            error("无法启用已下载模型")
-        }
-        backupDir.deleteRecursively()
-
         val displayName = when (option.type) {
             HubModelType.MnnChat -> option.repo.substringAfter('/')
             HubModelType.MusicAudio -> option.label.take(80)
@@ -333,12 +323,25 @@ class InstalledHubModelsRepository(private val context: Context) {
             installedAt = System.currentTimeMillis(),
             metadata = option.metadata
         )
+        commitStagedModel(staging, record)
+    }
+
+    internal fun commitStagedModel(staging: File, record: InstalledHubModel): InstalledHubModel {
+        val targetDir = modelDir(record.id)
+        val backupDir = File(root, ".${record.id}.backup")
+        if (backupDir.exists()) backupDir.deleteRecursively()
+        if (targetDir.exists()) check(targetDir.renameTo(backupDir)) { "无法备份旧模型" }
+        if (!staging.renameTo(targetDir)) {
+            if (backupDir.exists()) backupDir.renameTo(targetDir)
+            error("无法启用已导入/下载的模型")
+        }
+        backupDir.deleteRecursively()
         synchronized(lock) {
             val next = readRegistry().filterNot { it.id == record.id } + record
             writeRegistry(next)
             _models.value = next.filter { isPresent(it) }
         }
-        record
+        return record
     }
 
     fun delete(id: String) {

@@ -1,6 +1,7 @@
 package com.tiggy.qwenimage
 
 import android.app.Application
+import android.net.Uri
 import android.os.StatFs
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -12,6 +13,7 @@ import com.tiggy.qwenimage.data.HfRepoOption
 import com.tiggy.qwenimage.data.HfRepoSummary
 import com.tiggy.qwenimage.data.HubConnectivityChecker
 import com.tiggy.qwenimage.data.HubMirrorMode
+import com.tiggy.qwenimage.data.HubModelType
 import com.tiggy.qwenimage.data.HubPreferences
 import com.tiggy.qwenimage.data.HubProbeResult
 import com.tiggy.qwenimage.data.HubSearchCategory
@@ -25,6 +27,8 @@ import com.tiggy.qwenimage.data.LiveChatTier
 import com.tiggy.qwenimage.data.LiveLeaderboardClient
 import com.tiggy.qwenimage.data.LiveLeaderboardSnapshot
 import com.tiggy.qwenimage.data.LiveMusicTrack
+import com.tiggy.qwenimage.data.LocalImportPreview
+import com.tiggy.qwenimage.data.LocalModelImporter
 import com.tiggy.qwenimage.data.ModelDownloadManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -68,7 +72,10 @@ data class ModelHubUiState(
     val deviceHardware: DeviceHardwareSnapshot? = null,
     val liveBoards: Map<String, LiveLeaderboardSnapshot> = emptyMap(),
     val liveLoading: Set<String> = emptySet(),
-    val liveErrors: Map<String, String> = emptyMap()
+    val liveErrors: Map<String, String> = emptyMap(),
+    val localImportInspecting: Boolean = false,
+    val localImportPreview: LocalImportPreview? = null,
+    val localImportError: String? = null
 )
 
 class ModelHubViewModel(application: Application) : AndroidViewModel(application) {
@@ -388,6 +395,91 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
             installedRepo.downloadOption(option, settings, onProgress)
         }
         closeRepoSheet()
+    }
+
+    fun clearLocalImport() {
+        _state.update {
+            it.copy(
+                localImportInspecting = false,
+                localImportPreview = null,
+                localImportError = null
+            )
+        }
+    }
+
+    fun inspectLocalFile(uri: Uri) {
+        _state.update {
+            it.copy(localImportInspecting = true, localImportPreview = null, localImportError = null)
+        }
+        viewModelScope.launch {
+            runCatching {
+                LocalModelImporter.inspectSingleFile(getApplication(), uri, installedRepo)
+            }.onSuccess { preview ->
+                _state.update {
+                    it.copy(localImportInspecting = false, localImportPreview = preview, localImportError = null)
+                }
+            }.onFailure { err ->
+                _state.update {
+                    it.copy(
+                        localImportInspecting = false,
+                        localImportPreview = null,
+                        localImportError = err.message ?: err.javaClass.simpleName
+                    )
+                }
+            }
+        }
+    }
+
+    fun inspectLocalFolder(treeUri: Uri) {
+        _state.update {
+            it.copy(localImportInspecting = true, localImportPreview = null, localImportError = null)
+        }
+        viewModelScope.launch {
+            runCatching {
+                LocalModelImporter.inspectFolder(getApplication(), treeUri)
+            }.onSuccess { preview ->
+                _state.update {
+                    it.copy(localImportInspecting = false, localImportPreview = preview, localImportError = null)
+                }
+            }.onFailure { err ->
+                _state.update {
+                    it.copy(
+                        localImportInspecting = false,
+                        localImportPreview = null,
+                        localImportError = err.message ?: err.javaClass.simpleName
+                    )
+                }
+            }
+        }
+    }
+
+    fun confirmLocalImport(
+        selectedType: HubModelType,
+        importAsCompanion: Boolean = false,
+        onImported: () -> Unit = {}
+    ) {
+        val preview = _state.value.localImportPreview ?: return
+        val app = getApplication<Application>()
+        val jobId = "local-import:${preview.fileName}:${System.currentTimeMillis()}"
+        ModelDownloadManager.enqueue(
+            context = app,
+            id = jobId,
+            title = preview.displayName,
+            onSuccess = {
+                refreshStorage()
+                onImported()
+            }
+        ) { onProgress ->
+            LocalModelImporter.executeImport(
+                context = app,
+                preview = preview,
+                selectedType = selectedType,
+                importAsCompanion = importAsCompanion,
+                repo = installedRepo,
+                onProgress = onProgress
+            )
+        }
+        clearLocalImport()
     }
 
     fun deleteInstalled(id: String, beforeDelete: (suspend () -> Unit)? = null) {

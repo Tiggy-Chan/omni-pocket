@@ -563,4 +563,17 @@
     <string name="video_pih3_preset">pi-H3 Hız Profili</string>
     <string name="video_pih3_2step">2 adım (Hızlı)</string>
     <string name="video_pih3_4step">4 adım (Daha yüksek kalite)</string>
+    <string name="models_import_local">Yerel içe aktar</string>
+    <string name="models_import_title">Yerel model içe aktar</string>
+    <string name="models_import_desc">Ek izin gerektirmeden cihazdan .gguf / .safetensors veya MNN klasörü içe aktarın.</string>
+    <string name="models_import_pick_file">Model dosyası</string>
+    <string name="models_import_pick_folder">MNN klasörü</string>
+    <string name="models_import_inspecting">Model başlığı okunuyor…</string>
+    <string name="models_import_target_label">Hedef tür</string>
+    <string name="models_import_as_companion">Paylaşılan bileşen olarak kaydet (%1$s)</string>
+    <string name="models_import_companions_cached">Hazır paylaşılan bileşen: %1$d</string>
+    <string name="models_import_companions_missing">Çalıştırmadan önce gereken bileşenler: %1$s</string>
+    <string name="models_import_start">İçe aktar</string>
+    <string name="models_source_local">Yerel içe aktarım</string>
+    <string name="models_import_folder_files_fmt">%1$d dosya · %2$s</string>
 </resources>

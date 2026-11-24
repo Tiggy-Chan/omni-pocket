@@ -563,4 +563,17 @@
     <string name="video_pih3_preset">pi-H3 Geschwindigkeitsprofil</string>
     <string name="video_pih3_2step">2 Schritte (Schnell)</string>
     <string name="video_pih3_4step">4 Schritte (Höhere Qualität)</string>
+    <string name="models_import_local">Lokal importieren</string>
+    <string name="models_import_title">Lokales Modell importieren</string>
+    <string name="models_import_desc">Lokale .gguf- / .safetensors-Dateien oder einen MNN-Ordner ohne zusätzliche Berechtigungen importieren.</string>
+    <string name="models_import_pick_file">Modelldatei</string>
+    <string name="models_import_pick_folder">MNN-Ordner</string>
+    <string name="models_import_inspecting">Modell-Header wird gelesen…</string>
+    <string name="models_import_target_label">Zieltyp</string>
+    <string name="models_import_as_companion">Als gemeinsame Komponente speichern (%1$s)</string>
+    <string name="models_import_companions_cached">Gemeinsame Komponenten bereit: %1$d</string>
+    <string name="models_import_companions_missing">Vor dem Start noch benötigt: %1$s</string>
+    <string name="models_import_start">Importieren</string>
+    <string name="models_source_local">Lokaler Import</string>
+    <string name="models_import_folder_files_fmt">%1$d Dateien · %2$s</string>
 </resources>

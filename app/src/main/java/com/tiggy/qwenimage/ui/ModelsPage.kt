@@ -42,6 +42,8 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.FileOpen
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Refresh
@@ -108,6 +110,8 @@ import com.tiggy.qwenimage.data.LiveLeaderboardEntry
 import com.tiggy.qwenimage.data.LiveLeaderboardSnapshot
 import com.tiggy.qwenimage.data.LiveMusicTrack
 import com.tiggy.qwenimage.data.LlmModelStatus
+import com.tiggy.qwenimage.data.LocalImportKind
+import com.tiggy.qwenimage.data.LocalModelImporter
 import com.tiggy.qwenimage.data.ModelBenchmarkCatalog
 import com.tiggy.qwenimage.data.ModelBenchmarkEntry
 import com.tiggy.qwenimage.data.formatBytesCompact
@@ -219,6 +223,7 @@ fun ModelsPage(
     var deleteHubModel by remember { mutableStateOf<InstalledHubModel?>(null) }
     var deleteBuiltIn by remember { mutableStateOf<BuiltInDeleteTarget?>(null) }
     var showMirrorSheet by remember { mutableStateOf(false) }
+    var showLocalImportSheet by remember { mutableStateOf(false) }
     var sourceOpen by rememberSaveable { mutableStateOf(false) }
     var elephantManualOpen by rememberSaveable { mutableStateOf(false) }
 
@@ -231,6 +236,18 @@ fun ModelsPage(
     }
     val mossFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) viewModel.importMossModels(uri)
+    }
+    val localFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            showLocalImportSheet = true
+            hubViewModel.inspectLocalFile(uri)
+        }
+    }
+    val localFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            showLocalImportSheet = true
+            hubViewModel.inspectLocalFolder(uri)
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -304,17 +321,42 @@ fun ModelsPage(
                             label = { localized.getString(it.labelRes) },
                             onSelect = { tab = it }
                         )
-                        if (hubState.storage.availableBytes > 0L) {
-                            Text(
-                                tr(
-                                    R.string.models_storage_line,
-                                    formatBytesCompact(hubState.storage.modelsUsedBytes),
-                                    formatBytesCompact(hubState.storage.availableBytes)
-                                ),
-                                color = OmniColors.Dim,
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.padding(horizontal = 4.dp)
-                            )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (hubState.storage.availableBytes > 0L) {
+                                Text(
+                                    tr(
+                                        R.string.models_storage_line,
+                                        formatBytesCompact(hubState.storage.modelsUsedBytes),
+                                        formatBytesCompact(hubState.storage.availableBytes)
+                                    ),
+                                    color = OmniColors.Dim,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+                                )
+                            } else {
+                                Spacer(Modifier.weight(1f))
+                            }
+                            if (tab == ModelsPageTab.Installed) {
+                                OutlinedButton(
+                                    onClick = {
+                                        hubViewModel.clearLocalImport()
+                                        showLocalImportSheet = true
+                                    },
+                                    modifier = Modifier.heightIn(min = 34.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(0.5.dp, OmniColors.Line),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = OmniColors.Accent),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Icon(Icons.Outlined.FileOpen, null, modifier = Modifier.size(15.dp))
+                                    Spacer(Modifier.width(5.dp))
+                                    Text(tr(R.string.models_import_local), style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                                }
+                            }
                         }
                     }
                 }
@@ -336,7 +378,7 @@ fun ModelsPage(
                     ModelsPageTab.Installed -> {
                         item(key = "local-modality-filter") {
                             LazyRow(
-                                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                                modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 items(LocalModelFilter.entries) { filter ->
@@ -355,9 +397,14 @@ fun ModelsPage(
                                 SectionLabel(tr(R.string.common_community_downloaded), Modifier.padding(top = 12.dp))
                             }
                             items(filteredHub, key = { "hub-${it.id}" }) { model ->
+                                val sourceLabel = if (model.repo == LocalModelImporter.LOCAL_REPO_TAG) {
+                                    tr(R.string.models_source_local)
+                                } else {
+                                    model.repo
+                                }
                                 ModelRow(
                                     name = model.name,
-                                    status = "${model.type.localizedLabel()} · ${formatBytesCompact(model.totalBytes)} · ${model.repo}",
+                                    status = "${model.type.localizedLabel()} · ${formatBytesCompact(model.totalBytes)} · $sourceLabel",
                                     ready = true,
                                     trailing = {
                                         ModelButton(tr(R.string.common_use), { onUseHubModel(model) })
@@ -1000,6 +1047,27 @@ fun ModelsPage(
         MirrorSourceSheet(hubState, hubViewModel) { showMirrorSheet = false }
     }
 
+    if (showLocalImportSheet) {
+        LocalModelImportSheet(
+            state = hubState,
+            onPickFile = { localFilePicker.launch(arrayOf("*/*")) },
+            onPickFolder = { localFolderPicker.launch(null) },
+            onConfirm = { type, asCompanion ->
+                requestNotificationPermissionIfNeeded()
+                hubViewModel.confirmLocalImport(type, asCompanion) {
+                    viewModel.refreshAllModelStatuses()
+                    llmViewModel.refreshModels()
+                    decisionViewModel.refreshModel()
+                }
+                showLocalImportSheet = false
+            },
+            onDismiss = {
+                hubViewModel.clearLocalImport()
+                showLocalImportSheet = false
+            }
+        )
+    }
+
     hubState.inspectedRepo?.let { repo ->
         HubRepoFilesSheet(
             repo = repo,
@@ -1466,6 +1534,147 @@ private fun HubRepoFilesSheet(
                             HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocalModelImportSheet(
+    state: ModelHubUiState,
+    onPickFile: () -> Unit,
+    onPickFolder: () -> Unit,
+    onConfirm: (HubModelType, Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val preview = state.localImportPreview
+    var selectedType by remember(preview) { mutableStateOf(preview?.suggestedType ?: HubModelType.GgufChat) }
+    var importAsCompanion by remember(preview) { mutableStateOf(preview?.kind == LocalImportKind.Companion) }
+
+    OmniSheet(tr(R.string.models_import_title), onDismiss) {
+        Column(
+            Modifier.verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                tr(R.string.models_import_desc),
+                color = OmniColors.Muted,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onPickFile,
+                    enabled = !state.localImportInspecting,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(0.5.dp, OmniColors.Line),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = OmniColors.Accent)
+                ) {
+                    Icon(Icons.Outlined.FileOpen, null, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(tr(R.string.models_import_pick_file), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                OutlinedButton(
+                    onClick = onPickFolder,
+                    enabled = !state.localImportInspecting,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(0.5.dp, OmniColors.Line),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = OmniColors.Accent)
+                ) {
+                    Icon(Icons.Outlined.FolderOpen, null, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(tr(R.string.models_import_pick_folder), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+
+            if (state.localImportInspecting) {
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = OmniColors.Accent)
+                    Text(tr(R.string.models_import_inspecting), color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            state.localImportError?.let { err ->
+                Text(err, color = OmniColors.Danger, style = MaterialTheme.typography.bodySmall)
+            }
+
+            if (preview != null) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = OmniColors.Field,
+                    border = BorderStroke(0.5.dp, OmniColors.Line),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(preview.displayName, color = OmniColors.Ink, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                        val metaLine = buildList {
+                            if (preview.kind == LocalImportKind.MnnFolder) {
+                                add(tr(R.string.models_import_folder_files_fmt, preview.fileCount, formatBytesCompact(preview.totalBytes)))
+                            } else if (preview.totalBytes > 0L) {
+                                add(formatBytesCompact(preview.totalBytes))
+                            }
+                            preview.archHint?.takeIf { it.isNotBlank() && it != "companion" }?.let { add(it) }
+                            preview.quantTag?.takeIf { it.isNotBlank() }?.let { add(it) }
+                        }.joinToString(" · ")
+                        if (metaLine.isNotBlank()) {
+                            Text(metaLine, color = OmniColors.Muted, style = MaterialTheme.typography.labelSmall)
+                        }
+                        if (preview.cachedCompanions.isNotEmpty()) {
+                            Text(
+                                tr(R.string.models_import_companions_cached, preview.cachedCompanions.size),
+                                color = OmniColors.Success,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                        if (preview.missingCompanions.isNotEmpty()) {
+                            Text(
+                                tr(R.string.models_import_companions_missing, preview.missingCompanions.joinToString(", ")),
+                                color = OmniColors.Warning,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                }
+
+                if (!preview.companionSharedKey.isNullOrBlank()) {
+                    ComposerChip(
+                        label = tr(R.string.models_import_as_companion, preview.companionSharedKey),
+                        onClick = { importAsCompanion = !importAsCompanion },
+                        selected = importAsCompanion
+                    )
+                }
+
+                if (!importAsCompanion && preview.kind != LocalImportKind.MnnFolder) {
+                    Text(tr(R.string.models_import_target_label), color = OmniColors.Muted, style = MaterialTheme.typography.labelMedium)
+                    val choices = listOf(
+                        HubModelType.GgufChat,
+                        HubModelType.DecisionGguf,
+                        HubModelType.SdImage,
+                        HubModelType.VideoWan,
+                        HubModelType.MusicAudio
+                    )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(choices) { choice ->
+                            ComposerChip(
+                                label = choice.localizedLabel(),
+                                onClick = { selectedType = choice },
+                                selected = selectedType == choice
+                            )
+                        }
+                    }
+                }
+
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    ModelButton(
+                        text = tr(R.string.models_import_start),
+                        onClick = { onConfirm(selectedType, importAsCompanion) }
+                    )
                 }
             }
         }

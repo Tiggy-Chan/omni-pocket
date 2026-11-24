@@ -563,4 +563,17 @@
     <string name="video_pih3_preset">Perfil pi-H3</string>
     <string name="video_pih3_2step">2 passos (Rápido)</string>
     <string name="video_pih3_4step">4 passos (Mais qualidade)</string>
+    <string name="models_import_local">Importar local</string>
+    <string name="models_import_title">Importar modelo local</string>
+    <string name="models_import_desc">Importe arquivos .gguf / .safetensors ou uma pasta MNN do dispositivo sem permissões extras.</string>
+    <string name="models_import_pick_file">Arquivo de modelo</string>
+    <string name="models_import_pick_folder">Pasta MNN</string>
+    <string name="models_import_inspecting">Analisando cabeçalho do modelo…</string>
+    <string name="models_import_target_label">Tipo de destino</string>
+    <string name="models_import_as_companion">Salvar como componente compartilhado (%1$s)</string>
+    <string name="models_import_companions_cached">Componentes compartilhados prontos: %1$d</string>
+    <string name="models_import_companions_missing">Componentes adicionais necessários: %1$s</string>
+    <string name="models_import_start">Importar</string>
+    <string name="models_source_local">Importação local</string>
+    <string name="models_import_folder_files_fmt">%1$d arquivos · %2$s</string>
 </resources>
