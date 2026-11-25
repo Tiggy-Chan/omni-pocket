@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.1.0"><img src="https://img.shields.io/badge/release-v0.1.0-3A6FE0?style=flat-square" alt="Release v0.1.0" /></a>
+  <a href="https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.0"><img src="https://img.shields.io/badge/release-v0.2.0-3A6FE0?style=flat-square" alt="Release v0.2.0" /></a>
   <img src="https://img.shields.io/badge/Android-9%2B%20(arm64--v8a)-1F2328?style=flat-square" alt="Android 9+ arm64-v8a" />
   <img src="https://img.shields.io/badge/Inference-100%25%20On--Device-2E7D32?style=flat-square" alt="100% On-Device" />
   <img src="https://img.shields.io/badge/Languages-14-5B6678?style=flat-square" alt="14 Languages" />
@@ -67,11 +67,11 @@ Every screenshot, animation, image, and video clip below was captured live on a 
 
 | Modality | Built-in & Community Models | Local Runtime & Acceleration | Key Capabilities |
 | :--- | :--- | :--- | :--- |
-| **Chat** | Built-in `Qwen3.5 0.8B / 2B / 4B` (MNN) + any single-file **GGUF** (`Qwen3.5`, `Gemma 4`, `Qwen3`, `Gemma 3`, `Llama 3`, `DeepSeek-R1`, `Phi`, `MiniCPM`) & community MNN bundles | `libMNN.so` + `llama.cpp` (`-O3`, `armv8.2-a+dotprod`, dynamic `dlopen` OpenCL GPU offload with CPU fallback, Flash Attention) | Streaming replies, collapsible `<think>` reasoning, custom `512–131072` context window, FP16 / Q8_0 / Q4_0 KV quantization, KV prefix reuse |
-| **Decision** | Built-in [`baselabs/elephant-1`](https://huggingface.co/baselabs/elephant-1) 9B (`Q4_K_M`) + community **OneJev 1.6 (0.8B / 4B / 9B)** & **Elephant-1** GGUFs (`qev-labels-v2`) | `llama.cpp` (block-bidirectional full-attention, ARMv8.2 dotprod, configurable threads) | Single-pass calibrated probabilities & confidence scores for **Choice**, **Yes/No**, and **Score** prompts |
-| **Image** | **Qwen-Image 2.1**, **MOSS-Image SFT**, plus community **FLUX.3 Image Klein**, **ERNIE-Image-Turbo**, **Z-Image-Turbo**, **FLUX.2-Klein 4B/9B**, and **SD 1.5 / SDXL** checkpoints | MNN (int4 encoder + OpenCL DiT) & unified `libsd_cli.so` (`stable-diffusion.cpp` OpenCL + VAE tiling) | Text-to-image, reference-image editing (`Qwen-Image`, `FLUX.3/FLUX.2`), native JSON layouts (`abs_centralized` / `yxyx`), shared companion reuse |
-| **Music** | Built-in **YuE2-3B** + downloadable **ACE-Step 1.5 Turbo/Base**, **HeartMuLa 3B**, and **Stable Audio 3 Small/Medium** GGUFs | Unified `libyue2_cli.so` ([audio.cpp](https://github.com/0xShug0/audio.cpp), `armv8.2-a+dotprod` CPU + **Vulkan GPU**) | 48 kHz stereo WAV synthesis, vocals/instrumentals/SFX, melody CoT with readable **ABC musical notation** |
-| **Video** | Built-in **Wan2.2-TI2V-5B-Turbo** + community **MiniMax-H3 (pi-H3 2/4-step AV)**, **Wan2.2-5B**, and **Wan2.1-1.3B** GGUF DiT weights | Unified `libsd_cli.so` (`SD_WEBM=ON`, `pi-Flow` scheduler, disk weight streaming, `diffusion=GPUOpenCL, te=CPU, vae=CPU`) | Text-to-video, first-frame / reference-image video (`FL2VA` / `Ref2VA`), joint audio+video (24 fps WebM), `4n+1` / `17k+5` frames, VAE tiling |
+| **Chat** | Built-in `Qwen3.5 0.8B / 2B / 4B` (MNN) + any single-file **GGUF** (`Qwen3.5`, `Gemma 4`, `Qwen3`, `Gemma 3`, `Llama 3`, `DeepSeek-R1`, `Phi`, `MiniCPM`), community MNN bundles, and GGUF Embedding models (`bge-small-zh-v1.5`) | `libMNN.so` + `llama.cpp` + **Arm KleidiAI** (`-O3`, `armv8.2-a+dotprod+fp16`, Vulkan / OpenCL GPU offload with automatic CPU fallback, topology-aware threading) | Streaming replies, collapsible `<think>` trace, **Reading Summary** (`.pdf`/`.docx`/`.md`/`.html`/`.txt` Map-Reduce), **Local Knowledge Base RAG** (SQLite vector store + citations), custom `512–131072` context, KV quantization & prefix reuse, Markdown / PDF export |
+| **Decision** | Built-in [`baselabs/elephant-1`](https://huggingface.co/baselabs/elephant-1) 9B (`Q4_K_M`) + community **OneJev 1.6 (0.8B / 4B / 9B)** & **Elephant-1** GGUFs (`qev-labels-v2`) | `llama.cpp` + Arm KleidiAI (block-bidirectional full-attention, ARMv8.2 dotprod+fp16, configurable threads) | Single-pass calibrated probabilities & confidence scores for **Choice**, **Yes/No**, and **Score** prompts, Markdown / PDF export |
+| **Image** | **Qwen-Image 2.1**, **MOSS-Image SFT**, plus community **FLUX.3 Image Klein**, **ERNIE-Image-Turbo**, **Z-Image-Turbo**, **FLUX.2-Klein 4B/9B**, and **SD 1.5 / SDXL** checkpoints | MNN (int4 encoder + OpenCL DiT) & unified 16KB-aligned `libsd_jni.so` (`stable-diffusion.cpp` OpenCL + VAE tiling in isolated `:engine` process) | Text-to-image, reference-image editing (`Qwen-Image`, `FLUX.3/FLUX.2`), native JSON layouts (`abs_centralized` / `yxyx`), shared companion reuse |
+| **Music** | Built-in **YuE2-3B** + downloadable **ACE-Step 1.5 Turbo/Base**, **HeartMuLa 3B**, and **Stable Audio 3 Small/Medium** GGUFs | Unified 16KB-aligned `libyue2_jni.so` ([audio.cpp](https://github.com/0xShug0/audio.cpp), `armv8.2-a+dotprod` CPU + **Vulkan GPU** in `:engine` process) | 48 kHz stereo WAV synthesis, vocals/instrumentals/SFX, melody CoT with readable **ABC musical notation**, native `MediaCodec` `.m4a` export |
+| **Video** | Built-in **Wan2.2-TI2V-5B-Turbo** + community **MiniMax-H3 (pi-H3 2/4-step AV)**, **Wan2.2-5B**, and **Wan2.1-1.3B** GGUF DiT weights | Unified 16KB-aligned `libsd_jni.so` (`SD_WEBM=ON`, `pi-Flow` scheduler, disk weight streaming, `diffusion=GPUOpenCL, te=CPU, vae=CPU` in `:engine` process) | Text-to-video, first-frame / reference-image video (`FL2VA` / `Ref2VA`), joint audio+video (24 fps WebM), native `MediaCodec` H.264/AAC `.mp4` sharing, VAE tiling |
 
 ---
 
@@ -87,13 +87,15 @@ Every screenshot, animation, image, and video clip below was captured live on a 
 
 - **Live Multi-Modality Leaderboards (`Reference`)**: pulls live public rankings from [Artificial Analysis](https://artificialanalysis.ai/) across all 5 modalities (`Open Weights LLMs`, `Decision Index v2.1`, `Image T2I`, `Video T2V`, `Music Vocals / Instrumental`), plus [Jev Decision Index](https://huggingface.co/spaces/multimodalart/jev-decision-index) and [Hugging Face Open LLM Leaderboard (≤10B)](https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard) — with transparent source attribution, local disk caching, offline curated fallback, real-time device RAM suitability checks, and 1-tap Hugging Face discovery.
 - **Hugging Face & `hf-mirror` Model Hub**: switch seamlessly between `https://huggingface.co`, `https://hf-mirror.com` (default for China locales), or any custom HTTPS mirror, with optional gated-repo Access Token and latency test. Multi-GB weights download in the background via `ModelDownloadService` with HTTP `Range` resume, strict `Content-Range` validation, and SHA-256 / LFS OID verification.
+- **Local Model Import, On-Device RAG & Native Sharing**: import local `.gguf` / `.safetensors` / MNN weights directly via Android Storage Access Framework (zero storage permissions) with automatic GGUF metadata inspection; summarize `.pdf`/`.docx`/`.md`/`.html`/`.txt` documents or index them into a local SQLite knowledge base with native `llama.cpp` embeddings; share AI outputs directly as `.mp4` (H.264/AAC), `.m4a`, Markdown, or PDF using Android native `MediaCodec`/`MediaMuxer` and `PdfDocument`.
+- **Clean 16KB-Aligned Native Architecture**: all native runtimes are packaged as 16 KB page-aligned JNI shared libraries (`extractNativeLibs=false`) with zero shell/subprocess execution, isolated inside a private `:engine` worker process, and signed with APK Signature Schemes v1 + v2 + v3.
 - **Calm Glass UI, Tabbed Settings & 14 Languages**: restrained Light & Dark themes with translucent backdrop blur (gracefully degraded on older Android versions), modality-tabbed Settings, and live switching across **14 languages** (`English`, `简体中文`, `繁體中文`, `日本語`, `한국어`, `Deutsch`, `Français`, `Español`, `Italiano`, `Português (Brasil)`, `Русский`, `Nederlands`, `Polski`, `Türkçe`).
 
 ---
 
 ## Quick Start
 
-1. Download the signed `omni-pocket-v0.1.0-arm64-v8a.apk` from [**GitHub Releases**](https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.1.0) and install it on an `arm64-v8a` Android 9+ phone.
+1. Download the signed `omni-pocket-v0.2.0-arm64-v8a.apk` from [**GitHub Releases**](https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.0) and install it on an `arm64-v8a` Android 9+ phone.
 2. Open **Models → Local** or **Models → Discover** to pull models directly on your phone (or browse **Models → Reference** to pick top-ranked open weights that fit your phone's RAM).
 3. Switch to Airplane Mode whenever you like — every workspace runs 100% offline.
 
@@ -164,7 +166,7 @@ bash scripts/test_decision_host.sh
 - [Qwen-Image runtime](https://github.com/scsonic/libQwenImage21) — Apache-2.0
 - [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image) — Apache-2.0
 - [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) & [ggml](https://github.com/leejet/ggml) — MIT (`95ff7623` + `patches/sd-opencl-conv3d-bias.patch` + `patches/sd-piflow-h3.patch` for [pi-Flow / pi-H3](https://github.com/Lakonik/ComfyUI-piFlow))
-- [llama.cpp](https://github.com/ggml-org/llama.cpp) — MIT (`2280f0fd` + `patches/llama-elephant-decision.patch`)
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) — MIT (`2280f0fd` + `patches/llama-elephant-decision.patch`) & [Arm KleidiAI](https://github.com/ARM-software/kleidiai) — Apache-2.0 (`v1.32.0`)
 - [audio.cpp](https://github.com/0xShug0/audio.cpp) — Apache-2.0 (`3a0dd44`); [YuE2](https://github.com/multimodal-art-projection/YuE) weights — CC-BY-NC-4.0
 - [Elephant-1](https://huggingface.co/baselabs/elephant-1) — MIT; [OneJev](https://github.com/OmniJev/OneJev) protocol — Apache-2.0
 - [Haze](https://github.com/chrisbanes/haze) — Apache-2.0

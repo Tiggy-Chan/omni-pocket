@@ -59,7 +59,7 @@ fun AboutPage(onMenu: (() -> Unit)?) {
     val version = remember(context) {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
-        }.getOrNull().orEmpty().ifBlank { "0.1.0" }
+        }.getOrNull().orEmpty().ifBlank { "0.2.0" }
     }
 
     val openUrl: (String) -> Unit = { url ->
