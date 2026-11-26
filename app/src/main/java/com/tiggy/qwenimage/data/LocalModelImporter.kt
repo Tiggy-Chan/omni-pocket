@@ -14,7 +14,7 @@ import java.io.IOException
 import java.util.Locale
 import kotlin.coroutines.coroutineContext
 
-enum class LocalImportKind { SingleFile, MnnFolder, Companion }
+enum class LocalImportKind { SingleFile, MnnFolder, GgufVlmFolder, Companion, MmprojProjector }
 
 data class LocalImportPreview(
     val uri: Uri,
@@ -30,7 +30,10 @@ data class LocalImportPreview(
     val companionSharedKey: String? = null,
     val cachedCompanions: List<String> = emptyList(),
     val missingCompanions: List<String> = emptyList(),
-    val mnnEntryFile: String? = null
+    val mnnEntryFile: String? = null,
+    val pairedMmprojUri: Uri? = null,
+    val pairedMmprojName: String? = null,
+    val pairedMmprojBytes: Long = 0L
 )
 
 /**
@@ -68,7 +71,11 @@ object LocalModelImporter {
             runCatching { repo.companionFile(key).isFile }.getOrDefault(false)
         }
         val missing = classified.expectedCompanionKeys.filterNot { it in cached }
-        val kind = if (classified.companionSharedKey != null) LocalImportKind.Companion else LocalImportKind.SingleFile
+        val kind = when {
+            classified.isMmproj -> LocalImportKind.MmprojProjector
+            classified.companionSharedKey != null -> LocalImportKind.Companion
+            else -> LocalImportKind.SingleFile
+        }
 
         LocalImportPreview(
             uri = uri,
@@ -87,6 +94,23 @@ object LocalModelImporter {
         )
     }
 
+    suspend fun inspectMmprojFile(context: Context, uri: Uri): Triple<Uri, String, Long> = withContext(Dispatchers.IO) {
+        val (rawName, size) = queryDocumentMeta(context, uri)
+        val fileName = sanitizeFileName(rawName)
+        require(fileName.endsWith(".gguf", ignoreCase = true)) {
+            "视觉投影文件（mmproj）必须为 .gguf 格式（当前：$fileName）"
+        }
+        val header = context.contentResolver.openInputStream(uri)?.use { stream ->
+            GgufHeaderParser.parse(stream)
+        } ?: throw IOException("文件不是有效的 GGUF 视觉投影文件：$fileName")
+        val lower = fileName.lowercase(Locale.ROOT)
+        val arch = header.architecture?.lowercase(Locale.ROOT)
+        require(lower.contains("mmproj") || arch == "clip" || arch == "mmproj") {
+            "所选文件似乎不是视觉投影（mmproj）模型：$fileName"
+        }
+        Triple(uri, fileName, size.coerceAtLeast(0L))
+    }
+
     suspend fun inspectFolder(
         context: Context,
         treeUri: Uri
@@ -101,23 +125,90 @@ object LocalModelImporter {
         val mnnConfig = entryNames.firstOrNull { it.equals("llm_config.json", ignoreCase = true) }
             ?: entryNames.firstOrNull { it.equals("config.json", ignoreCase = true) }
         val hasMnnWeights = entryNames.any { it.endsWith(".mnn", ignoreCase = true) }
-        require(mnnConfig != null && hasMnnWeights) {
-            "未在文件夹中检测到 MNN 对话模型（需包含 llm_config.json/config.json 与 .mnn 权重文件）"
+        if (mnnConfig != null && hasMnnWeights) {
+            val totalBytes = entries.sumOf { it.second.length().coerceAtLeast(0L) }
+            return@withContext LocalImportPreview(
+                uri = treeUri,
+                kind = LocalImportKind.MnnFolder,
+                fileName = folderName,
+                totalBytes = totalBytes,
+                fileCount = entries.size,
+                suggestedType = HubModelType.MnnChat,
+                displayName = folderName.take(80),
+                quantTag = GgufHeaderParser.extractQuantTag(folderName),
+                archHint = "mnn",
+                mnnEntryFile = mnnConfig
+            )
         }
 
-        val totalBytes = entries.sumOf { it.second.length().coerceAtLeast(0L) }
+        // Also support selecting a folder containing a GGUF chat model + paired mmproj*.gguf!
+        val ggufEntries = entries.filter { it.first.endsWith(".gguf", ignoreCase = true) }
+        val mmprojEntry = ggufEntries.firstOrNull { it.first.lowercase(Locale.ROOT).contains("mmproj") }
+        val mainGgufEntry = ggufEntries.firstOrNull {
+            val low = it.first.lowercase(Locale.ROOT)
+            !low.contains("mmproj") && !low.contains("imatrix")
+        }
+        require(mainGgufEntry != null) {
+            "未在文件夹中检测到 MNN 对话模型（llm_config.json + .mnn）或 GGUF 模型文件"
+        }
+        val mainFileName = sanitizeFileName(mainGgufEntry.first.substringAfterLast('/'))
+        val mainSize = mainGgufEntry.second.length().coerceAtLeast(0L)
+        val header = context.contentResolver.openInputStream(mainGgufEntry.second.uri)?.use { stream ->
+            GgufHeaderParser.parse(stream)
+        }
+        val classified = GgufHeaderParser.classifyFile(mainFileName, header)
+        val mmprojName = mmprojEntry?.let { sanitizeFileName(it.first.substringAfterLast('/')) }
+        val mmprojSize = mmprojEntry?.second?.length()?.coerceAtLeast(0L) ?: 0L
+        val combinedBytes = mainSize + mmprojSize
+        val extraMeta = if (mmprojName != null) mapOf("mmprojFile" to mmprojName) else emptyMap()
         LocalImportPreview(
-            uri = treeUri,
-            kind = LocalImportKind.MnnFolder,
-            fileName = folderName,
-            totalBytes = totalBytes,
-            fileCount = entries.size,
-            suggestedType = HubModelType.MnnChat,
-            displayName = folderName.take(80),
-            quantTag = GgufHeaderParser.extractQuantTag(folderName),
-            archHint = "mnn",
-            mnnEntryFile = mnnConfig
+            uri = mainGgufEntry.second.uri,
+            kind = LocalImportKind.GgufVlmFolder,
+            fileName = mainFileName,
+            totalBytes = combinedBytes,
+            fileCount = if (mmprojEntry != null) 2 else 1,
+            suggestedType = classified.suggestedType,
+            displayName = classified.displayName,
+            quantTag = classified.quantTag,
+            archHint = classified.archHint,
+            metadata = classified.metadata + extraMeta,
+            pairedMmprojUri = mmprojEntry?.second?.uri,
+            pairedMmprojName = mmprojName,
+            pairedMmprojBytes = mmprojSize
         )
+    }
+
+    suspend fun bindLocalMmproj(
+        context: Context,
+        targetModelId: String,
+        mmprojUri: Uri,
+        repo: InstalledHubModelsRepository = InstalledHubModelsRepository.get(context),
+        onProgress: (file: String, copied: Long, total: Long) -> Unit
+    ): InstalledHubModel = withContext(Dispatchers.IO) {
+        val opContext = coroutineContext
+        val (uri, fileName, size) = inspectMmprojFile(context, mmprojUri)
+        val targetModel = repo.find(targetModelId) ?: error("目标对话模型不存在")
+        require(targetModel.type == HubModelType.GgufChat) { "仅 GGUF 对话模型支持绑定 mmproj 视觉组件" }
+        val modelDir = repo.modelDir(targetModelId)
+        check(modelDir.isDirectory || modelDir.mkdirs()) { "模型目录不存在" }
+        val available = StatFs(modelDir.path).availableBytes
+        check(available >= size + RESERVE_BYTES) {
+            "存储空间不足，请至少预留 ${String.format(Locale.US, "%.2f", (size + RESERVE_BYTES) / 1_000_000_000.0)} GB"
+        }
+        val dest = File(modelDir, fileName)
+        val part = File(dest.path + ".importing")
+        part.delete()
+        try {
+            val written = copyUriToFile(context, uri, part, opContext) { done ->
+                onProgress(fileName, done, size.coerceAtLeast(done).coerceAtLeast(1L))
+            }
+            if (dest.exists()) check(dest.delete()) { "无法覆盖已有 mmproj 文件" }
+            check(part.renameTo(dest)) { "无法保存 mmproj 文件" }
+            repo.bindMmprojToModel(targetModelId, fileName, written)
+        } catch (error: Throwable) {
+            part.delete()
+            throw error
+        }
     }
 
     suspend fun executeImport(
@@ -132,10 +223,11 @@ object LocalModelImporter {
         check(repo.root.isDirectory || repo.root.mkdirs()) { "无法创建模型目录" }
         check(repo.companionsDir.isDirectory || repo.companionsDir.mkdirs()) { "无法创建共享组件目录" }
 
-        val expectedTotal = preview.totalBytes.coerceAtLeast(1L)
+        val totalImportBytes = preview.totalBytes + (if (preview.kind == LocalImportKind.SingleFile) preview.pairedMmprojBytes else 0L)
+        val expectedTotal = totalImportBytes.coerceAtLeast(1L)
         val available = StatFs(repo.root.path).availableBytes
-        check(available >= preview.totalBytes + RESERVE_BYTES) {
-            "存储空间不足，请至少预留 ${String.format(Locale.US, "%.2f", (preview.totalBytes + RESERVE_BYTES) / 1_000_000_000.0)} GB"
+        check(available >= totalImportBytes + RESERVE_BYTES) {
+            "存储空间不足，请至少预留 ${String.format(Locale.US, "%.2f", (totalImportBytes + RESERVE_BYTES) / 1_000_000_000.0)} GB"
         }
 
         if (importAsCompanion && !preview.companionSharedKey.isNullOrBlank()) {
@@ -200,7 +292,7 @@ object LocalModelImporter {
             }
         }
 
-        // Single model file (.gguf / .safetensors / .ckpt)
+        // Single model file (.gguf / .safetensors / .ckpt) — optionally paired with mmproj*.gguf
         val id = makeLocalModelId(selectedType.wire, preview.fileName)
         val staging = File(repo.root, ".$id.importing")
         staging.deleteRecursively()
@@ -210,9 +302,26 @@ object LocalModelImporter {
             val written = copyUriToFile(context, preview.uri, dest, opContext) { done ->
                 onProgress(preview.fileName, done, expectedTotal.coerceAtLeast(done))
             }
-            val effectiveMeta = if (selectedType == preview.suggestedType) preview.metadata else emptyMap()
+            var mmprojWritten = 0L
+            val mmprojName = preview.pairedMmprojName
+            val mmprojUri = preview.pairedMmprojUri
+            if (selectedType == HubModelType.GgufChat && mmprojUri != null && !mmprojName.isNullOrBlank()) {
+                val mmDest = File(staging, mmprojName)
+                mmprojWritten = copyUriToFile(context, mmprojUri, mmDest, opContext) { done ->
+                    onProgress(mmprojName, written + done, expectedTotal.coerceAtLeast(written + done))
+                }
+            }
+            val baseMeta = if (selectedType == preview.suggestedType) preview.metadata else emptyMap()
+            val effectiveMeta = if (mmprojWritten > 0L && !mmprojName.isNullOrBlank()) {
+                baseMeta + ("mmprojFile" to mmprojName)
+            } else {
+                baseMeta - "mmprojFile"
+            }
             val files = buildList {
                 add(InstalledHubFile(path = preview.fileName, size = written, sha256 = null))
+                if (mmprojWritten > 0L && !mmprojName.isNullOrBlank()) {
+                    add(InstalledHubFile(path = mmprojName, size = mmprojWritten, sha256 = null))
+                }
                 // Link already-cached shared companions when metadata matches; missing ones stay in metadata
                 // so the engine reports them cleanly without hiding the imported model from the list.
                 if (effectiveMeta.isNotEmpty()) {
@@ -232,7 +341,7 @@ object LocalModelImporter {
                 type = selectedType,
                 entryFile = preview.fileName,
                 files = files,
-                totalBytes = written,
+                totalBytes = written + mmprojWritten,
                 quantTag = preview.quantTag,
                 installedAt = System.currentTimeMillis(),
                 metadata = effectiveMeta

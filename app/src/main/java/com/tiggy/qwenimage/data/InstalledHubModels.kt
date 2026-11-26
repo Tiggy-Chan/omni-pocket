@@ -164,6 +164,53 @@ class InstalledHubModelsRepository(private val context: Context) {
         return companionFile(sharedKey).takeIf { it.isFile }
     }
 
+    /** Resolves an optional multimodal vision projector (`mmproj*.gguf`) attached to a GGUF chat model. */
+    fun mmprojFile(model: InstalledHubModel): File? {
+        val metaPath = model.metadata["mmprojFile"]?.takeIf { it.isNotBlank() }
+        if (metaPath != null) {
+            val matched = model.files.firstOrNull { it.path == metaPath || it.sharedKey == metaPath }
+            if (matched != null) {
+                runCatching { resolveFile(model, matched) }.getOrNull()?.takeIf { it.isFile }?.let { return it }
+            }
+            runCatching { safeChild(modelDir(model.id), metaPath) }.getOrNull()?.takeIf { it.isFile }?.let { return it }
+            runCatching { companionFile(metaPath) }.getOrNull()?.takeIf { it.isFile }?.let { return it }
+        }
+        // Fallback: detect any companion or local mmproj file already inside this model directory.
+        model.files.firstOrNull {
+            it.path.lowercase(java.util.Locale.ROOT).contains("mmproj") && it.path.endsWith(".gguf", ignoreCase = true)
+        }?.let { f ->
+            runCatching { resolveFile(model, f) }.getOrNull()?.takeIf { it.isFile }?.let { return it }
+        }
+        val dir = runCatching { modelDir(model.id) }.getOrNull()
+        return dir?.listFiles()?.firstOrNull {
+            it.isFile && it.name.lowercase(java.util.Locale.ROOT).contains("mmproj") && it.name.endsWith(".gguf", ignoreCase = true)
+        }
+    }
+
+    fun hasVisionMmproj(model: InstalledHubModel): Boolean = mmprojFile(model) != null
+
+    /** Updates an installed GGUF chat model to bind a newly copied local mmproj file inside its directory. */
+    fun bindMmprojToModel(modelId: String, mmprojFileName: String, fileSize: Long): InstalledHubModel = synchronized(lock) {
+        val existing = readRegistry()
+        val current = existing.firstOrNull { it.id == modelId }
+            ?: error("目标对话模型不存在")
+        require(ModelManifest.validPath(mmprojFileName)) { "非法 mmproj 文件名：$mmprojFileName" }
+        val filteredFiles = current.files.filterNot {
+            it.path == mmprojFileName || it.path == current.metadata["mmprojFile"]
+        }
+        val nextFiles = filteredFiles + InstalledHubFile(path = mmprojFileName, size = fileSize, sha256 = null)
+        val updated = current.copy(
+            files = nextFiles,
+            totalBytes = nextFiles.sumOf { it.size },
+            installedAt = System.currentTimeMillis(),
+            metadata = current.metadata + ("mmprojFile" to mmprojFileName)
+        )
+        val next = existing.map { if (it.id == modelId) updated else it }
+        writeRegistry(next)
+        _models.value = next.filter { isPresent(it) }
+        updated
+    }
+
     fun isPresent(model: InstalledHubModel): Boolean {
         val dir = runCatching { modelDir(model.id) }.getOrNull() ?: return false
         return model.files.all { file ->

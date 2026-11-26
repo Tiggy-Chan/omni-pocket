@@ -28,7 +28,8 @@ data class LocalModelClassification(
     val archHint: String?,
     val metadata: Map<String, String> = emptyMap(),
     val companionSharedKey: String? = null,
-    val expectedCompanionKeys: List<String> = emptyList()
+    val expectedCompanionKeys: List<String> = emptyList(),
+    val isMmproj: Boolean = false
 )
 
 /**
@@ -160,6 +161,19 @@ object GgufHeaderParser {
                 quantTag = quant,
                 archHint = "companion",
                 companionSharedKey = companionKey
+            )
+        }
+
+        // 1.5 Multimodal vision projector GGUF (mmproj*.gguf / clip architecture)
+        if (ext == "gguf" && (lower.contains("mmproj") || arch == "clip" || arch == "mmproj")) {
+            return LocalModelClassification(
+                suggestedType = HubModelType.GgufChat,
+                confidence = LocalImportConfidence.High,
+                displayName = formatLocalDisplayName(baseTitle, quant),
+                quantTag = quant,
+                archHint = "mmproj",
+                metadata = mapOf("role" to "mmproj"),
+                isMmproj = true
             )
         }
 

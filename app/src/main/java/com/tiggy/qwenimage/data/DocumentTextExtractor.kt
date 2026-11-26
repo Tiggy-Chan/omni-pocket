@@ -62,6 +62,9 @@ object DocumentTextExtractor {
     }
 
     fun extractFromBytes(fileName: String, mimeType: String?, bytes: ByteArray): ExtractedDocument {
+        if (isImageInput(fileName, mimeType, bytes)) {
+            throw IllegalArgumentException("图片文件不支持作为文档解析，请点击图片按钮上传图片")
+        }
         val format = detectFormat(fileName, mimeType, bytes)
         return when (format) {
             DocumentFormat.Pdf -> extractPdf(fileName, bytes)
@@ -76,6 +79,27 @@ object DocumentTextExtractor {
                 finalize(fileName, format, normalizeLineEndings(raw), bytes.size.toLong())
             }
         }
+    }
+
+    fun isImageInput(fileName: String, mimeType: String?, bytes: ByteArray = ByteArray(0)): Boolean {
+        val lowerMime = mimeType.orEmpty().lowercase(Locale.US)
+        if (lowerMime.startsWith("image/")) return true
+        val ext = fileName.substringAfterLast('.', "").lowercase(Locale.US)
+        if (ext in setOf("png", "jpg", "jpeg", "webp", "gif", "bmp", "heic", "heif", "avif")) return true
+        if (bytes.size >= 8 &&
+            bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() &&
+            bytes[2] == 'N'.code.toByte() && bytes[3] == 'G'.code.toByte()
+        ) return true
+        if (bytes.size >= 3 &&
+            bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()
+        ) return true
+        if (bytes.size >= 12 &&
+            bytes[0] == 'R'.code.toByte() && bytes[1] == 'I'.code.toByte() &&
+            bytes[2] == 'F'.code.toByte() && bytes[3] == 'F'.code.toByte() &&
+            bytes[8] == 'W'.code.toByte() && bytes[9] == 'E'.code.toByte() &&
+            bytes[10] == 'B'.code.toByte() && bytes[11] == 'P'.code.toByte()
+        ) return true
+        return false
     }
 
     fun detectFormat(fileName: String, mimeType: String?, bytes: ByteArray): DocumentFormat {

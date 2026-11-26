@@ -40,13 +40,14 @@ JNIEXPORT jlong JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nat
 }
 
 JNIEXPORT jstring JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeLoad(
-    JNIEnv* env, jclass, jlong handle, jstring modelPath, jint threads, jint contextTokens,
+    JNIEnv* env, jclass, jlong handle, jstring modelPath, jstring mmprojPath, jint threads, jint contextTokens,
     jint kvQuantMode, jint backendPref) {
     try {
         if (handle == 0) return omni::jni::Utf8ToJString(env, "GGUF 对话会话已释放");
         std::string error;
+        const std::string mmproj = mmprojPath != nullptr ? StringValue(env, mmprojPath) : std::string();
         const bool loaded = ChatSession(handle)->Load(
-            StringValue(env, modelPath), threads, contextTokens, error, kvQuantMode, backendPref);
+            StringValue(env, modelPath), threads, contextTokens, error, kvQuantMode, backendPref, mmproj);
         if (env->ExceptionCheck()) return nullptr;
         return loaded ? nullptr : omni::jni::Utf8ToJString(env, error);
     } catch (const std::exception& e) {
@@ -54,6 +55,11 @@ JNIEXPORT jstring JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_n
     } catch (...) {
         return omni::jni::Utf8ToJString(env, "GGUF 加载发生未知异常");
     }
+}
+
+JNIEXPORT jboolean JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeHasVision(
+    JNIEnv*, jclass, jlong handle) {
+    return (handle != 0 && ChatSession(handle)->HasVisionLoaded()) ? JNI_TRUE : JNI_FALSE;
 }
 
 JNIEXPORT jint JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeEffectiveContext(
@@ -78,8 +84,8 @@ JNIEXPORT jstring JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_n
 
 JNIEXPORT jobject JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeGenerate(
     JNIEnv* env, jclass, jlong handle, jstring conversationId, jobjectArray roles, jobjectArray contents,
-    jint maxNewTokens, jboolean thinking, jfloat temperature, jfloat topP, jint topK, jfloat repeatPenalty,
-    jobject callback) {
+    jobjectArray imagePaths, jint maxNewTokens, jboolean thinking, jfloat temperature, jfloat topP, jint topK,
+    jfloat repeatPenalty, jobject callback) {
     try {
         if (handle == 0) {
             ThrowIllegalState(env, "GGUF 模型尚未加载");
@@ -107,6 +113,20 @@ JNIEXPORT jobject JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_n
             env->DeleteLocalRef(content);
             if (env->ExceptionCheck()) return nullptr;
         }
+        std::vector<std::string> images;
+        if (imagePaths != nullptr) {
+            const jsize imgCount = env->GetArrayLength(imagePaths);
+            images.reserve(static_cast<size_t>(imgCount));
+            for (jsize i = 0; i < imgCount; ++i) {
+                auto pathObj = static_cast<jstring>(env->GetObjectArrayElement(imagePaths, i));
+                if (pathObj != nullptr) {
+                    const std::string p = StringValue(env, pathObj);
+                    env->DeleteLocalRef(pathObj);
+                    if (!p.empty()) images.push_back(p);
+                }
+                if (env->ExceptionCheck()) return nullptr;
+            }
+        }
         const jclass callbackClass = env->GetObjectClass(callback);
         if (callbackClass == nullptr) return nullptr;
         const jmethodID onToken = env->GetMethodID(callbackClass, "onToken", "(Ljava/lang/String;)Z");
@@ -122,7 +142,8 @@ JNIEXPORT jobject JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_n
                 temperature,
                 topP,
                 topK,
-                repeatPenalty
+                repeatPenalty,
+                std::move(images)
             },
             [&](const std::string& token) -> bool {
                 if (env->ExceptionCheck()) return false;

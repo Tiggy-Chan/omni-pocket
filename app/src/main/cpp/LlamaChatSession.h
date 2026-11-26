@@ -29,6 +29,7 @@ struct LlamaChatRequest {
     float topP = 0.9f;
     int topK = 40;
     float repeatPenalty = 1.1f;
+    std::vector<std::string> imagePaths;
 };
 
 struct LlamaChatResult {
@@ -77,9 +78,10 @@ public:
 
     // kvQuantMode: 0 = F16, 1 = Q8_0, 2 = Q4_0; backendPref: GgufBackendPref integer value.
     bool Load(const std::string& modelPath, int threadCount, int contextTokens, std::string& error,
-              int kvQuantMode = 0, int backendPref = 0);
+              int kvQuantMode = 0, int backendPref = 0, const std::string& mmprojPath = "");
     int EffectiveContextTokens() const;
     int ModelTrainContextTokens() const;
+    bool HasVisionLoaded() const;
     std::string ActiveBackendLabel() const;
     LlamaChatResult Generate(const LlamaChatRequest& request,
                              const std::function<bool(const std::string&)>& onToken);

@@ -3,10 +3,12 @@ package com.tiggy.qwenimage.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,7 +36,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.LibraryBooks
-import androidx.compose.material.icons.outlined.AttachFile
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Description
@@ -70,8 +72,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.io.File
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tiggy.qwenimage.KnowledgeBaseViewModel
 import com.tiggy.qwenimage.LlmPhase
@@ -116,6 +121,9 @@ fun LlmChatScreen(
     val running = loading || state.phase == LlmPhase.Generating
     val docPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) viewModel.attachDocument(uri)
+    }
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.attachImage(uri)
     }
     val summarizeActionLabel = tr(R.string.chat_doc_summarize)
     val keyPointsActionLabel = tr(R.string.chat_doc_keypoints)
@@ -225,12 +233,21 @@ fun LlmChatScreen(
         },
         composer = { haze ->
             val attachedDoc = state.attachedDocument
+            val attachedImg = state.attachedImagePath
             val docProgress = state.documentProgress
-            val hasStatus = loading || state.documentLoading || attachedDoc != null || docProgress != null || state.error != null
+            val hasStatus = loading || state.documentLoading || attachedImg != null || attachedDoc != null || docProgress != null || state.error != null
             val status: (@Composable () -> Unit)? = if (hasStatus) ({
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (state.documentLoading) {
                         Text(tr(R.string.chat_doc_reading), color = OmniColors.Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (attachedImg != null) {
+                        AttachedImageBar(
+                            imagePath = attachedImg,
+                            visionReady = selectedModel?.supportsVision == true,
+                            busy = state.busy,
+                            onClear = viewModel::clearAttachedImage
+                        )
                     }
                     if (attachedDoc != null) {
                         AttachedDocumentBar(
@@ -258,9 +275,9 @@ fun LlmChatScreen(
                 hazeState = haze,
                 value = state.draft,
                 onValueChange = viewModel::updateDraft,
-                placeholder = if (attachedDoc != null) tr(R.string.chat_doc_ask_placeholder) else tr(R.string.chat_input_placeholder),
+                placeholder = tr(R.string.chat_input_placeholder),
                 onSend = viewModel::send,
-                sendEnabled = !state.busy && state.draft.isNotBlank(),
+                sendEnabled = !state.busy && (state.draft.isNotBlank() || attachedImg != null),
                 running = running,
                 onStop = viewModel::cancel,
                 enabled = state.ready,
@@ -268,8 +285,28 @@ fun LlmChatScreen(
                 tools = {
                     ComposerChip(
                         label = "",
-                        onClick = { docPicker.launch(arrayOf("text/*", "application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/json", "*/*")) },
-                        icon = Icons.Outlined.AttachFile,
+                        onClick = { imagePicker.launch(arrayOf("image/*")) },
+                        icon = Icons.Outlined.AddPhotoAlternate,
+                        enabled = !state.busy,
+                        selected = attachedImg != null,
+                        contentDescription = tr(R.string.chat_attach_image)
+                    )
+                    ComposerChip(
+                        label = "",
+                        onClick = {
+                            docPicker.launch(
+                                arrayOf(
+                                    "text/plain",
+                                    "text/markdown",
+                                    "text/html",
+                                    "text/csv",
+                                    "application/pdf",
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    "application/json"
+                                )
+                            )
+                        },
+                        icon = Icons.Outlined.Description,
                         enabled = !state.busy && !state.documentLoading,
                         selected = attachedDoc != null,
                         contentDescription = tr(R.string.chat_attach_doc)
@@ -356,7 +393,24 @@ private fun MessageItem(
     val copiedToast = tr(R.string.common_copied)
     val copyLabel = tr(R.string.chat_copy_reply)
     if (message.role == "user") {
-        SelectionContainer { RequestBubble(message.content) }
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            message.imagePath?.let { path ->
+                val bmp = remember(path) {
+                    runCatching { File(path).takeIf { it.isFile }?.let { BitmapFactory.decodeFile(it.absolutePath) } }.getOrNull()
+                }
+                if (bmp != null) {
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(160.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                    )
+                }
+            }
+            SelectionContainer { RequestBubble(message.content) }
+        }
         return
     }
     Column(Modifier.fillMaxWidth()) {
@@ -534,6 +588,60 @@ private fun KnowledgeBasePickerSheet(
 }
 
 @Composable
+private fun AttachedImageBar(
+    imagePath: String,
+    visionReady: Boolean,
+    busy: Boolean,
+    onClear: () -> Unit
+) {
+    val bmp = remember(imagePath) {
+        runCatching { File(imagePath).takeIf { it.isFile }?.let { BitmapFactory.decodeFile(it.absolutePath) } }.getOrNull()
+    }
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = OmniColors.Field,
+        border = BorderStroke(0.5.dp, OmniColors.Line),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(8.dp))
+                )
+            } else {
+                Icon(Icons.Outlined.AddPhotoAlternate, null, tint = OmniColors.Accent, modifier = Modifier.size(22.dp))
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    tr(R.string.chat_image_attached_title),
+                    color = OmniColors.Ink,
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    if (visionReady) tr(R.string.chat_image_vision_ready) else tr(R.string.chat_image_missing_mmproj),
+                    color = if (visionReady) OmniColors.Muted else OmniColors.Warning,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            IconButton(onClick = onClear, enabled = !busy, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Outlined.Close, tr(R.string.chat_doc_remove), tint = OmniColors.Muted, modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
 private fun AttachedDocumentBar(
     doc: ExtractedDocument,
     busy: Boolean,
@@ -578,8 +686,7 @@ private fun AttachedDocumentBar(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ComposerChip(
                         label = tr(R.string.chat_doc_summarize),
-                        onClick = onSummarize,
-                        selected = true
+                        onClick = onSummarize
                     )
                     ComposerChip(
                         label = tr(R.string.chat_doc_keypoints),

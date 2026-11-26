@@ -402,10 +402,36 @@ object HuggingFaceHubClient {
             val lower = file.path.lowercase(Locale.ROOT)
             lower.endsWith(".gguf") && !lower.contains("mmproj") && !lower.contains("imatrix")
         }
+        val mmprojs = files.filter { file ->
+            val lower = file.path.lowercase(Locale.ROOT)
+            lower.endsWith(".gguf") && lower.contains("mmproj") && !lower.contains("imatrix")
+        }
+        val preferredMmproj = mmprojs.minByOrNull { f ->
+            val low = f.path.lowercase(Locale.ROOT)
+            when {
+                low.contains("q8_0") -> 0
+                low.contains("f16") || low.contains("fp16") -> 1
+                low.contains("bf16") -> 2
+                else -> 3
+            }
+        }?.let { m ->
+            val safeRepo = repo.replace(Regex("[^A-Za-z0-9_.-]+"), "_")
+            val fileName = m.path.substringAfterLast('/')
+            m.copy(sharedCompanionKey = "mmproj/${safeRepo}_${fileName}")
+        }
         return ggufs.map { file ->
             val fileName = file.path.substringAfterLast('/')
             val isSplit = SPLIT_GGUF_REGEX.containsMatchIn(fileName)
             val quant = extractQuantTag(fileName)
+            val optionFiles = if (preferredMmproj != null && !isSplit) listOf(file, preferredMmproj) else listOf(file)
+            val mmprojMeta = if (preferredMmproj != null && !isSplit) {
+                mapOf("mmprojFile" to (preferredMmproj.sharedCompanionKey ?: preferredMmproj.path))
+            } else {
+                emptyMap()
+            }
+            val mmprojSummary = if (preferredMmproj != null && !isSplit) {
+                "含视觉组件 ${preferredMmproj.path.substringAfterLast('/')}（支持看图对话）"
+            } else null
             HfRepoOption(
                 id = sanitizeModelId("gguf", repo, file.path),
                 label = fileName,
@@ -414,10 +440,12 @@ object HuggingFaceHubClient {
                 type = HubModelType.GgufChat,
                 format = HfFileFormat.Gguf,
                 entryFile = file.path,
-                files = listOf(file),
-                totalBytes = file.size,
+                files = optionFiles,
+                totalBytes = optionFiles.sumOf { it.size },
                 quantTag = quant,
                 splitWarning = if (isSplit) "分片 GGUF 文件暂不支持单文件直接加载，请选择单文件版本" else null,
+                companionSummary = mmprojSummary,
+                metadata = mmprojMeta,
                 splitWarningKey = if (isSplit) HubSplitWarning.SplitGguf else null
             )
         }.sortedWith(compareBy<HfRepoOption> { it.splitWarning != null }.thenBy { quantPriority(it.quantTag) }.thenBy { it.totalBytes })

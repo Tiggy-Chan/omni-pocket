@@ -453,12 +453,82 @@ class ModelHubViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun attachPairedMmprojToPreview(uri: Uri) {
+        val current = _state.value.localImportPreview ?: return
+        viewModelScope.launch {
+            runCatching {
+                LocalModelImporter.inspectMmprojFile(getApplication(), uri)
+            }.onSuccess { (mmUri, mmName, mmSize) ->
+                _state.update {
+                    val prev = it.localImportPreview ?: return@update it
+                    it.copy(
+                        localImportPreview = prev.copy(
+                            pairedMmprojUri = mmUri,
+                            pairedMmprojName = mmName,
+                            pairedMmprojBytes = mmSize
+                        ),
+                        localImportError = null
+                    )
+                }
+            }.onFailure { err ->
+                _state.update { it.copy(localImportError = err.message ?: err.javaClass.simpleName) }
+            }
+        }
+    }
+
+    fun clearPairedMmprojFromPreview() {
+        _state.update {
+            val prev = it.localImportPreview ?: return@update it
+            it.copy(
+                localImportPreview = prev.copy(
+                    pairedMmprojUri = null,
+                    pairedMmprojName = null,
+                    pairedMmprojBytes = 0L
+                )
+            )
+        }
+    }
+
+    fun bindMmprojToInstalledModel(
+        targetModelId: String,
+        mmprojUri: Uri,
+        onBound: () -> Unit = {}
+    ) {
+        val app = getApplication<Application>()
+        val targetName = installedRepo.find(targetModelId)?.name ?: targetModelId
+        val jobId = "local-mmproj:$targetModelId:${System.currentTimeMillis()}"
+        ModelDownloadManager.enqueue(
+            context = app,
+            id = jobId,
+            title = "$targetName · mmproj",
+            onSuccess = {
+                refreshStorage()
+                onBound()
+            }
+        ) { onProgress ->
+            LocalModelImporter.bindLocalMmproj(
+                context = app,
+                targetModelId = targetModelId,
+                mmprojUri = mmprojUri,
+                repo = installedRepo,
+                onProgress = onProgress
+            )
+        }
+        clearLocalImport()
+    }
+
     fun confirmLocalImport(
         selectedType: HubModelType,
         importAsCompanion: Boolean = false,
+        mmprojTargetModelId: String? = null,
         onImported: () -> Unit = {}
     ) {
         val preview = _state.value.localImportPreview ?: return
+        if (preview.kind == com.tiggy.qwenimage.data.LocalImportKind.MmprojProjector) {
+            val targetId = mmprojTargetModelId ?: return
+            bindMmprojToInstalledModel(targetId, preview.uri, onBound = onImported)
+            return
+        }
         val app = getApplication<Application>()
         val jobId = "local-import:${preview.fileName}:${System.currentTimeMillis()}"
         ModelDownloadManager.enqueue(

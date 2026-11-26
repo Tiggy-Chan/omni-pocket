@@ -26,7 +26,9 @@ class HuggingFaceHubClientTest {
         // Q4_K_M single file should come first
         assertEquals("model-Q4_K_M.gguf", options[0].entryFile)
         assertEquals("Q4_K_M", options[0].quantTag)
-        assertEquals(hashB, options[0].files.single().sha256)
+        assertEquals(2, options[0].files.size)
+        assertEquals(hashB, options[0].files.first().sha256)
+        assertEquals("mmproj-model-f16.gguf", options[0].files[1].path)
         assertNull(options[0].splitWarning)
         // Q8_0 second
         assertEquals("model-Q8_0.gguf", options[1].entryFile)

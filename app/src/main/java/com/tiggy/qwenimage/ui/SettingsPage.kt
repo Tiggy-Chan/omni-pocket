@@ -65,6 +65,7 @@ import com.tiggy.qwenimage.data.ThemeMode
 import com.tiggy.qwenimage.engine.GgufComputeBackend
 import com.tiggy.qwenimage.engine.KvCachePrecision
 import com.tiggy.qwenimage.engine.SUPPORTED_SD_SAMPLERS
+import com.tiggy.qwenimage.engine.ThermalPowerProfile
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -395,6 +396,25 @@ fun SettingsPage(
                                     }
 
                                     HorizontalDivider(thickness = 0.5.dp, color = OmniColors.Line)
+
+                                    Text(tr(R.string.settings_thermal_profile), color = OmniColors.Ink, style = MaterialTheme.typography.bodyLarge)
+                                    val profileLabels = mapOf(
+                                        ThermalPowerProfile.Eco to tr(R.string.settings_thermal_eco),
+                                        ThermalPowerProfile.Balanced to tr(R.string.settings_thermal_balanced),
+                                        ThermalPowerProfile.Performance to tr(R.string.settings_thermal_performance)
+                                    )
+                                    OmniTabs(
+                                        items = ThermalPowerProfile.entries,
+                                        selected = llmState.thermalProfile,
+                                        label = { profileLabels[it] ?: it.name },
+                                        onSelect = llmViewModel::setThermalProfile
+                                    )
+                                    val thermalDetailRes = when (llmState.thermalProfile) {
+                                        ThermalPowerProfile.Eco -> R.string.settings_thermal_eco_desc
+                                        ThermalPowerProfile.Balanced -> R.string.settings_thermal_balanced_desc
+                                        ThermalPowerProfile.Performance -> R.string.settings_thermal_performance_desc
+                                    }
+                                    Text(tr(thermalDetailRes), color = OmniColors.Dim, style = MaterialTheme.typography.labelSmall)
 
                                     SettingRow(
                                         title = tr(R.string.settings_chat_threads),

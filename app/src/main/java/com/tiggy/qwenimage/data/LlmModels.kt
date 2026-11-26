@@ -146,7 +146,8 @@ data class LlmMessage(
     val reasoning: String = "",
     val status: LlmMessageStatus = LlmMessageStatus.Complete,
     val createdAt: Long = System.currentTimeMillis(),
-    val citations: List<LlmCitation> = emptyList()
+    val citations: List<LlmCitation> = emptyList(),
+    val imagePath: String? = null
 ) {
     init { require(role == "user" || role == "assistant") { "不支持的对话角色" } }
 
@@ -157,6 +158,9 @@ data class LlmMessage(
         put("status", status.name); put("createdAt", createdAt)
         if (citations.isNotEmpty()) {
             put("citations", JSONArray().apply { citations.forEach { put(it.toJson()) } })
+        }
+        if (!imagePath.isNullOrBlank()) {
+            put("imagePath", imagePath)
         }
     }
 
@@ -169,7 +173,8 @@ data class LlmMessage(
             createdAt = json.optLong("createdAt"),
             citations = json.optJSONArray("citations")?.let { arr ->
                 (0 until arr.length()).map { LlmCitation.fromJson(arr.getJSONObject(it)) }
-            }.orEmpty()
+            }.orEmpty(),
+            imagePath = json.optString("imagePath").takeIf { it.isNotBlank() }
         )
     }
 }

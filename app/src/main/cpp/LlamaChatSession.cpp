@@ -2,6 +2,10 @@
 
 #include "ggml-backend.h"
 #include "llama.h"
+#if defined(OMNI_LLAMA_HAS_MTMD)
+#include "mtmd.h"
+#include "mtmd-helper.h"
+#endif
 
 #include <android/log.h>
 #include <dlfcn.h>
@@ -328,6 +332,10 @@ struct LlamaChatSession::Impl {
     llama_model* model = nullptr;
     llama_context* context = nullptr;
     const llama_vocab* vocab = nullptr;
+#if defined(OMNI_LLAMA_HAS_MTMD)
+    mtmd_context* mtmdCtx = nullptr;
+#endif
+    std::atomic<bool> hasVision{false};
     std::atomic<int> contextTokens{4096};
     std::atomic<int> trainContextTokens{0};
     int threadCount = 4;
@@ -341,6 +349,13 @@ struct LlamaChatSession::Impl {
     ~Impl() { Clear(); }
 
     void Clear() {
+#if defined(OMNI_LLAMA_HAS_MTMD)
+        if (mtmdCtx != nullptr) {
+            mtmd_free(mtmdCtx);
+            mtmdCtx = nullptr;
+        }
+#endif
+        hasVision.store(false);
         if (context != nullptr) {
             llama_free(context);
             context = nullptr;
@@ -550,7 +565,7 @@ LlamaChatSession::~LlamaChatSession() {
 }
 
 bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int contextTokens, std::string& error,
-                            int kvQuantMode, int backendPrefRaw) {
+                            int kvQuantMode, int backendPrefRaw, const std::string& mmprojPath) {
     std::lock_guard<std::mutex> lock(impl_->executionMutex);
     impl_->cancelled.store(false);
     error.clear();
@@ -673,9 +688,43 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
         impl_->contextTokens = effectiveCtx;
         impl_->threadCount = threadCount;
         impl_->activeBackendLabel = backendLabel;
+#if defined(OMNI_LLAMA_HAS_MTMD)
+        if (!mmprojPath.empty()) {
+            std::error_code mmEc;
+            if (std::filesystem::is_regular_file(mmprojPath, mmEc) && !mmEc) {
+                mtmd_helper_log_set(LlamaAndroidLog, nullptr);
+                auto mparams = mtmd_context_params_default();
+                mparams.use_gpu = offloadActive;
+                mparams.device = offloadActive ? selectedDevs[0] : nullptr;
+                mparams.n_threads = batchThreads;
+                mparams.print_timings = false;
+                mparams.warmup = false;
+                mparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+                impl_->mtmdCtx = mtmd_init_from_file(mmprojPath.c_str(), impl_->model, mparams);
+                if (impl_->mtmdCtx == nullptr && offloadActive) {
+                    __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                                        "mtmd GPU init failed for %s; retrying on CPU", mmprojPath.c_str());
+                    mparams.use_gpu = false;
+                    mparams.device = nullptr;
+                    impl_->mtmdCtx = mtmd_init_from_file(mmprojPath.c_str(), impl_->model, mparams);
+                }
+                if (impl_->mtmdCtx != nullptr) {
+                    const bool supportsVision = mtmd_support_vision(impl_->mtmdCtx);
+                    impl_->hasVision.store(supportsVision);
+                    __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                                        "Loaded mtmd projector (%s) supportsVision=%d",
+                                        mmprojPath.c_str(), supportsVision ? 1 : 0);
+                } else {
+                    __android_log_print(ANDROID_LOG_WARN, kLogTag,
+                                        "Failed to initialize mtmd projector: %s", mmprojPath.c_str());
+                }
+            }
+        }
+#endif
         __android_log_print(ANDROID_LOG_INFO, kLogTag,
-                            "Loaded GGUF model on [%s] n_ctx=%d threads=%d batch_threads=%d",
-                            backendLabel.c_str(), effectiveCtx, threadCount, batchThreads);
+                            "Loaded GGUF model on [%s] n_ctx=%d threads=%d batch_threads=%d vision=%d",
+                            backendLabel.c_str(), effectiveCtx, threadCount, batchThreads,
+                            impl_->hasVision.load() ? 1 : 0);
         return true;
     } catch (const std::exception& e) {
         __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Load exception: %s", e.what());
@@ -696,6 +745,10 @@ int LlamaChatSession::EffectiveContextTokens() const {
 
 int LlamaChatSession::ModelTrainContextTokens() const {
     return impl_->trainContextTokens.load(std::memory_order_relaxed);
+}
+
+bool LlamaChatSession::HasVisionLoaded() const {
+    return impl_->hasVision.load(std::memory_order_relaxed);
 }
 
 std::string LlamaChatSession::ActiveBackendLabel() const {
@@ -724,71 +777,202 @@ LlamaChatResult LlamaChatSession::Generate(
         return result;
     }
 
-    LlamaChatMessages history = request.messages;
-    auto [prompt, promptOpenedThink] = impl_->RenderPrompt(history, request.thinking);
-    std::vector<llama_token> promptTokens = impl_->Tokenize(prompt);
-    while (static_cast<int>(promptTokens.size()) + request.maxNewTokens > impl_->contextTokens && history.size() > 2) {
-        size_t count = 1;
-        if (history.size() > 3 && history[1].first == "user" && history[2].first == "assistant") count = 2;
-        history.erase(history.begin() + 1, history.begin() + 1 + count);
-        result.droppedMessages += static_cast<int>(count);
-        auto rerendered = impl_->RenderPrompt(history, request.thinking);
-        prompt = std::move(rerendered.first);
-        promptOpenedThink = rerendered.second;
-        promptTokens = impl_->Tokenize(prompt);
-    }
-    if (promptTokens.empty()) {
-        result.error = "对话输入分词失败";
-        return result;
-    }
-    if (static_cast<int>(promptTokens.size()) + request.maxNewTokens > impl_->contextTokens) {
-        result.error = "当前输入超过上下文预算，请缩短输入或新建会话";
-        return result;
-    }
-    result.promptTokens = static_cast<int>(promptTokens.size());
-
     auto* memory = llama_get_memory(impl_->context);
-    size_t common = 0;
-    if (impl_->conversationId == request.conversationId && impl_->thinking == request.thinking) {
-        while (common < impl_->kvTokens.size() &&
-               common + 1 < promptTokens.size() &&
-               impl_->kvTokens[common] == promptTokens[common]) {
-            ++common;
-        }
-    } else {
-        impl_->conversationId = request.conversationId;
-        impl_->thinking = request.thinking;
-    }
+    bool promptOpenedThink = false;
+    bool isVisionTurn = !request.imagePaths.empty();
+    int32_t currentPos = 0;
 
-    if (common == 0) {
+    if (isVisionTurn) {
+#if defined(OMNI_LLAMA_HAS_MTMD)
+        if (impl_->mtmdCtx == nullptr || !impl_->hasVision.load()) {
+            result.error = "当前模型未绑定视觉投影文件（mmproj），请先在模型页导入或绑定配套的 mmproj*.gguf";
+            return result;
+        }
+        mtmd::bitmaps bitmaps;
+        auto initOpt = mtmd_helper_init_opt_default();
+        for (const auto& imgPath : request.imagePaths) {
+            auto wrapped = mtmd_helper_bitmap_init_from_file(impl_->mtmdCtx, imgPath.c_str(), false, initOpt);
+            if (wrapped.bitmap == nullptr) {
+                result.error = "无法读取所选图片（支持 JPG / PNG / BMP 格式）";
+                return result;
+            }
+            bitmaps.entries.emplace_back(wrapped.bitmap);
+        }
+        const std::string marker = mtmd_default_marker();
+        LlamaChatMessages history = request.messages;
+        {
+            // Ensure the final user message contains one <__media__> marker per attached image.
+            std::string& lastUser = history.back().second;
+            size_t found = 0;
+            size_t pos = 0;
+            while ((pos = lastUser.find(marker, pos)) != std::string::npos) {
+                ++found;
+                pos += marker.size();
+            }
+            if (found < bitmaps.entries.size()) {
+                std::string prefix;
+                for (size_t i = found; i < bitmaps.entries.size(); ++i) {
+                    prefix += marker;
+                    prefix += '\n';
+                }
+                lastUser = prefix + lastUser;
+            }
+        }
+        auto bitmapPtrs = bitmaps.c_ptr();
+        auto tokenizeVision = [&](const LlamaChatMessages& msgs, mtmd::input_chunks& outChunks,
+                                  bool& outOpenedThink) -> int32_t {
+            auto rendered = impl_->RenderPrompt(msgs, request.thinking);
+            outOpenedThink = rendered.second;
+            bool addBos = llama_vocab_get_add_bos(impl_->vocab);
+            if (addBos) {
+                const llama_token bos = llama_vocab_bos(impl_->vocab);
+                if (bos >= 0) {
+                    char bosBuf[64];
+                    const int bosLen = llama_token_to_piece(impl_->vocab, bos, bosBuf, sizeof(bosBuf), 0, true);
+                    if (bosLen > 0 && rendered.first.size() >= static_cast<size_t>(bosLen) &&
+                        rendered.first.compare(0, static_cast<size_t>(bosLen), bosBuf, static_cast<size_t>(bosLen)) == 0) {
+                        addBos = false;
+                    }
+                }
+            }
+            mtmd_input_text inpText;
+            inpText.text = rendered.first.c_str();
+            inpText.text_len = rendered.first.size();
+            inpText.add_special = addBos;
+            inpText.parse_special = true;
+            outChunks.ptr.reset(mtmd_input_chunks_init());
+            return mtmd_tokenize(impl_->mtmdCtx, outChunks.ptr.get(), &inpText,
+                                 bitmapPtrs.data(), bitmapPtrs.size());
+        };
+
+        mtmd::input_chunks chunks;
+        int32_t tokRc = tokenizeVision(history, chunks, promptOpenedThink);
+        while (tokRc == 0 &&
+               static_cast<int>(mtmd_helper_get_n_tokens(chunks.ptr.get())) + request.maxNewTokens > impl_->contextTokens &&
+               history.size() > 2) {
+            size_t count = 1;
+            if (history.size() > 3 && history[1].first == "user" && history[2].first == "assistant") count = 2;
+            history.erase(history.begin() + 1, history.begin() + 1 + count);
+            result.droppedMessages += static_cast<int>(count);
+            tokRc = tokenizeVision(history, chunks, promptOpenedThink);
+        }
+        if (tokRc != 0 || chunks.ptr == nullptr) {
+            result.error = "多模态图文输入编码失败（错误码 " + std::to_string(tokRc) + "）";
+            return result;
+        }
+        const size_t totalVisionTokens = mtmd_helper_get_n_tokens(chunks.ptr.get());
+        if (static_cast<int>(totalVisionTokens) + request.maxNewTokens > impl_->contextTokens) {
+            result.error = "图文输入超过当前上下文预算，请在设置中调大上下文窗口或缩短历史对话";
+            return result;
+        }
+        result.promptTokens = static_cast<int>(totalVisionTokens);
+
         llama_memory_clear(memory, true);
         impl_->kvTokens.clear();
-    } else if (common < impl_->kvTokens.size()) {
-        if (!llama_memory_seq_rm(memory, 0, static_cast<llama_pos>(common), -1)) {
-            // Recurrent / hybrid SSM models may reject partial KV eviction; clear cleanly.
-            llama_memory_clear(memory, true);
-            impl_->kvTokens.clear();
-            common = 0;
-        } else {
-            impl_->kvTokens.resize(common);
-        }
-    }
+        impl_->conversationId = request.conversationId;
+        impl_->thinking = request.thinking;
 
-    const int64_t prefillStart = NowUs();
-    std::string decodeError;
-    if (!impl_->DecodeTokens(promptTokens.data() + common, promptTokens.size() - common,
-                             static_cast<int32_t>(common), decodeError)) {
+        const int64_t prefillStart = NowUs();
+        llama_pos newNPast = 0;
+        int32_t evalRc = -1;
+        try {
+            evalRc = mtmd_helper_eval_chunks(
+                impl_->mtmdCtx, impl_->context, chunks.ptr.get(),
+                /*n_past=*/0, /*seq_id=*/0, /*n_batch=*/kBatchSize,
+                /*logits_last=*/true, &newNPast);
+        } catch (const std::exception& e) {
+            result.finish = LlamaChatFinish::Error;
+            result.error = std::string("视觉编码计算异常：") + e.what();
+            return result;
+        } catch (...) {
+            result.finish = LlamaChatFinish::Error;
+            result.error = "视觉编码发生未知计算异常";
+            return result;
+        }
         if (impl_->cancelled.load()) {
             result.finish = LlamaChatFinish::Cancelled;
-        } else {
-            result.finish = LlamaChatFinish::Error;
-            result.error = decodeError;
+            return result;
         }
-        impl_->kvTokens.clear();
+        if (evalRc != 0) {
+            result.finish = LlamaChatFinish::Error;
+            result.error = "多模态视觉前向计算失败（状态码 " + std::to_string(evalRc) + "）";
+            return result;
+        }
+        llama_set_causal_attn(impl_->context, true);
+        result.prefillUs = std::max<int64_t>(0, NowUs() - prefillStart);
+        currentPos = static_cast<int32_t>(newNPast);
+#else
+        result.error = "当前构建未启用多模态视觉支持（mtmd）";
         return result;
+#endif
+    } else {
+        LlamaChatMessages history = request.messages;
+        auto [prompt, openedThink] = impl_->RenderPrompt(history, request.thinking);
+        promptOpenedThink = openedThink;
+        std::vector<llama_token> promptTokens = impl_->Tokenize(prompt);
+        while (static_cast<int>(promptTokens.size()) + request.maxNewTokens > impl_->contextTokens && history.size() > 2) {
+            size_t count = 1;
+            if (history.size() > 3 && history[1].first == "user" && history[2].first == "assistant") count = 2;
+            history.erase(history.begin() + 1, history.begin() + 1 + count);
+            result.droppedMessages += static_cast<int>(count);
+            auto rerendered = impl_->RenderPrompt(history, request.thinking);
+            prompt = std::move(rerendered.first);
+            promptOpenedThink = rerendered.second;
+            promptTokens = impl_->Tokenize(prompt);
+        }
+        if (promptTokens.empty()) {
+            result.error = "对话输入分词失败";
+            return result;
+        }
+        if (static_cast<int>(promptTokens.size()) + request.maxNewTokens > impl_->contextTokens) {
+            result.error = "当前输入超过上下文预算，请缩短输入或新建会话";
+            return result;
+        }
+        result.promptTokens = static_cast<int>(promptTokens.size());
+
+        size_t common = 0;
+        if (impl_->conversationId == request.conversationId && impl_->thinking == request.thinking) {
+            while (common < impl_->kvTokens.size() &&
+                   common + 1 < promptTokens.size() &&
+                   impl_->kvTokens[common] == promptTokens[common]) {
+                ++common;
+            }
+        } else {
+            impl_->conversationId = request.conversationId;
+            impl_->thinking = request.thinking;
+        }
+
+        if (common == 0) {
+            llama_memory_clear(memory, true);
+            impl_->kvTokens.clear();
+        } else if (common < impl_->kvTokens.size()) {
+            if (!llama_memory_seq_rm(memory, 0, static_cast<llama_pos>(common), -1)) {
+                // Recurrent / hybrid SSM models may reject partial KV eviction; clear cleanly.
+                llama_memory_clear(memory, true);
+                impl_->kvTokens.clear();
+                common = 0;
+            } else {
+                impl_->kvTokens.resize(common);
+            }
+        }
+
+        const int64_t prefillStart = NowUs();
+        std::string decodeError;
+        if (!impl_->DecodeTokens(promptTokens.data() + common, promptTokens.size() - common,
+                                 static_cast<int32_t>(common), decodeError)) {
+            if (impl_->cancelled.load()) {
+                result.finish = LlamaChatFinish::Cancelled;
+            } else {
+                result.finish = LlamaChatFinish::Error;
+                result.error = decodeError;
+            }
+            impl_->kvTokens.clear();
+            return result;
+        }
+        result.prefillUs = std::max<int64_t>(0, NowUs() - prefillStart);
+        impl_->kvTokens = promptTokens;
+        currentPos = static_cast<int32_t>(promptTokens.size());
     }
-    result.prefillUs = std::max<int64_t>(0, NowUs() - prefillStart);
-    impl_->kvTokens = promptTokens;
 
     auto chainParams = llama_sampler_chain_default_params();
     SamplerGuard samplerGuard(llama_sampler_chain_init(chainParams));
@@ -825,8 +1009,8 @@ LlamaChatResult LlamaChatSession::Generate(
     bool stoppedByCallback = false;
     bool hitEog = false;
     int generated = 0;
-    int32_t currentPos = static_cast<int32_t>(promptTokens.size());
     const int64_t decodeStart = NowUs();
+    std::string decodeError;
 
     constexpr const char* kStopMarkers[] = {
         "<|im_end|>", "<|eot_id|>", "<end_of_turn>", "<|endoftext|>", "<|end|>", "</s>"
@@ -872,7 +1056,9 @@ LlamaChatResult LlamaChatSession::Generate(
                 }
                 break;
             }
-            impl_->kvTokens.push_back(nextToken);
+            if (!isVisionTurn) {
+                impl_->kvTokens.push_back(nextToken);
+            }
             ++currentPos;
         }
     } catch (const std::exception& e) {

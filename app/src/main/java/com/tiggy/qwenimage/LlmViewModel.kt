@@ -2,7 +2,10 @@ package com.tiggy.qwenimage
 
 import android.app.Application
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import java.io.FileOutputStream
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tiggy.qwenimage.data.DocumentTextExtractor
@@ -36,6 +39,7 @@ import com.tiggy.qwenimage.engine.LocalLlamaChatEngine
 import com.tiggy.qwenimage.engine.LocalLlamaEmbeddingEngine
 import com.tiggy.qwenimage.engine.LocalLlmEngine
 import com.tiggy.qwenimage.engine.NativeLlmResult
+import com.tiggy.qwenimage.engine.ThermalPowerProfile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -66,7 +70,8 @@ data class ChatModelChoice(
     val totalBytes: Long,
     val ready: Boolean,
     val detail: String,
-    val builtIn: Boolean
+    val builtIn: Boolean,
+    val supportsVision: Boolean = false
 )
 
 data class LlmUsage(
@@ -87,6 +92,7 @@ data class LlmUiState(
     val maxNewTokens: Int = 1024,
     val contextTokens: Int = 4096,
     val threads: Int = 4,
+    val thermalProfile: ThermalPowerProfile = ThermalPowerProfile.Balanced,
     val temperature: Float = 0.7f,
     val topP: Float = 0.9f,
     val repeatPenalty: Float = 1.1f,
@@ -104,6 +110,7 @@ data class LlmUiState(
     val usage: LlmUsage? = null,
     val loadedModelId: String? = null,
     val attachedDocument: ExtractedDocument? = null,
+    val attachedImagePath: String? = null,
     val documentLoading: Boolean = false,
     val documentProgress: DocumentSummaryProgress? = null,
     val selectedKnowledgeBaseId: String? = null,
@@ -136,6 +143,7 @@ class LlmViewModel(
             maxNewTokens = prefs.getInt("maxNewTokens", DEFAULT_MAX_NEW_TOKENS).coerceIn(MIN_MAX_NEW_TOKENS, MAX_MAX_NEW_TOKENS),
             contextTokens = prefs.getInt("contextTokens", DEFAULT_CONTEXT_TOKENS).coerceIn(MIN_CONTEXT_TOKENS, MAX_CONTEXT_TOKENS),
             threads = prefs.getInt("threads", DEFAULT_THREADS).coerceIn(2, 8),
+            thermalProfile = ThermalPowerProfile.fromPref(prefs.getString("thermalProfile", null)),
             temperature = prefs.getFloat("temperature", DEFAULT_TEMPERATURE).coerceIn(0f, 2f),
             topP = prefs.getFloat("topP", DEFAULT_TOP_P).coerceIn(0.1f, 1f),
             repeatPenalty = prefs.getFloat("repeatPenalty", DEFAULT_REPEAT_PENALTY).coerceIn(1f, 1.5f),
@@ -254,6 +262,16 @@ class LlmViewModel(
         val clamped = value.coerceIn(2, 8)
         prefs.edit().putInt("threads", clamped).apply()
         _state.update { it.copy(threads = clamped) }
+    }
+
+    fun setThermalProfile(profile: ThermalPowerProfile) {
+        val rec = _state.value.ggufCapabilities.recommendedThreads
+        val mappedThreads = profile.threadsFor(rec)
+        prefs.edit()
+            .putString("thermalProfile", profile.name)
+            .putInt("threads", mappedThreads)
+            .apply()
+        _state.update { it.copy(thermalProfile = profile, threads = mappedThreads) }
     }
 
     fun setTemperature(value: Float) {
@@ -432,6 +450,69 @@ class LlmViewModel(
         _state.update { it.copy(attachedDocument = null, documentProgress = null) }
     }
 
+    fun attachImage(uri: Uri) {
+        if (_state.value.busy) return
+        viewModelScope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                runCatching { copyAndNormalizeChatImage(getApplication(), uri) }
+            }
+            saved.onSuccess { file ->
+                _state.update {
+                    it.copy(
+                        attachedImagePath = file.absolutePath,
+                        error = null
+                    )
+                }
+            }.onFailure { err ->
+                _state.update { it.copy(error = err.message ?: "无法读取所选图片") }
+            }
+        }
+    }
+
+    fun clearAttachedImage() {
+        _state.update { it.copy(attachedImagePath = null) }
+    }
+
+    private fun copyAndNormalizeChatImage(context: Context, uri: Uri): File {
+        val dir = File(context.filesDir, "chat-images").apply { mkdirs() }
+        val outFile = File(dir, "img-${UUID.randomUUID()}.jpg")
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            ?: error("无法打开所选图片")
+        require(bounds.outWidth > 0 && bounds.outHeight > 0) { "所选文件不是有效的图片" }
+        var sampleSize = 1
+        val maxSide = maxOf(bounds.outWidth, bounds.outHeight)
+        while (maxSide / (sampleSize * 2) >= 1280) {
+            sampleSize *= 2
+        }
+        val opts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        val decoded = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+            ?: error("图片解码失败")
+        try {
+            val scale = if (maxOf(decoded.width, decoded.height) > 1280) {
+                1280f / maxOf(decoded.width, decoded.height).toFloat()
+            } else 1f
+            val finalBmp = if (scale < 0.999f) {
+                Bitmap.createScaledBitmap(
+                    decoded,
+                    (decoded.width * scale).toInt().coerceAtLeast(1),
+                    (decoded.height * scale).toInt().coerceAtLeast(1),
+                    true
+                )
+            } else decoded
+            try {
+                FileOutputStream(outFile).use { fos ->
+                    check(finalBmp.compress(Bitmap.CompressFormat.JPEG, 90, fos)) { "图片缓存写入失败" }
+                }
+            } finally {
+                if (finalBmp !== decoded) finalBmp.recycle()
+            }
+        } finally {
+            decoded.recycle()
+        }
+        return outFile
+    }
+
     fun selectKnowledgeBase(kbId: String?, kbName: String?) {
         _state.update {
             it.copy(
@@ -474,6 +555,7 @@ class LlmViewModel(
         _state.update {
             it.copy(
                 drafts = if (action == DocumentQuickAction.Ask) it.drafts + (conversation.id to "") else it.drafts,
+                attachedDocument = if (action == DocumentQuickAction.Ask) null else it.attachedDocument,
                 phase = LlmPhase.Loading,
                 workingModelId = conversation.modelId,
                 documentProgress = null,
@@ -491,21 +573,55 @@ class LlmViewModel(
     fun send() {
         val snapshot = _state.value
         if (!snapshot.ready || snapshot.busy) return
+        val attachedImage = snapshot.attachedImagePath
         val attached = snapshot.attachedDocument
+        val conversation = snapshot.conversation ?: return
+        val choice = snapshot.chatModels.firstOrNull { it.id == conversation.modelId }
+        if (choice?.ready != true) {
+            _state.update { it.copy(alert = "请先下载或选择已就绪的对话模型") }
+            return
+        }
+        if (attachedImage != null) {
+            if (!choice.supportsVision) {
+                _state.update {
+                    it.copy(alert = "当前模型未绑定视觉投影文件（mmproj）。请前往「模型 → 本地模型」为 GGUF 对话模型绑定 mmproj*.gguf，或切换含视觉组件的多模态模型。")
+                }
+                return
+            }
+            val text = snapshot.draft.trim().ifBlank { "请描述这张图片的内容。" }
+            cancelRequested = false
+            val user = LlmMessage(UUID.randomUUID().toString(), "user", text, imagePath = attachedImage)
+            val assistant = LlmMessage(UUID.randomUUID().toString(), "assistant", "", status = LlmMessageStatus.Streaming)
+            updateConversation(conversation.id) { current ->
+                current.copy(
+                    title = if (current.messages.isEmpty()) conversationTitle(text) else current.title,
+                    messages = current.messages + user + assistant,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+            _state.update {
+                it.copy(
+                    drafts = it.drafts + (conversation.id to ""),
+                    attachedImagePath = null,
+                    phase = LlmPhase.Loading,
+                    workingModelId = conversation.modelId,
+                    usage = null,
+                    error = null
+                )
+            }
+            activeConversationId = conversation.id
+            activeMessageId = assistant.id
+            operation = viewModelScope.launch { generate(conversation.id, assistant.id) }
+            return
+        }
         if (attached != null && attached.text.isNotBlank()) {
             val question = snapshot.draft.trim()
             if (question.isEmpty()) return
             runDocumentAction(DocumentQuickAction.Ask, question)
             return
         }
-        val conversation = snapshot.conversation ?: return
         val text = snapshot.draft.trim()
         if (text.isEmpty()) return
-        val choice = snapshot.chatModels.firstOrNull { it.id == conversation.modelId }
-        if (choice?.ready != true) {
-            _state.update { it.copy(alert = "请先下载或选择已就绪的对话模型") }
-            return
-        }
         cancelRequested = false
         val user = LlmMessage(UUID.randomUUID().toString(), "user", text)
         val assistant = LlmMessage(UUID.randomUUID().toString(), "assistant", "", status = LlmMessageStatus.Streaming)
@@ -613,6 +729,11 @@ class LlmViewModel(
                             mnnEngine.unload()
                             activeBackend = ChatEngineBackend.LlamaGguf
                             if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
+                            val mmprojFile = withContext(Dispatchers.IO) { hubRepository.mmprojFile(hubModel) }
+                            val turnImagePaths = listOfNotNull(
+                                conversation.messages.lastOrNull { it.role == "user" }?.imagePath
+                                    ?.takeIf { File(it).isFile }
+                            )
                             val requestedBackend = snapshot.ggufBackend
                             var activeBackendPref = requestedBackend
                             var fellBackToCpu = false
@@ -622,7 +743,8 @@ class LlmViewModel(
                                 threads = threads,
                                 contextTokens = contextTokens,
                                 kvPrecision = snapshot.ggufKvPrecision,
-                                backend = activeBackendPref
+                                backend = activeBackendPref,
+                                mmprojFile = mmprojFile
                             )
                             if (error != null && activeBackendPref != GgufComputeBackend.Cpu && activeBackendPref != GgufComputeBackend.Auto && !cancelRequested) {
                                 llamaEngine.unload()
@@ -634,7 +756,8 @@ class LlmViewModel(
                                     threads = threads,
                                     contextTokens = contextTokens,
                                     kvPrecision = snapshot.ggufKvPrecision,
-                                    backend = GgufComputeBackend.Cpu
+                                    backend = GgufComputeBackend.Cpu,
+                                    mmprojFile = mmprojFile
                                 )
                             }
                             if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
@@ -652,7 +775,14 @@ class LlmViewModel(
                                 )
                             }
                             var raw = ""
-                            var nativeResult = llamaEngine.generate(conversationId, messages, maxNewTokens, conversation.thinking, sampling) { chunk ->
+                            var nativeResult = llamaEngine.generate(
+                                conversationId = conversationId,
+                                messages = messages,
+                                maxNewTokens = maxNewTokens,
+                                thinking = conversation.thinking,
+                                sampling = sampling,
+                                imagePaths = turnImagePaths
+                            ) { chunk ->
                                 raw += chunk
                                 if (activeConversationId == conversationId && activeMessageId == messageId) {
                                     // GGUF emits explicit <think> tags when thinking is active; never implicitly treat plain replies as thinking.
@@ -671,7 +801,8 @@ class LlmViewModel(
                                     threads = threads,
                                     contextTokens = contextTokens,
                                     kvPrecision = snapshot.ggufKvPrecision,
-                                    backend = GgufComputeBackend.Cpu
+                                    backend = GgufComputeBackend.Cpu,
+                                    mmprojFile = mmprojFile
                                 )
                                 if (cpuErr == null && !cancelRequested) {
                                     val cpuEffectiveCtx = llamaEngine.effectiveContextTokens.takeIf { it > 0 } ?: contextTokens
@@ -684,7 +815,14 @@ class LlmViewModel(
                                             alert = "${requestedBackend.name} 后端推理失败，已自动回退到 CPU 运行"
                                         )
                                     }
-                                    nativeResult = llamaEngine.generate(conversationId, messages, cpuMaxNewTokens, conversation.thinking, sampling) { chunk ->
+                                    nativeResult = llamaEngine.generate(
+                                        conversationId = conversationId,
+                                        messages = messages,
+                                        maxNewTokens = cpuMaxNewTokens,
+                                        thinking = conversation.thinking,
+                                        sampling = sampling,
+                                        imagePaths = turnImagePaths
+                                    ) { chunk ->
                                         raw += chunk
                                         if (activeConversationId == conversationId && activeMessageId == messageId) {
                                             updateMessage(conversationId, messageId, raw, LlmMessageStatus.Streaming, implicitThinking = false)
@@ -1160,6 +1298,8 @@ class LlmViewModel(
             hubInstalled.forEach { model ->
                 val backend = if (model.type == HubModelType.GgufChat) ChatEngineBackend.LlamaGguf else ChatEngineBackend.Mnn
                 val present = hubRepository.isPresent(model)
+                val hasVision = model.type == HubModelType.GgufChat && present && hubRepository.hasVisionMmproj(model)
+                val visionTag = if (hasVision) " · 识图" else ""
                 add(
                     ChatModelChoice(
                         id = model.id,
@@ -1167,9 +1307,10 @@ class LlmViewModel(
                         backend = backend,
                         totalBytes = model.totalBytes,
                         ready = present,
-                        detail = if (present) "已就绪 · ${backend.label} · ${formatBytesCompact(model.totalBytes)}"
+                        detail = if (present) "已就绪 · ${backend.label}$visionTag · ${formatBytesCompact(model.totalBytes)}"
                         else "文件缺失",
-                        builtIn = false
+                        builtIn = false,
+                        supportsVision = hasVision
                     )
                 )
             }

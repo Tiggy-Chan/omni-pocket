@@ -11,10 +11,16 @@ set(LLAMA_BUILD_APP OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_UI OFF CACHE BOOL "" FORCE)
 set(LLAMA_OPENSSL OFF CACHE BOOL "" FORCE)
 set(LLAMA_SUBPROCESS OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_MTMD ON CACHE BOOL "" FORCE)
+set(MTMD_VIDEO OFF CACHE BOOL "" FORCE)
 set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
 set(GGML_BACKEND_DL OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
 set(GGML_METAL OFF CACHE BOOL "" FORCE)
+
+# Strip absolute host build paths from __FILE__/assert strings in compiled .so binaries.
+get_filename_component(OMNI_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+add_compile_options("-ffile-prefix-map=${OMNI_REPO_ROOT}=.")
 
 # Auto-enable Arm KleidiAI micro-kernels (runtime HWCAP dispatch across dotprod/i8mm/SVE/SME2)
 # whenever scripts/prepare_llama.sh has staged KleidiAI sources locally.
@@ -109,6 +115,9 @@ endif()
 if (TARGET kleidiai)
     target_compile_options(kleidiai PRIVATE -O3)
 endif()
+if (TARGET mtmd)
+    target_compile_options(mtmd PRIVATE -O3)
+endif()
 
 add_library(omni_llm SHARED
     llm_jni.cpp
@@ -140,9 +149,13 @@ target_include_directories(omni_decision PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../../../../qwenimage21/src/main/cpp/include"
     "${LLAMA_SOURCE}/include"
     "${LLAMA_SOURCE}/ggml/include"
+    "${LLAMA_SOURCE}/tools/mtmd"
     "${LLAMA_SOURCE}/vendor/nlohmann"
 )
 target_compile_features(omni_decision PRIVATE cxx_std_17)
+if (TARGET mtmd)
+    target_compile_definitions(omni_decision PRIVATE OMNI_LLAMA_HAS_MTMD=1)
+endif()
 if (OMNI_LLAMA_KLEIDIAI)
     target_compile_definitions(omni_decision PRIVATE OMNI_LLAMA_HAS_KLEIDIAI=1)
 endif()
@@ -154,9 +167,9 @@ if (OMNI_LLAMA_HEXAGON)
 endif()
 if (OMNI_LLAMA_OPENCL)
     target_compile_definitions(omni_decision PRIVATE OMNI_LLAMA_HAS_OPENCL=1)
-    target_link_libraries(omni_decision PRIVATE llama ggml omni_opencl_loader android dl log)
+    target_link_libraries(omni_decision PRIVATE llama ggml mtmd omni_opencl_loader android dl log)
 else()
-    target_link_libraries(omni_decision PRIVATE llama ggml android dl log)
+    target_link_libraries(omni_decision PRIVATE llama ggml mtmd android dl log)
 endif()
 target_link_options(omni_decision PRIVATE
     "LINKER:--version-script=${CMAKE_CURRENT_LIST_DIR}/omni_decision.map"

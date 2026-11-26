@@ -226,6 +226,7 @@ fun ModelsPage(
     var deleteBuiltIn by remember { mutableStateOf<BuiltInDeleteTarget?>(null) }
     var showMirrorSheet by remember { mutableStateOf(false) }
     var showLocalImportSheet by remember { mutableStateOf(false) }
+    var bindMmprojTargetModel by remember { mutableStateOf<InstalledHubModel?>(null) }
     var sourceOpen by rememberSaveable { mutableStateOf(false) }
     var elephantManualOpen by rememberSaveable { mutableStateOf(false) }
 
@@ -249,6 +250,19 @@ fun ModelsPage(
         if (uri != null) {
             showLocalImportSheet = true
             hubViewModel.inspectLocalFolder(uri)
+        }
+    }
+    val pairedMmprojPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) hubViewModel.attachPairedMmprojToPreview(uri)
+    }
+    val bindMmprojPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val target = bindMmprojTargetModel
+        bindMmprojTargetModel = null
+        if (uri != null && target != null) {
+            requestNotificationPermissionIfNeeded()
+            hubViewModel.bindMmprojToInstalledModel(target.id, uri) {
+                llmViewModel.refreshModels()
+            }
         }
     }
 
@@ -378,6 +392,37 @@ fun ModelsPage(
 
                 when (tab) {
                     ModelsPageTab.Installed -> {
+                        hubState.deviceHardware?.takeIf { it.totalRamGb > 0.0 }?.let { hw ->
+                            item(key = "ram-starter-guide") {
+                                val ramGb = hw.totalRamGb
+                                val adviceRes = when {
+                                    ramGb >= 16.0 -> R.string.models_ram_guide_high
+                                    ramGb >= 11.0 -> R.string.models_ram_guide_mid
+                                    else -> R.string.models_ram_guide_low
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = OmniColors.Field,
+                                    border = BorderStroke(0.5.dp, OmniColors.Line),
+                                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp)
+                                ) {
+                                    Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Text(
+                                            tr(R.string.models_ram_guide_title, String.format(Locale.US, "%.0f", ramGb)),
+                                            color = OmniColors.Ink,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            tr(adviceRes),
+                                            color = OmniColors.Muted,
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
                         item(key = "local-modality-filter") {
                             LazyRow(
                                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp),
@@ -404,11 +449,23 @@ fun ModelsPage(
                                 } else {
                                     model.repo
                                 }
+                                val hasMmproj = model.type == HubModelType.GgufChat && !model.metadata["mmprojFile"].isNullOrBlank()
+                                val visionSuffix = if (hasMmproj) " · ${tr(R.string.models_vision_badge)}" else ""
                                 ModelRow(
                                     name = model.name,
-                                    status = "${model.type.localizedLabel()} · ${formatBytesCompact(model.totalBytes)} · $sourceLabel",
+                                    status = "${model.type.localizedLabel()}$visionSuffix · ${formatBytesCompact(model.totalBytes)} · $sourceLabel",
                                     ready = true,
                                     trailing = {
+                                        if (model.type == HubModelType.GgufChat) {
+                                            ModelButton(
+                                                text = if (hasMmproj) tr(R.string.models_replace_mmproj) else tr(R.string.models_bind_mmproj),
+                                                onClick = {
+                                                    bindMmprojTargetModel = model
+                                                    bindMmprojPicker.launch(arrayOf("*/*"))
+                                                },
+                                                enabled = !hubDeleteBusy
+                                            )
+                                        }
                                         ModelButton(tr(R.string.common_use), { onUseHubModel(model) })
                                         ModelButton(tr(R.string.common_delete), { deleteHubModel = model }, enabled = !hubDeleteBusy, danger = true)
                                     }
@@ -1054,9 +1111,11 @@ fun ModelsPage(
             state = hubState,
             onPickFile = { localFilePicker.launch(arrayOf("*/*")) },
             onPickFolder = { localFolderPicker.launch(null) },
-            onConfirm = { type, asCompanion ->
+            onPickPairedMmproj = { pairedMmprojPicker.launch(arrayOf("*/*")) },
+            onClearPairedMmproj = hubViewModel::clearPairedMmprojFromPreview,
+            onConfirm = { type, asCompanion, mmprojTargetId ->
                 requestNotificationPermissionIfNeeded()
-                hubViewModel.confirmLocalImport(type, asCompanion) {
+                hubViewModel.confirmLocalImport(type, asCompanion, mmprojTargetId) {
                     viewModel.refreshAllModelStatuses()
                     llmViewModel.refreshModels()
                     decisionViewModel.refreshModel()
@@ -1547,12 +1606,20 @@ private fun LocalModelImportSheet(
     state: ModelHubUiState,
     onPickFile: () -> Unit,
     onPickFolder: () -> Unit,
-    onConfirm: (HubModelType, Boolean) -> Unit,
+    onPickPairedMmproj: () -> Unit,
+    onClearPairedMmproj: () -> Unit,
+    onConfirm: (HubModelType, Boolean, String?) -> Unit,
     onDismiss: () -> Unit
 ) {
     val preview = state.localImportPreview
-    var selectedType by remember(preview) { mutableStateOf(preview?.suggestedType ?: HubModelType.GgufChat) }
-    var importAsCompanion by remember(preview) { mutableStateOf(preview?.kind == LocalImportKind.Companion) }
+    var selectedType by remember(preview?.uri, preview?.suggestedType) { mutableStateOf(preview?.suggestedType ?: HubModelType.GgufChat) }
+    var importAsCompanion by remember(preview?.uri, preview?.kind) { mutableStateOf(preview?.kind == LocalImportKind.Companion) }
+    val installedGgufChats = remember(state.installedModels) {
+        state.installedModels.filter { it.type == HubModelType.GgufChat }
+    }
+    var selectedMmprojTargetId by remember(preview?.uri, installedGgufChats) {
+        mutableStateOf(installedGgufChats.firstOrNull()?.id)
+    }
 
     OmniSheet(tr(R.string.models_import_title), onDismiss) {
         Column(
@@ -1616,7 +1683,7 @@ private fun LocalModelImportSheet(
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(preview.displayName, color = OmniColors.Ink, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                         val metaLine = buildList {
-                            if (preview.kind == LocalImportKind.MnnFolder) {
+                            if (preview.kind == LocalImportKind.MnnFolder || preview.kind == LocalImportKind.GgufVlmFolder) {
                                 add(tr(R.string.models_import_folder_files_fmt, preview.fileCount, formatBytesCompact(preview.totalBytes)))
                             } else if (preview.totalBytes > 0L) {
                                 add(formatBytesCompact(preview.totalBytes))
@@ -1626,6 +1693,25 @@ private fun LocalModelImportSheet(
                         }.joinToString(" · ")
                         if (metaLine.isNotBlank()) {
                             Text(metaLine, color = OmniColors.Muted, style = MaterialTheme.typography.labelSmall)
+                        }
+                        if (!preview.pairedMmprojName.isNullOrBlank()) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    tr(
+                                        R.string.models_import_mmproj_paired_fmt,
+                                        preview.pairedMmprojName,
+                                        formatBytesCompact(preview.pairedMmprojBytes)
+                                    ),
+                                    color = OmniColors.Success,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (preview.kind == LocalImportKind.SingleFile) {
+                                    IconButton(onClick = onClearPairedMmproj, modifier = Modifier.size(28.dp)) {
+                                        Icon(Icons.Outlined.Close, tr(R.string.common_cancel), tint = OmniColors.Muted, modifier = Modifier.size(14.dp))
+                                    }
+                                }
+                            }
                         }
                         if (preview.cachedCompanions.isNotEmpty()) {
                             Text(
@@ -1644,39 +1730,73 @@ private fun LocalModelImportSheet(
                     }
                 }
 
-                if (!preview.companionSharedKey.isNullOrBlank()) {
-                    ComposerChip(
-                        label = tr(R.string.models_import_as_companion, preview.companionSharedKey),
-                        onClick = { importAsCompanion = !importAsCompanion },
-                        selected = importAsCompanion
-                    )
-                }
+                if (preview.kind == LocalImportKind.MmprojProjector) {
+                    Text(tr(R.string.models_import_mmproj_target_label), color = OmniColors.Muted, style = MaterialTheme.typography.labelMedium)
+                    if (installedGgufChats.isEmpty()) {
+                        Text(tr(R.string.models_import_mmproj_no_target), color = OmniColors.Warning, style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(installedGgufChats, key = { it.id }) { target ->
+                                ComposerChip(
+                                    label = target.name.take(24),
+                                    onClick = { selectedMmprojTargetId = target.id },
+                                    selected = selectedMmprojTargetId == target.id
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    if (!preview.companionSharedKey.isNullOrBlank()) {
+                        ComposerChip(
+                            label = tr(R.string.models_import_as_companion, preview.companionSharedKey),
+                            onClick = { importAsCompanion = !importAsCompanion },
+                            selected = importAsCompanion
+                        )
+                    }
 
-                if (!importAsCompanion && preview.kind != LocalImportKind.MnnFolder) {
-                    Text(tr(R.string.models_import_target_label), color = OmniColors.Muted, style = MaterialTheme.typography.labelMedium)
-                    val choices = listOf(
-                        HubModelType.GgufChat,
-                        HubModelType.Embedding,
-                        HubModelType.DecisionGguf,
-                        HubModelType.SdImage,
-                        HubModelType.VideoWan,
-                        HubModelType.MusicAudio
-                    )
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(choices) { choice ->
-                            ComposerChip(
-                                label = choice.localizedLabel(),
-                                onClick = { selectedType = choice },
-                                selected = selectedType == choice
+                    if (!importAsCompanion && preview.kind != LocalImportKind.MnnFolder) {
+                        Text(tr(R.string.models_import_target_label), color = OmniColors.Muted, style = MaterialTheme.typography.labelMedium)
+                        val choices = listOf(
+                            HubModelType.GgufChat,
+                            HubModelType.Embedding,
+                            HubModelType.DecisionGguf,
+                            HubModelType.SdImage,
+                            HubModelType.VideoWan,
+                            HubModelType.MusicAudio
+                        )
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(choices) { choice ->
+                                ComposerChip(
+                                    label = choice.localizedLabel(),
+                                    onClick = { selectedType = choice },
+                                    selected = selectedType == choice
+                                )
+                            }
+                        }
+                    }
+
+                    if (!importAsCompanion && selectedType == HubModelType.GgufChat && preview.kind == LocalImportKind.SingleFile) {
+                        OutlinedButton(
+                            onClick = onPickPairedMmproj,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(0.5.dp, OmniColors.Line),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = OmniColors.Accent)
+                        ) {
+                            Text(
+                                if (preview.pairedMmprojUri == null) tr(R.string.models_import_add_mmproj) else tr(R.string.models_replace_mmproj),
+                                style = MaterialTheme.typography.labelMedium
                             )
                         }
                     }
                 }
 
+                val canConfirm = preview.kind != LocalImportKind.MmprojProjector || selectedMmprojTargetId != null
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     ModelButton(
                         text = tr(R.string.models_import_start),
-                        onClick = { onConfirm(selectedType, importAsCompanion) }
+                        onClick = { onConfirm(selectedType, importAsCompanion, selectedMmprojTargetId) },
+                        enabled = canConfirm
                     )
                 }
             }
