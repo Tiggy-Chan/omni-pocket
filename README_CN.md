@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.0"><img src="https://img.shields.io/badge/release-v0.2.0-3A6FE0?style=flat-square" alt="Release v0.2.0" /></a>
+  <a href="https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.1"><img src="https://img.shields.io/badge/release-v0.2.1-3A6FE0?style=flat-square" alt="Release v0.2.1" /></a>
   <img src="https://img.shields.io/badge/Android-9%2B%20(arm64--v8a)-1F2328?style=flat-square" alt="Android 9+ arm64-v8a" />
   <img src="https://img.shields.io/badge/推理方式-100%25%20手机本地-2E7D32?style=flat-square" alt="100% 手机本地" />
   <img src="https://img.shields.io/badge/界面语言-14%20种-5B6678?style=flat-square" alt="14 种语言" />
@@ -67,9 +67,9 @@
 
 | 模态 | 内置与社区模型生态 | 本机推理引擎与加速 | 核心能力 |
 | :--- | :--- | :--- | :--- |
-| **对话** | 内置 `Qwen3.5 0.8B / 2B / 4B`（MNN）+ 任意单文件 **GGUF**（`Qwen3.5`、`Gemma 4`、`Qwen3`、`Gemma 3`、`Llama 3`、`DeepSeek-R1`、`Phi`、`MiniCPM`）、社区 MNN 包及 GGUF 嵌入模型（`bge-small-zh-v1.5`） | `libMNN.so` + `llama.cpp` + **Arm KleidiAI**（`-O3`、`armv8.2-a+dotprod+fp16`、Vulkan / OpenCL GPU 卸载与自动 CPU 回退、大中核线程自动调度） | 流式输出、`<think>` 折叠、**文档阅读摘要**（`.pdf`/`.docx`/`.md`/`.html`/`.txt` Map-Reduce）、**本地知识库 RAG**（SQLite 向量检索与引用来源）、`512–131072` 上下文、KV 量化与前缀复用、Markdown / PDF 导出 |
+| **对话** | 内置 `Qwen3.5 0.8B / 2B / 4B`（MNN）+ 任意单文件 **GGUF**（`Qwen3.5`、`Qwen3-VL`、`Gemma 4`、`Gemma 3`、`Qwen3`、`Llama 3`、`DeepSeek-R1`、`Phi`、`MiniCPM`）及配套 **`mmproj`** 视觉文件、社区 MNN 包与 GGUF 嵌入模型（`bge-small-zh-v1.5`） | `libMNN.so` + `llama.cpp`（`mtmd` 视觉 + **Arm KleidiAI**、`-O3`、`armv8.2-a+dotprod+fp16`、Vulkan / OpenCL GPU 卸载与自动 CPU 回退、省电/均衡/性能温控档位） | 流式输出、`<think>` 折叠、**多模态识图对话**（`mmproj`）、**文档阅读摘要**（`.pdf`/`.docx`/`.md`/`.html`/`.txt` Map-Reduce）、**本地知识库 RAG**（SQLite 向量检索与引用来源）、`512–131072` 上下文、KV 量化与前缀复用、Markdown / PDF 导出 |
 | **决策** | 内置 [`baselabs/elephant-1`](https://huggingface.co/baselabs/elephant-1) 9B（`Q4_K_M`）+ 社区 **OneJev 1.6（0.8B / 4B / 9B）** 与 **Elephant-1** 单文件 GGUF（`qev-labels-v2`） | `llama.cpp` + Arm KleidiAI（块双向全注意力、ARMv8.2 dotprod+fp16、可调 CPU 线程） | 单次前向输出 **选择（Choice）**、**判断（Yes/No）**、**评分（Score）** 的校准概率分布与置信度，支持 Markdown / PDF 导出 |
-| **图像** | **Qwen-Image 2.1**、**MOSS-Image SFT**，以及社区 **FLUX.3 Image Klein**、**ERNIE-Image-Turbo**、**Z-Image-Turbo**、**FLUX.2-Klein 4B/9B** 与 **SD 1.5 / SDXL** 权重 | MNN（int4 编码器 + OpenCL DiT）与统一 16KB 页对齐 `libsd_jni.so`（`stable-diffusion.cpp` OpenCL + VAE 分块，独立 `:engine` 进程运行） | 文生图、参考图编辑（`Qwen-Image`、`FLUX.3/FLUX.2`）、官方多区域 JSON 坐标布局（`abs_centralized` / `yxyx`）、共享组件自动复用 |
+| **图像** | **Qwen-Image 2.1**、**MOSS-Image SFT**，以及社区 **FLUX.3 Image Klein**、**ERNIE-Image-Turbo**、**Z-Image-Turbo**、**FLUX.2-Klein 4B/9B** 与 **SD 1.5 / SDXL** 权重 | MNN（int4 编码器 + OpenCL DiT）与统一 16KB 页对齐 `libsd_jni.so`（`stable-diffusion.cpp` OpenCL + VAE 分块，独立 `:engine` 进程运行） | 文生图、通用 **图生图（img2img）**（可调重绘强度）与参考图编辑（`Qwen-Image`、`FLUX.3/FLUX.2`、`SD 1.5 / SDXL`）、多区域坐标布局、共享组件自动复用 |
 | **音乐** | 内置 **YuE2-3B** + 可下载 **ACE-Step 1.5 Turbo/Base**、**HeartMuLa 3B**、**Stable Audio 3 Small/Medium** GGUF | 统一 16KB 页对齐 `libyue2_jni.so`（[audio.cpp](https://github.com/0xShug0/audio.cpp)，`armv8.2-a+dotprod` CPU + **Vulkan GPU**，独立 `:engine` 进程运行） | 48 kHz 立体声 WAV 合成，支持人声/纯音乐/音效，旋律思考链同步输出可读 **ABC 乐谱**，支持原生 `MediaCodec` 导出 `.m4a` |
 | **视频** | 内置 **Wan2.2-TI2V-5B-Turbo** + 社区 **MiniMax-H3（pi-H3 2/4 步音画同步）**、**Wan2.2-5B**、**Wan2.1-1.3B** GGUF DiT 权重 | 统一 16KB 页对齐 `libsd_jni.so`（`SD_WEBM=ON`、`pi-Flow` 调度器、磁盘分段流式加载、`diffusion=GPUOpenCL, te=CPU, vae=CPU`，独立 `:engine` 进程） | 文生视频与首帧/参考图生视频（`FL2VA` / `Ref2VA`）、原生 24 fps 音画同步 WebM、原生 `MediaCodec` 转 `.mp4`（H.264/AAC）分享、VAE 分块解码 |
 
@@ -88,14 +88,14 @@
 - **全模态实时能力榜单（`能力参考`）**：直接拉取并展示 [Artificial Analysis](https://artificialanalysis.ai/) 全部 5 大模态公开排行榜（`开源 LLM`、`Decision Index v2.1`、`图像 T2I`、`视频 T2V`、`音乐人声与纯音乐`），同时接入 [Jev Decision Index](https://huggingface.co/spaces/multimodalart/jev-decision-index) 与 [Hugging Face Open LLM Leaderboard (≤10B)](https://huggingface.co/spaces/open-llm-leaderboard/open_llm_leaderboard)；清晰标注原始数据来源与原文链接，支持本地磁盘缓存、离线端侧精选降级、按当前手机内存实时评估流畅度，并可一键跳转到 Hugging Face 搜索下载。
 - **Hugging Face 与国内镜像无缝切换**：在 **模型 → 切换源** 或 **设置 → 模型下载镜像** 中一键切换 `Hugging Face (https://huggingface.co)`、`HF-Mirror 国内镜像 (https://hf-mirror.com)`（中国大陆语言环境默认启用）或自定义 HTTPS 镜像，支持填写受限仓库 Access Token 与延迟测速。数 GB 权重通过 `ModelDownloadService` 前台服务后台稳定下载，支持断点续传、严格 `Content-Range` 校验与 SHA-256 / LFS OID 完整性校验。
 - **本地模型零权限导入、本地 RAG 与原生导出分享**：通过 Android 系统文件选择器（SAF）零权限导入手机本地 `.gguf` / `.safetensors` / MNN 模型并自动解析 GGUF 元数据；支持 `.pdf`/`.docx`/`.md`/`.html`/`.txt` 文档摘要与本地 SQLite 向量知识库检索（原生 `llama.cpp` Embedding）；视频/音乐/对话结果可通过系统原生 `MediaCodec`/`MediaMuxer` 与 `PdfDocument` 直接导出 `.mp4`、`.m4a`、Markdown 与 PDF 分享。
-- **合规 16KB 页对齐原生架构**：全部推理引擎封装为 16KB 页对齐原生 JNI 动态库（`extractNativeLibs=false`），无任何命令行子进程调用，隔离运行于私有 `:engine` 进程，并通过 APK v1 + v2 + v3 完整签名方案签发。
+- **合规 16KB 原生架构、R8 轻量瘦身与 Android 16 实时胶囊**：全部推理引擎封装为 16KB ELF 页对齐原生 JNI 动态库，无任何命令行子进程调用，隔离运行于私有 `:engine` 进程，经 R8 裁剪后包体仅约 41 MB，支持 APK v1 + v2 + v3 完整签名与后台保活通知（Android 16+ 自动升级为 Live Updates 实时进度胶囊）。
 - **安静克制的玻璃界面、分页设置与 14 种语言**：采用真实 backdrop blur 与高光折射的浅色/深色玻璃界面（老版本 Android 平滑降级），按模态清晰分页的设置页，默认跟随系统并支持即时切换 **14 种常用语言**（`English`、`简体中文`、`繁體中文`、`日本語`、`한국어`、`Deutsch`、`Français`、`Español`、`Italiano`、`Português (Brasil)`、`Русский`、`Nederlands`、`Polski`、`Türkçe`）。
 
 ---
 
 ## 快速上手
 
-1. 前往 [**GitHub Releases**](https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.0) 下载正式签名版 `omni-pocket-v0.2.0-arm64-v8a.apk`，安装到 `arm64-v8a` Android 9+ 手机。
+1. 前往 [**GitHub Releases**](https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.1) 下载正式签名版 `omni-pocket-v0.2.1-arm64-v8a.apk`，安装到 `arm64-v8a` Android 9+ 手机。
 2. 打开 **模型 → 本地模型** 或 **模型 → 发现模型** 直接在手机端拉取模型（也可先在 **模型 → 能力参考** 查看各模态榜单与本机内存适配评估）。
 3. 权重就绪后即可随时离线使用，全部 5 个工作区零云端请求。
 

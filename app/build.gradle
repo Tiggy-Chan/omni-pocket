@@ -13,8 +13,8 @@ android {
         applicationId 'com.tiggy.omnipocket'
         minSdk 28
         targetSdk 35
-        versionCode 2
-        versionName '0.2.0'
+        versionCode 3
+        versionName '0.2.1'
         ndk {
             abiFilters 'arm64-v8a'
         }
@@ -48,10 +48,21 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             if (signingConfigs.release.storeFile != null) {
                 signingConfig signingConfigs.release
             }
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Compress 16KB ELF-aligned JNI shared libraries inside the APK so download size stays ~45 MB
+            // instead of ~145 MB. Every .so maintains p_align=0x4000 for Android 15/16 16KB page compatibility
+            // and loads purely via standard JNI System.loadLibrary (zero ProcessBuilder / CLI executables).
+            useLegacyPackaging = true
         }
     }
 

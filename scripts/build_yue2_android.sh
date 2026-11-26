@@ -124,7 +124,8 @@ CLANGXX="$TOOLCHAIN/bin/aarch64-linux-android28-clang++"
 JNI_OBJ_DIR="$BUILD_ROOT/jni-obj"
 mkdir -p "$JNI_OBJ_DIR" "$(dirname "$OUTPUT")"
 
-"$CLANGXX" -std=c++17 -O3 -fPIC -fopenmp=libomp \
+YUE2_PREFIX_FLAGS="-ffile-prefix-map=$ROOT=. -ffile-prefix-map=$BUILD_ROOT=."
+"$CLANGXX" -std=c++17 -O3 -fPIC -fopenmp=libomp $YUE2_PREFIX_FLAGS \
     -DGGML_USE_CPU -DGGML_USE_VULKAN \
     -Dmain=omni_yue2_cli_main \
     -I"$OUT_BUILD/generated" \
@@ -134,7 +135,7 @@ mkdir -p "$JNI_OBJ_DIR" "$(dirname "$OUTPUT")"
     -c "$SRC/app/cli/main.cpp" \
     -o "$JNI_OBJ_DIR/yue2_cli_main.o"
 
-"$CLANGXX" -std=c++17 -O3 -fPIC \
+"$CLANGXX" -std=c++17 -O3 -fPIC $YUE2_PREFIX_FLAGS \
     -c "$ROOT/scripts/native/yue2_jni_bridge.cpp" \
     -o "$JNI_OBJ_DIR/yue2_jni_bridge.o"
 

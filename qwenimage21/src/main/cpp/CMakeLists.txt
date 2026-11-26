@@ -6,8 +6,9 @@ add_library(MNN SHARED IMPORTED)
 set_target_properties(MNN PROPERTIES
     IMPORTED_LOCATION ${CMAKE_CURRENT_LIST_DIR}/../jniLibs/${ANDROID_ABI}/libMNN.so)
 
+get_filename_component(OMNI_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
 add_library(qwenimage21_jni SHARED qwenimage21_jni.cpp)
 target_include_directories(qwenimage21_jni PRIVATE ${CMAKE_CURRENT_LIST_DIR}/include)
-target_compile_options(qwenimage21_jni PRIVATE -std=c++17 -fexceptions)
+target_compile_options(qwenimage21_jni PRIVATE -std=c++17 -fexceptions "-ffile-prefix-map=${OMNI_REPO_ROOT}=.")
 target_link_libraries(qwenimage21_jni MNN log android)
 target_link_options(qwenimage21_jni PRIVATE "LINKER:-z,max-page-size=16384")

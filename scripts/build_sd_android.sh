@@ -196,7 +196,7 @@ CLANGXX="$TOOLCHAIN_BIN/aarch64-linux-android28-clang++"
 JNI_OBJ_DIR="$BUILD_ROOT/jni-obj"
 mkdir -p "$JNI_OBJ_DIR" "$(dirname "$OUTPUT")"
 
-"$CLANG" -O3 -fPIC -DCL_TARGET_OPENCL_VERSION=300 \
+"$CLANG" -O3 -fPIC -DCL_TARGET_OPENCL_VERSION=300 $PREFIX_MAP_FLAGS \
     -I"$OPENCL_HEADERS" \
     -c "$ROOT/app/src/main/cpp/opencl_dlopen_loader.c" \
     -o "$JNI_OBJ_DIR/opencl_dlopen_loader.o"
@@ -212,13 +212,13 @@ SD_CLI_INCLUDES=(
     -I"$SD_SRC/ggml/include"
 )
 
-"$CLANGXX" -std=c++17 -O3 -fPIC -DSD_USE_WEBP -DSD_USE_WEBM \
+"$CLANGXX" -std=c++17 -O3 -fPIC -DSD_USE_WEBP -DSD_USE_WEBM $PREFIX_MAP_FLAGS \
     -Dmain=omni_sd_cli_main \
     "${SD_CLI_INCLUDES[@]}" \
     -c "$SD_SRC/examples/cli/main.cpp" \
     -o "$JNI_OBJ_DIR/sd_cli_main.o"
 
-"$CLANGXX" -std=c++17 -O3 -fPIC \
+"$CLANGXX" -std=c++17 -O3 -fPIC $PREFIX_MAP_FLAGS \
     -c "$ROOT/scripts/native/sd_jni_bridge.cpp" \
     -o "$JNI_OBJ_DIR/sd_jni_bridge.o"
 
