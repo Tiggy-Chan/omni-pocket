@@ -334,9 +334,24 @@ class QwenViewModel(
     }
 
     private fun updateTask(domain: TaskDomain, id: String? = null, transform: (TaskUiState) -> TaskUiState) {
+        var updatedTask: TaskUiState? = null
         _state.update { state ->
             if (id != null && !state.tasks.isActive(domain, id)) state
-            else state.copy(tasks = state.tasks.updateTask(domain, transform))
+            else {
+                val nextTasks = state.tasks.updateTask(domain, transform)
+                updatedTask = nextTasks.task(domain)
+                state.copy(tasks = nextTasks)
+            }
+        }
+        val task = updatedTask
+        if (task != null && task.running && domain != TaskDomain.Model) {
+            val fraction = task.progress?.let { (it / 100f).coerceIn(0f, 1f) }
+            val chip = task.progress?.let { "${it.coerceIn(0, 100)}%" }
+            com.tiggy.qwenimage.engine.InferenceKeepAliveManager.update(
+                detail = task.status,
+                fraction = fraction,
+                shortChip = chip
+            )
         }
     }
 
@@ -397,7 +412,22 @@ class QwenViewModel(
                 )
             }
         }
-        if (!started) inferenceCoordinator.release("qwen:$id")
+        if (!started) {
+            inferenceCoordinator.release("qwen:$id")
+        } else if (domain != TaskDomain.Model) {
+            val cancelHandler: () -> Unit = when (domain) {
+                TaskDomain.Video -> { { cancelVideoGeneration() } }
+                TaskDomain.Music -> { { cancelMusicGeneration() } }
+                TaskDomain.Image -> { { cancelJob(id) } }
+                TaskDomain.Model -> { {} }
+            }
+            com.tiggy.qwenimage.engine.InferenceKeepAliveManager.begin(
+                context = getApplication(),
+                title = "Omni Pocket · ${domain.displayName}",
+                detail = status,
+                onCancel = cancelHandler
+            )
+        }
         return started
     }
 
@@ -420,7 +450,12 @@ class QwenViewModel(
                 )
             }
         }
-        if (released) inferenceCoordinator.release("qwen:$id")
+        if (released) {
+            if (domain != TaskDomain.Model) {
+                com.tiggy.qwenimage.engine.InferenceKeepAliveManager.end()
+            }
+            inferenceCoordinator.release("qwen:$id")
+        }
     }
 
     private suspend fun acquireImageTask(jobId: String): Boolean {

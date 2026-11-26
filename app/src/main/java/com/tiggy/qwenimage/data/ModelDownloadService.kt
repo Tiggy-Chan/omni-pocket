@@ -192,9 +192,11 @@ object ModelDownloadManager {
                 }
                 if (next != null) {
                     launchTask(appContext, next)
-                } else {
-                    stopServiceSafe(appContext)
                 }
+                // Never call context.stopService() here: if a task fails before Android delivers
+                // onStartCommand(), stopping the service before startForeground() triggers
+                // ForegroundServiceDidNotStartInTimeException on Android 12+.
+                // ModelDownloadService always promotes itself first and then self-stops when active == null.
             }
         }
         synchronized(lock) { currentJob = job }
@@ -216,12 +218,21 @@ object ModelDownloadManager {
             }
         }
     }
+}
 
-    private fun stopServiceSafe(context: Context) {
-        runCatching {
-            context.stopService(Intent(context, ModelDownloadService::class.java))
-        }
-    }
+internal data class DownloadFgsDecision(
+    val mustPromoteForegroundFirst: Boolean,
+    val cancelActiveDownload: Boolean,
+    val stopImmediatelyAfterPromote: Boolean
+)
+
+internal fun resolveDownloadFgsCommand(action: String?, hasActiveTask: Boolean): DownloadFgsDecision {
+    val isCancel = action == ModelDownloadService.ACTION_CANCEL
+    return DownloadFgsDecision(
+        mustPromoteForegroundFirst = true,
+        cancelActiveDownload = isCancel,
+        stopImmediatelyAfterPromote = !hasActiveTask || isCancel
+    )
 }
 
 class ModelDownloadService : Service() {
@@ -236,20 +247,24 @@ class ModelDownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_CANCEL) {
+        val activeBefore = ModelDownloadManager.state.value.active
+        val decision = resolveDownloadFgsCommand(intent?.action, activeBefore != null)
+        // Always satisfy startForegroundService() contract before cancelling or self-stopping.
+        if (decision.mustPromoteForegroundFirst) {
+            promoteToForeground(activeBefore)
+        }
+        if (decision.cancelActiveDownload) {
             ModelDownloadManager.cancelActive()
+        }
+        val activeAfter = ModelDownloadManager.state.value.active
+        if (decision.stopImmediatelyAfterPromote && activeAfter == null) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf(startId)
             return START_NOT_STICKY
         }
-        val active = ModelDownloadManager.state.value.active
-        val initial = buildNotification(active)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, initial, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(NOTIFICATION_ID, initial)
-        }
-        if (ModelDownloadManager.state.value.active == null) {
+        if (activeAfter == null) {
             stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            stopSelf(startId)
             return START_NOT_STICKY
         }
         if (collector == null) {
@@ -272,6 +287,15 @@ class ModelDownloadService : Service() {
             }
         }
         return START_NOT_STICKY
+    }
+
+    private fun promoteToForeground(active: ActiveDownloadState?) {
+        val initial = buildNotification(active)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, initial, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(NOTIFICATION_ID, initial)
+        }
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
@@ -336,19 +360,20 @@ class ModelDownloadService : Service() {
             .setOnlyAlertOnce(true)
             .setContentIntent(openIntent)
             .addAction(Notification.Action.Builder(null, localized.getString(com.tiggy.qwenimage.R.string.common_cancel), cancelIntent).build())
-        if (active != null && active.totalBytes > 0L) {
-            val pct = (active.fraction * 1000).toInt().coerceIn(0, 1000)
-            builder.setProgress(1000, pct, false)
-        } else {
-            builder.setProgress(0, 0, true)
-        }
+        val fraction = if (active != null && active.totalBytes > 0L) active.fraction else null
+        val chipText = fraction?.let { "${(it * 100f).toInt().coerceIn(0, 100)}%" }
+        LiveUpdateNotificationHelper.applyProgressAndLiveUpdate(
+            builder = builder,
+            fraction = fraction,
+            shortChipText = chipText
+        )
         return builder.build()
     }
 
     companion object {
         private const val CHANNEL_ID = "omni_model_download"
         private const val NOTIFICATION_ID = 4102
-        private const val ACTION_CANCEL = "com.tiggy.omnipocket.action.CANCEL_DOWNLOAD"
+        internal const val ACTION_CANCEL = "com.tiggy.omnipocket.action.CANCEL_DOWNLOAD"
     }
 }
 
