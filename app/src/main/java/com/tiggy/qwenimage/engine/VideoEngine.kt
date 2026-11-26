@@ -163,6 +163,17 @@ class VideoEngine(
         val weights = resolveVideoWeights(settings.modelId)
         val isMiniMaxH3 = weights.arch == VideoModelArch.MINIMAX_H3
         settings.validateOnDevice(isMiniMaxH3)
+        val requiredTotalRam = if (isMiniMaxH3) 10_000_000_000L else 7_500_000_000L
+        val requiredAvailRam = if (isMiniMaxH3) 4_200_000_000L else 3_200_000_000L
+        val memCheck = MemoryGuardrails.checkBeforeRun(
+            context = context,
+            requiredTotalRamBytes = requiredTotalRam,
+            requiredAvailRamBytes = requiredAvailRam,
+            taskLabel = weights.label
+        )
+        if (memCheck.warning && !memCheck.message.isNullOrBlank()) {
+            onUpdate(EngineUpdate(null, memCheck.message))
+        }
         val videoId = "ondevice_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}"
         val outputFile = File(videoDir, "$videoId.webm")
         val partialFile = File(videoDir, "$videoId.part.webm")
@@ -259,8 +270,8 @@ class VideoEngine(
             currentCoroutineContext().ensureActive()
             if (cancelRequested) throw CancellationException("已取消视频生成")
             if (exitCode != 0 || partialFile.length() < 1024L) {
-                val detail = outputTail.replace(ANSI, "").trim().takeLast(600)
-                throw IOException("本机视频生成失败（退出码 $exitCode）${if (detail.isEmpty()) "" else "\n$detail"}")
+                val detail = outputTail.replace(ANSI, "").trim()
+                throw IOException(MemoryGuardrails.diagnoseNativeFailure(exitCode, detail, context))
             }
             if (outputFile.exists() || !partialFile.renameTo(outputFile)) throw IOException("无法保存生成的视频")
 

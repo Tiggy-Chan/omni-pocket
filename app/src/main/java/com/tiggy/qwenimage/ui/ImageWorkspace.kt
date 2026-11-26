@@ -130,6 +130,7 @@ fun ImageWorkspace(
     val isQwen = backend == ImageGenerationBackend.QwenLocal
     val isCustomSd = backend == ImageGenerationBackend.CustomSd
     val customSdSupportsEdit = isCustomSd && selectedCustomModel?.metadata?.get("supportsEdit") == "true"
+    val customSdCanAttachImage = isCustomSd && selectedCustomModel != null
     val features = state.modelStatus?.manifest?.features.orEmpty()
     val editAvailable = "image-edit" in features
     val layoutMode = backend.isMoss && moss.inputMode == MossInputMode.Layout
@@ -146,7 +147,7 @@ fun ImageWorkspace(
 
     val firstPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            if (customSdSupportsEdit) viewModel.setCustomSdInputImage(uri)
+            if (customSdCanAttachImage) viewModel.setCustomSdInputImage(uri)
             else viewModel.setInput(uri)
         }
     }
@@ -160,14 +161,14 @@ fun ImageWorkspace(
     }
     val placeholder = when {
         layoutMode -> tr(R.string.image_prompt_overall_hint)
-        (isQwen && settings.mode == GenerationMode.ImageEdit) || (customSdSupportsEdit && customSd.inputImageUri != null) -> tr(R.string.image_edit_hint)
+        (isQwen && settings.mode == GenerationMode.ImageEdit) || (customSdCanAttachImage && customSd.inputImageUri != null) -> tr(R.string.image_edit_hint)
         else -> tr(R.string.image_prompt_hint)
     }
     val composerError = state.imageTask.error
         ?.takeIf { !state.imageTask.running && it != state.jobs.lastOrNull()?.error }
     val modelHint = !backendReady && state.jobs.isNotEmpty()
     val hasStatus = composerError != null || needsReference || modelHint ||
-        (isQwen && settings.inputUri != null) || (customSdSupportsEdit && customSd.inputImageUri != null)
+        (isQwen && settings.inputUri != null) || (customSdCanAttachImage && customSd.inputImageUri != null)
     val statusContent: @Composable () -> Unit = {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             composerError?.let {
@@ -207,7 +208,7 @@ fun ImageWorkspace(
                     }
                 }
             }
-            if (customSdSupportsEdit && customSd.inputImageUri != null) {
+            if (customSdCanAttachImage && customSd.inputImageUri != null) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ComposerReference(customSd.inputImageUri, 1) {
                         viewModel.setCustomSdInputImage(null)
@@ -237,11 +238,11 @@ fun ImageWorkspace(
                 sendEnabled = sendEnabled,
                 status = if (hasStatus) statusContent else null,
                 tools = {
-                    if ((isQwen && editAvailable) || customSdSupportsEdit) {
-                        val canAttach = if (customSdSupportsEdit) true else settings.inputUri2 == null
+                    if ((isQwen && editAvailable) || customSdCanAttachImage) {
+                        val canAttach = if (customSdCanAttachImage) true else settings.inputUri2 == null
                         IconButton(
                             onClick = {
-                                if (customSdSupportsEdit || settings.inputUri == null) firstPicker.launch(arrayOf(ImagePickerMime))
+                                if (customSdCanAttachImage || settings.inputUri == null) firstPicker.launch(arrayOf(ImagePickerMime))
                                 else secondPicker.launch(arrayOf(ImagePickerMime))
                             },
                             enabled = canAttach,
@@ -249,7 +250,7 @@ fun ImageWorkspace(
                         ) {
                             Icon(
                                 Icons.Outlined.AddPhotoAlternate,
-                                if (customSdSupportsEdit || settings.inputUri == null) tr(R.string.image_add_ref) else tr(R.string.image_add_ref2),
+                                if (customSdCanAttachImage || settings.inputUri == null) tr(R.string.image_add_ref) else tr(R.string.image_add_ref2),
                                 tint = if (canAttach) OmniColors.Muted else OmniColors.Dim,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -731,6 +732,11 @@ private fun CustomSdParams(state: QwenUiState, viewModel: QwenViewModel) {
     }
     NumberField("CFG", sd.cfg.toString()) { text ->
         text.toDoubleOrNull()?.let { cfg -> update { it.copy(cfg = cfg) } }
+    }
+    if (sd.inputImageUri != null) {
+        NumberField(tr(R.string.image_img2img_strength), String.format(java.util.Locale.US, "%.2f", sd.strength)) { text ->
+            text.toDoubleOrNull()?.let { s -> update { it.copy(strength = s.coerceIn(0.05, 1.0)) } }
+        }
     }
     OmniTextField(
         value = sd.negativePrompt,

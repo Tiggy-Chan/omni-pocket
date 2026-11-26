@@ -20,6 +20,8 @@ internal data class SdCliGenericImageOptions(
     val llmFile: File? = null,
     val vaeFile: File? = null,
     val refImage: File? = null,
+    val initImage: File? = null,
+    val strength: Double = 0.75,
     val sampler: String = "euler",
     val vaeTiling: Boolean = true,
     val flashAttn: Boolean = false
@@ -34,6 +36,7 @@ internal fun buildSdCliGenericImageCommand(options: SdCliGenericImageOptions): L
     require(options.steps in 1..60) { "步数必须为 1–60" }
     require(options.seed >= 0L) { "seed 不能为负数" }
     require(options.cfg.isFinite() && options.cfg in 0.0..20.0) { "CFG 必须在 0 到 20 之间" }
+    require(options.strength.isFinite() && options.strength in 0.05..1.0) { "重绘强度必须在 0.05 到 1.0 之间" }
     require(options.threads in 2..8) { "线程数必须为 2–8" }
     require(options.sampler in SUPPORTED_SD_SAMPLERS) { "不支持的采样器：${options.sampler}" }
     require(options.output.extension.equals("png", ignoreCase = true))
@@ -74,6 +77,10 @@ internal fun buildSdCliGenericImageCommand(options: SdCliGenericImageOptions): L
         add("--sampling-method"); add(options.sampler)
         options.refImage?.let {
             add("-r"); add(it.absolutePath)
+        }
+        if (options.refImage == null && options.initImage != null) {
+            add("-i"); add(options.initImage.absolutePath)
+            add("--strength"); add(number(options.strength))
         }
         add("-o"); add(options.output.absolutePath)
     }

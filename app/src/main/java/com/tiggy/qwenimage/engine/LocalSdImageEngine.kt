@@ -29,7 +29,8 @@ data class CustomSdSettings(
     val useOpenCl: Boolean = false,
     val sampler: String = "euler",
     val vaeTiling: Boolean = true,
-    val inputImageUri: Uri? = null
+    val inputImageUri: Uri? = null,
+    val strength: Double = 0.75
 ) {
     fun validate() {
         require(modelId.isNotBlank()) { "请先选择已下载的图像模型" }
@@ -39,6 +40,7 @@ data class CustomSdSettings(
         }
         require(steps in 1..60) { "步数必须为 1–60" }
         require(cfg.isFinite() && cfg in 0.0..20.0) { "CFG 必须在 0 到 20 之间" }
+        require(strength.isFinite() && strength in 0.05..1.0) { "重绘强度必须在 0.05 到 1.0 之间" }
         require(seed >= 0L) { "Seed 不能为负数" }
         require(sampler in SUPPORTED_SD_SAMPLERS) { "不支持的采样器：$sampler" }
     }
@@ -55,6 +57,7 @@ data class CustomSdSettings(
         put("useOpenCl", useOpenCl)
         put("sampler", sampler)
         put("vaeTiling", vaeTiling)
+        put("strength", strength)
     }
 
     companion object {
@@ -70,7 +73,8 @@ data class CustomSdSettings(
             seed = (o?.optLong("seed", 42L) ?: 42L).coerceAtLeast(0L),
             useOpenCl = o?.optBoolean("useOpenCl", false) ?: false,
             sampler = o?.optString("sampler", "euler")?.takeIf { it in SUPPORTED_SD_SAMPLERS } ?: "euler",
-            vaeTiling = o?.optBoolean("vaeTiling", true) ?: true
+            vaeTiling = o?.optBoolean("vaeTiling", true) ?: true,
+            strength = (o?.optDouble("strength", 0.75) ?: 0.75).coerceIn(0.05, 1.0)
         )
 
         fun defaultsFor(model: InstalledHubModel, current: CustomSdSettings): CustomSdSettings {
@@ -79,13 +83,11 @@ data class CustomSdSettings(
             val metaSteps = model.metadata["defaultSteps"]?.toIntOrNull()?.coerceIn(1, 60)
             val metaCfg = model.metadata["defaultCfg"]?.toDoubleOrNull()?.coerceIn(0.0, 20.0)
             val defaultSampler = if (lower.contains("lcm")) "lcm" else "euler"
-            val supportsEdit = model.metadata["supportsEdit"] == "true"
             return current.copy(
                 modelId = model.id,
                 steps = metaSteps ?: if (isTurbo) 4 else 20,
                 cfg = metaCfg ?: if (isTurbo) 1.0 else 7.0,
-                sampler = defaultSampler,
-                inputImageUri = if (supportsEdit) current.inputImageUri else null
+                sampler = defaultSampler
             )
         }
     }
@@ -130,14 +132,28 @@ class LocalSdImageEngine(
         check(activeWorker == null) { "已有图像任务正在执行" }
         if (!outputDirectory.isDirectory && !outputDirectory.mkdirs()) throw IOException("无法创建输出目录")
 
+        val requiredRamBytes = (model.totalBytes * 1.4).toLong().coerceIn(4_500_000_000L, 12_000_000_000L)
+        MemoryGuardrails.checkBeforeRun(
+            context = context,
+            requiredTotalRamBytes = requiredRamBytes,
+            requiredAvailRamBytes = (requiredRamBytes * 0.40).toLong().coerceAtLeast(1_800_000_000L),
+            taskLabel = model.name
+        )
+
         val outputFile = File(outputDirectory, "$jobId.png")
         val partialFile = File(outputDirectory, "$jobId.part.png")
         partialFile.delete()
         var refImageFile: File? = null
+        var initImageFile: File? = null
         val worker = InferenceWorkerClient(context)
         try {
-            if (settings.inputImageUri != null && model.metadata["supportsEdit"] == "true") {
-                refImageFile = copyReferenceImage(settings.inputImageUri, jobId)
+            if (settings.inputImageUri != null) {
+                val copied = copyReferenceImage(settings.inputImageUri, jobId)
+                if (model.metadata["supportsEdit"] == "true") {
+                    refImageFile = copied
+                } else {
+                    initImageFile = copied
+                }
             }
             val options = SdCliGenericImageOptions(
                 modelFile = modelFile,
@@ -154,6 +170,8 @@ class LocalSdImageEngine(
                 llmFile = llmFile,
                 vaeFile = vaeFile,
                 refImage = refImageFile,
+                initImage = initImageFile,
+                strength = settings.strength,
                 sampler = settings.sampler,
                 vaeTiling = settings.vaeTiling,
                 flashAttn = settings.useOpenCl
@@ -165,7 +183,7 @@ class LocalSdImageEngine(
                     "${modelFile.name} · ${if (settings.useOpenCl) "OpenCL" else "CPU"} · ${settings.sampler} · ${settings.steps} 步"
                 )
             )
-            if (refImageFile != null) onUpdate(EngineUpdate(null, "已载入参考图"))
+            if (refImageFile != null || initImageFile != null) onUpdate(EngineUpdate(null, "已载入参考图"))
             activeWorker = worker
             if (cancelRequested) throw CancellationException("已取消图像生成")
 
@@ -190,8 +208,8 @@ class LocalSdImageEngine(
             currentCoroutineContext().ensureActive()
             if (cancelRequested) throw CancellationException("已取消图像生成")
             if (exitCode != 0 || partialFile.length() < 128L) {
-                val detail = outputTail.replace(ANSI, "").trim().takeLast(600)
-                throw IOException("图像生成失败（退出码 $exitCode）${if (detail.isEmpty()) "" else "\n$detail"}")
+                val detail = outputTail.replace(ANSI, "").trim()
+                throw IOException(MemoryGuardrails.diagnoseNativeFailure(exitCode, detail, context))
             }
             if (outputFile.exists() || !partialFile.renameTo(outputFile)) throw IOException("无法保存生成图像")
 
@@ -212,6 +230,7 @@ class LocalSdImageEngine(
         } finally {
             activeWorker = null
             refImageFile?.delete()
+            initImageFile?.delete()
             partialFile.delete()
             cancelRequested = false
         }
