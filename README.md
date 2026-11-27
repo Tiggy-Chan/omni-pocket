@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.2"><img src="https://img.shields.io/badge/release-v0.2.2-3A6FE0?style=flat-square" alt="Release v0.2.2" /></a>
+  <a href="https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.3"><img src="https://img.shields.io/badge/release-v0.2.3-3A6FE0?style=flat-square" alt="Release v0.2.3" /></a>
   <img src="https://img.shields.io/badge/Android-9%2B%20(arm64--v8a)-1F2328?style=flat-square" alt="Android 9+ arm64-v8a" />
   <img src="https://img.shields.io/badge/Inference-100%25%20On--Device-2E7D32?style=flat-square" alt="100% On-Device" />
   <img src="https://img.shields.io/badge/Languages-14-5B6678?style=flat-square" alt="14 Languages" />
@@ -95,7 +95,7 @@ Every screenshot, animation, image, and video clip below was captured live on a 
 
 ## Quick Start
 
-1. Download the signed `omni-pocket-v0.2.2-arm64-v8a.apk` from [**GitHub Releases**](https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.2) and install it on an `arm64-v8a` Android 9+ phone.
+1. Download the signed `omni-pocket-v0.2.3-arm64-v8a.apk` from [**GitHub Releases**](https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.3) and install it on an `arm64-v8a` Android 9+ phone.
 2. Open **Models → Local** or **Models → Discover** to pull models directly on your phone (or browse **Models → Reference** to pick top-ranked open weights that fit your phone's RAM).
 3. Switch to Airplane Mode whenever you like — every workspace runs 100% offline.
 
