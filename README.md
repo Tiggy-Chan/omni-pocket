@@ -24,6 +24,19 @@
   <a href="README.md"><strong>English</strong></a> · <a href="README_CN.md">简体中文</a> · <a href="https://github.com/Tiggy-Chan/omni-pocket/releases">Download APK</a>
 </p>
 
+## Community
+
+Join the Omni Pocket QQ community for release updates, on-device testing, model compatibility notes, and user discussion.
+
+<p align="center">
+  <img src="docs/assets/community-qr.jpg" width="360" alt="Omni Pocket QQ group QR code — omni-pocket交流群, group 1128661823" />
+</p>
+
+<p align="center">
+  <strong>QQ group: omni-pocket交流群 · 1128661823</strong><br />
+  Scan the QR code to join the discussion.
+</p>
+
 <p align="center">
   <img src="docs/assets/showcase/hero-en.png" width="100%" alt="Omni Pocket — Chat, Decision, Image, Music, and Video running locally on Android" />
 </p>

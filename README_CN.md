@@ -24,6 +24,19 @@
   <a href="README.md">English</a> · <a href="README_CN.md"><strong>简体中文</strong></a> · <a href="https://github.com/Tiggy-Chan/omni-pocket/releases">下载安装包</a>
 </p>
 
+## 社区交流群
+
+欢迎加入 Omni Pocket QQ 交流群，获取版本更新、手机端实测进展、模型适配信息并参与用户讨论。
+
+<p align="center">
+  <img src="docs/assets/community-qr.jpg" width="360" alt="Omni Pocket QQ 群二维码：omni-pocket交流群（群号 1128661823）" />
+</p>
+
+<p align="center">
+  <strong>QQ群：omni-pocket交流群 · 1128661823</strong><br />
+  扫描上方二维码加入交流群。
+</p>
+
 <p align="center">
   <img src="docs/assets/showcase/hero-zh.png" width="100%" alt="Omni Pocket — 对话、决策、图像、音乐、视频五模态全端本地实机运行界面" />
 </p>
