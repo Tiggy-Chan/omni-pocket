@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.1"><img src="https://img.shields.io/badge/release-v0.2.1-3A6FE0?style=flat-square" alt="Release v0.2.1" /></a>
+  <a href="https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.2"><img src="https://img.shields.io/badge/release-v0.2.2-3A6FE0?style=flat-square" alt="Release v0.2.2" /></a>
   <img src="https://img.shields.io/badge/Android-9%2B%20(arm64--v8a)-1F2328?style=flat-square" alt="Android 9+ arm64-v8a" />
   <img src="https://img.shields.io/badge/推理方式-100%25%20手机本地-2E7D32?style=flat-square" alt="100% 手机本地" />
   <img src="https://img.shields.io/badge/界面语言-14%20种-5B6678?style=flat-square" alt="14 种语言" />
@@ -108,7 +108,7 @@
 
 ## 快速上手
 
-1. 前往 [**GitHub Releases**](https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.1) 下载正式签名版 `omni-pocket-v0.2.1-arm64-v8a.apk`，安装到 `arm64-v8a` Android 9+ 手机。
+1. 前往 [**GitHub Releases**](https://github.com/Tiggy-Chan/omni-pocket/releases/tag/v0.2.2) 下载正式签名版 `omni-pocket-v0.2.2-arm64-v8a.apk`，安装到 `arm64-v8a` Android 9+ 手机。
 2. 打开 **模型 → 本地模型** 或 **模型 → 发现模型** 直接在手机端拉取模型（也可先在 **模型 → 能力参考** 查看各模态榜单与本机内存适配评估）。
 3. 权重就绪后即可随时离线使用，全部 5 个工作区零云端请求。
 
