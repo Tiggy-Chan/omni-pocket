@@ -215,8 +215,8 @@ class QwenViewModel(
                 cpuThreads = preferences.getInt("cpuThreads", 6).coerceIn(2, 8),
                 keepModelsLoaded = preferences.getBoolean("keepModelsLoaded", false),
                 imageBackend = restoredBackend,
-                mossSettings = restoredMossSettings,
-                customSdSettings = restoredCustomSd,
+                mossSettings = restoredMossSettings.copy(prompt = ""),
+                customSdSettings = restoredCustomSd.copy(prompt = "", inputImageUri = null),
                 videoSettings = restoredVideoSettings.copy(prompt = "", inputImageUri = null),
                 musicSettings = restoredMusicSettings.copy(title = "", style = "", lyrics = ""),
                 settings = compatibleSettings(state.settings, initialStatus),
@@ -719,7 +719,12 @@ class QwenViewModel(
         )
         if (!beginTask(TaskDomain.Video, job.id, VideoBackend.LocalWan, initialStage)) return
 
-        _state.update { it.copy(videoJobs = it.videoJobs + job) }
+        _state.update {
+            it.copy(
+                videoJobs = it.videoJobs + job,
+                videoSettings = it.videoSettings.copy(prompt = "", inputImageUri = null)
+            )
+        }
         appendLog(TaskDomain.Video, "----------------------------------------", job.id)
         appendLog(TaskDomain.Video, "视频任务启动 [${job.id.take(8)}]：$modelLabel", job.id)
         appendLog(TaskDomain.Video, "提示词：${settings.prompt.take(60)}...", job.id)
@@ -906,7 +911,12 @@ class QwenViewModel(
         )
         if (!beginTask(TaskDomain.Music, job.id, VideoBackend.LocalYue2, "正在准备 $modelLabel")) return
 
-        _state.update { it.copy(musicJobs = it.musicJobs + job) }
+        _state.update {
+            it.copy(
+                musicJobs = it.musicJobs + job,
+                musicSettings = it.musicSettings.copy(title = "", style = "", lyrics = "")
+            )
+        }
         appendLog(TaskDomain.Music, "$modelLabel · ${if (settings.useVulkan) "Vulkan GPU" else "CPU(${settings.threads})"} · ${settings.targetDurationSec} 秒 · ${settings.odeSteps} 步", job.id)
 
         viewModelScope.launch {
@@ -1058,7 +1068,7 @@ class QwenViewModel(
         when (job.backend) {
             ImageGenerationBackend.MossLocal -> {
                 val settings = job.mossSettings ?: MossSettings()
-                preferences.edit().putString("mossSettings", settings.toJson().toString()).apply()
+                preferences.edit().putString("mossSettings", settings.copy(prompt = "").toJson().toString()).apply()
                 _state.update {
                     it.copy(
                         imageBackend = job.backend,
@@ -1357,7 +1367,7 @@ class QwenViewModel(
 
     fun updateMossSettings(transform: (MossSettings) -> MossSettings) = _state.update {
         val settings = transform(it.mossSettings)
-        preferences.edit().putString("mossSettings", settings.toJson().toString()).apply()
+        preferences.edit().putString("mossSettings", settings.copy(prompt = "").toJson().toString()).apply()
         it.copy(mossSettings = settings)
     }
 
@@ -1482,6 +1492,15 @@ class QwenViewModel(
                 accepted = true
                 state.copy(
                     jobs = state.jobs + job,
+                    settings = if (current.imageBackend == ImageGenerationBackend.QwenLocal) {
+                        state.settings.copy(prompt = "", inputUri = null, inputUri2 = null)
+                    } else state.settings,
+                    mossSettings = if (current.imageBackend == ImageGenerationBackend.MossLocal) {
+                        state.mossSettings.copy(prompt = "")
+                    } else state.mossSettings,
+                    customSdSettings = if (current.imageBackend == ImageGenerationBackend.CustomSd) {
+                        state.customSdSettings.copy(prompt = "", inputImageUri = null)
+                    } else state.customSdSettings,
                     alert = null,
                     tasks = state.tasks.updateTask(TaskDomain.Image) { task ->
                         if (task.running) task.copy(error = null)

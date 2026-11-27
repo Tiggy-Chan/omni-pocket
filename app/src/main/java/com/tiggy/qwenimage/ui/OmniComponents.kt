@@ -72,12 +72,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -207,14 +214,33 @@ fun OmniComposer(
     OverlayGlass(hazeState, modifier.fillMaxWidth(), radius = 24.dp) {
         Column(Modifier.padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 6.dp)) {
             status?.let { Box(Modifier.padding(start = 10.dp, end = 10.dp, top = 8.dp)) { it() } }
+            val canSubmit = !running && sendEnabled && enabled
             TextField(
                 value = value,
                 onValueChange = onValueChange,
                 enabled = enabled,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 52.dp)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown &&
+                            (event.key == Key.Enter || event.key == Key.NumPadEnter) &&
+                            !event.isShiftPressed &&
+                            canSubmit
+                        ) {
+                            onSend()
+                            true
+                        } else {
+                            false
+                        }
+                    },
                 placeholder = { Text(placeholder, color = OmniColors.Dim) },
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = OmniColors.Ink),
                 maxLines = maxLines,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(
+                    onSend = { if (canSubmit) onSend() }
+                ),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
