@@ -206,15 +206,12 @@ class VideoEngine(
                 scheduler = null
                 extraSampleArgs = null
             }
-            val hwRamGb = runCatching { DeviceHardwareProbe.read(context).totalRamGb }.getOrDefault(0.0)
             // Always honor disk streaming for MiniMax-H3: its 3-stage weights (8.5 GB TE + 6.7 GB DiT +
             // 3.4 GB Video/Audio VAE) exceed 15 GB RSS if kept resident together, triggering Android LMKD
             // kills during VAE decode even on 24 GB phones.
             val useDiskStreaming = isMiniMaxH3 && settings.diskStreaming
             val maxVramGb = if (useDiskStreaming) computeDiskStreamBudgetGb() else null
-            // On >=16 GB phones with disk streaming freeing TE/DiT before decode, disable H3's forced
-            // 256x256 4-tile overlap to cut VAE decode latency nearly in half.
-            val effectiveVaeTiling = if (isMiniMaxH3 && hwRamGb >= 16.0 && !settings.vaeTiling) false else settings.vaeTiling
+            val effectiveVaeTiling = if (isMiniMaxH3) false else settings.vaeTiling
 
             val options = SdCliVideoOptions(
                 diffusionModel = weights.dit,

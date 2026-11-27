@@ -67,7 +67,7 @@ class VlmAndImg2ImgTest {
     }
 
     @Test
-    fun `minimax h3 single-tile vae emits full frame tile size when vaeTiling is disabled`() {
+    fun `minimax h3 preserves native 256x256 ViT RoPE vae tiling without non-square override`() {
         val args = buildSdCliVideoCommand(
             SdCliVideoOptions(
                 diffusionModel = File("/tmp/h3.gguf"),
@@ -86,7 +86,7 @@ class VlmAndImg2ImgTest {
                 arch = VideoModelArch.MINIMAX_H3
             )
         )
-        assertTrue(args.contains("--vae-tile-size"))
-        assertTrue(args.contains("480x288"))
+        assertFalse(args.contains("--vae-tile-size"))
+        assertFalse(args.contains("--vae-tiling"))
     }
 }

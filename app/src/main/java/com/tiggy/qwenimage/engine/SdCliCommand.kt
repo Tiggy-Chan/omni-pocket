@@ -97,13 +97,11 @@ internal fun buildSdCliVideoCommand(options: SdCliVideoOptions): List<String> {
                 add("--max-vram"); add(fmt(budget))
             }
         }
-        if (options.arch == VideoModelArch.MINIMAX_H3 && !options.vaeTiling) {
-            // minimax_h3_vae.hpp forces 256x256 tiling (4 tiles = ~1.9x redundant 3D conv on 480x288)
-            // whenever --vae-tile-size is omitted. On high-RAM devices where tiling is disabled,
-            // explicitly pass the full frame dimensions to merge into a single decode pass.
-            add("--vae-tiling")
-            add("--vae-tile-size"); add("${options.width}x${options.height}")
-        } else if (options.vaeTiling) {
+        // MiniMax-H3's Video VAE is a 36-layer ViT with tile-normalized 3D RoPE trained strictly on
+        // 256x256 square tiles (16x16 latents); overriding --vae-tile-size to non-square full frames
+        // distorts RoPE coordinates and causes wavy moiré/grid artifacts. Omitting --vae-tiling lets
+        // minimax_h3_vae.hpp apply its exact native 256x256 / 0.25-overlap schedule.
+        if (options.vaeTiling && options.arch != VideoModelArch.MINIMAX_H3) {
             add("--vae-tiling")
         }
         add("-t"); add(options.threads.toString())
