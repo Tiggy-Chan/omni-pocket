@@ -429,9 +429,13 @@ object HuggingFaceHubClient {
             } else {
                 emptyMap()
             }
-            val mmprojSummary = if (preferredMmproj != null && !isSplit) {
-                "含视觉组件 ${preferredMmproj.path.substringAfterLast('/')}（支持看图对话）"
-            } else null
+            val mmprojSummary = when {
+                preferredMmproj != null && !isSplit ->
+                    "含视觉组件 ${preferredMmproj.path.substringAfterLast('/')}（支持看图对话）"
+                quant == "Q4_0" ->
+                    "Q4_0 · 优先命中 Arm KleidiAI I8MM 与高通 Hexagon NPU 加速"
+                else -> null
+            }
             HfRepoOption(
                 id = sanitizeModelId("gguf", repo, file.path),
                 label = fileName,
@@ -1022,9 +1026,9 @@ object HuggingFaceHubClient {
 
     private fun quantPriority(tag: String?): Int = when (tag?.removePrefix("UD-")) {
         "Q4_K_M" -> 0
-        "Q4_K_XL" -> 1
-        "Q4_K_S" -> 2
-        "Q4_0" -> 3
+        "Q4_0" -> 1
+        "Q4_K_XL" -> 2
+        "Q4_K_S" -> 3
         "IQ4_XS" -> 4
         "Q5_K_M" -> 5
         "Q5_K_XL" -> 6

@@ -11,4 +11,5 @@ models/
 __pycache__/
 .kotlin/
 app/src/main/jniLibs/
+app/src/main/assets/hexagon/
 dist/

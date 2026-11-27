@@ -65,4 +65,28 @@ class VlmAndImg2ImgTest {
         assertTrue(args.contains("0.65"))
         assertFalse(args.contains("-r"))
     }
+
+    @Test
+    fun `minimax h3 single-tile vae emits full frame tile size when vaeTiling is disabled`() {
+        val args = buildSdCliVideoCommand(
+            SdCliVideoOptions(
+                diffusionModel = File("/tmp/h3.gguf"),
+                textEncoder = File("/tmp/te.gguf"),
+                vae = File("/tmp/vae.safetensors"),
+                output = File("/tmp/out.webm"),
+                prompt = "ocean waves",
+                width = 480,
+                height = 288,
+                frames = 5,
+                fps = 24,
+                steps = 2,
+                seed = 42,
+                shift = 12f,
+                vaeTiling = false,
+                arch = VideoModelArch.MINIMAX_H3
+            )
+        )
+        assertTrue(args.contains("--vae-tile-size"))
+        assertTrue(args.contains("480x288"))
+    }
 }

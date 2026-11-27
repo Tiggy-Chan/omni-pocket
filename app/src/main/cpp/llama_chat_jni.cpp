@@ -191,6 +191,24 @@ JNIEXPORT void JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nati
     }
 }
 
+JNIEXPORT void JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeSetKvCacheDir(
+    JNIEnv* env, jclass, jstring cacheDir) {
+    try {
+        omni::LlamaChatSession::SetKvCacheDir(StringValue(env, cacheDir));
+    } catch (...) {
+    }
+}
+
+JNIEXPORT void JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeConfigureHexagon(
+    JNIEnv* env, jclass, jstring skelDir, jstring powerMode) {
+    try {
+        omni::LlamaChatSession::ConfigureHexagon(
+            skelDir != nullptr ? StringValue(env, skelDir) : std::string(),
+            powerMode != nullptr ? StringValue(env, powerMode) : std::string());
+    } catch (...) {
+    }
+}
+
 JNIEXPORT jobject JNICALL Java_com_tiggy_qwenimage_engine_LocalLlamaChatEngine_nativeProbeBackends(
     JNIEnv* env, jclass) {
     try {

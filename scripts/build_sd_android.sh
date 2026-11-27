@@ -16,6 +16,8 @@ SD_REVISION="95ff76230889898e1bf40058ba272a3699b50dc6"
 GGML_REVISION="a5915eb0e47adef21c3f25b889a008925ea838c2"
 OPENCL_HEADERS_REVISION="4ea6df132107e3b4b9407f903204b5522fdffcd6"
 OPENCL_ICD_REVISION="5907ac1114079de4383cecddf1c8640e3f52f92b"
+KLEIDIAI_TAG="v1.31.0"
+KLEIDIAI_MD5="930495f3aeb16b25dc18a2bde45924f4"
 NDK_REVISION="28.2.13676358"
 ANDROID_PLATFORM="android-28"
 PATCHES=(
@@ -118,6 +120,32 @@ checkout_dependency "opencl-icd-loader" \
 OPENCL_HEADERS="$DEPS_ROOT/opencl-headers-src"
 OPENCL_ICD_SRC="$DEPS_ROOT/opencl-icd-loader-src"
 OPENCL_ICD_BUILD="$DEPS_ROOT/opencl-icd-loader-build"
+KLEIDIAI_DIR="$DEPS_ROOT/kleidiai-${KLEIDIAI_TAG}-src"
+KLEIDIAI_TAR="$DEPS_ROOT/kleidiai-${KLEIDIAI_TAG}-src.tar.gz"
+KLEIDIAI_ENABLED=OFF
+if [[ ! -f "$KLEIDIAI_DIR/CMakeLists.txt" ]]; then
+    mkdir -p "$DEPS_ROOT"
+    if [[ ! -f "$KLEIDIAI_TAR" ]]; then
+        curl -fSL --retry 2 --retry-delay 2 --connect-timeout 10 \
+            -o "$KLEIDIAI_TAR.part" \
+            "https://github.com/ARM-software/kleidiai/releases/download/${KLEIDIAI_TAG}/kleidiai-${KLEIDIAI_TAG}-src.tar.gz" \
+            && mv "$KLEIDIAI_TAR.part" "$KLEIDIAI_TAR" \
+            || rm -f "$KLEIDIAI_TAR.part"
+    fi
+    if [[ -f "$KLEIDIAI_TAR" ]]; then
+        ACTUAL_MD5="$(md5 -q "$KLEIDIAI_TAR" 2>/dev/null || md5sum "$KLEIDIAI_TAR" | awk '{print $1}')"
+        if [[ "$ACTUAL_MD5" == "$KLEIDIAI_MD5" ]]; then
+            mkdir -p "$KLEIDIAI_DIR"
+            tar -xzf "$KLEIDIAI_TAR" -C "$KLEIDIAI_DIR" --strip-components=1
+        else
+            echo "Warning: SD KleidiAI archive MD5 mismatch ($ACTUAL_MD5); removing" >&2
+            rm -f "$KLEIDIAI_TAR"
+        fi
+    fi
+fi
+if [[ -f "$KLEIDIAI_DIR/CMakeLists.txt" ]]; then
+    KLEIDIAI_ENABLED=ON
+fi
 PREFIX_MAP_FLAGS="-ffile-prefix-map=$ROOT=. -ffile-prefix-map=$BUILD_ROOT=."
 COMMON_ANDROID_ARGS=(
     -G Ninja
@@ -148,7 +176,9 @@ SD_CMAKE_ARGS=(
     -DBUILD_SHARED_LIBS=OFF
     -DGGML_BACKEND_DL=OFF
     -DGGML_CPU=ON
-    -DGGML_CPU_ARM_ARCH="${SD_CPU_ARCH:-armv8.2-a+dotprod}"
+    -DGGML_CPU_ARM_ARCH="${SD_CPU_ARCH:-armv8.2-a+dotprod+fp16}"
+    -DGGML_CPU_KLEIDIAI="$KLEIDIAI_ENABLED"
+    -DFETCHCONTENT_SOURCE_DIR_KLEIDIAI="$KLEIDIAI_DIR"
     -DGGML_NATIVE=OFF
     -DGGML_OPENMP=OFF
     -DGGML_OPENCL=ON
@@ -246,6 +276,9 @@ EXISTING_LIBS=()
 for lib in "${STATIC_LIBS[@]}"; do
     [[ -f "$lib" ]] && EXISTING_LIBS+=("$lib")
 done
+while IFS= read -r klib; do
+    EXISTING_LIBS+=("$klib")
+done < <(find "$SD_BUILD" -name 'libkleidiai*.a' | sort)
 
 "$CLANGXX" -shared -fPIC \
     -static-libstdc++ \

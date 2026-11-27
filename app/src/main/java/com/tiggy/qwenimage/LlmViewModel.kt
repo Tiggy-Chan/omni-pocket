@@ -177,6 +177,13 @@ class LlmViewModel(
         }
         viewModelScope.launch(Dispatchers.IO) {
             LocalLlamaChatEngine.configureCacheDir(File(application.cacheDir, "llama-opencl-cache"))
+            LocalLlamaChatEngine.configureKvCacheDir(File(application.cacheDir, "llama-kv-cache"))
+            val hexPowerMode = when (_state.value.thermalProfile) {
+                ThermalPowerProfile.Eco -> "power_saver"
+                ThermalPowerProfile.Balanced -> "balanced"
+                ThermalPowerProfile.Performance -> "sustained_high_performance"
+            }
+            LocalLlamaChatEngine.configureHexagonSkels(application, hexPowerMode)
             val caps = LocalLlamaChatEngine.probeBackends()
             val shouldApplyAutoThreads = !prefs.contains("threads")
             val tunedThreads = caps.recommendedThreads.coerceIn(2, 8)

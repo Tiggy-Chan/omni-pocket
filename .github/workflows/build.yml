@@ -44,11 +44,17 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
           "$SDKMANAGER" --install "ndk;28.2.13676358"
 
+      - name: Prepare llama.cpp (decision patch + Arm KleidiAI)
+        run: bash scripts/prepare_llama.sh
+
       - name: Build unified stable-diffusion.cpp Android runtime (MOSS + Wan2.2 + SD)
         run: ANDROID_NDK="$ANDROID_HOME/ndk/28.2.13676358" JOBS=4 bash scripts/build_sd_android.sh
 
       - name: Build YuE2 Android music runtime
         run: ANDROID_NDK="$ANDROID_HOME/ndk/28.2.13676358" JOBS=4 bash scripts/build_yue2_android.sh
+
+      - name: Build Qualcomm Hexagon HTP NPU runtime (Snapdragon Docker toolchain)
+        run: ANDROID_NDK="$ANDROID_HOME/ndk/28.2.13676358" JOBS=4 bash scripts/build_hexagon_android.sh
 
       - name: Version and hash for build outputs
         id: v
@@ -65,7 +71,7 @@ jobs:
       - name: Run Python conversion & script syntax checks
         run: |
           python3 -m unittest discover -s export -p 'test_conversion_utils.py'
-          bash -n scripts/build_sd_android.sh scripts/build_yue2_android.sh scripts/push_models.sh scripts/push_llm_models.sh scripts/push_moss_models.sh scripts/push_music_models.sh scripts/push_video_models.sh scripts/push_h3_models.sh
+          bash -n scripts/prepare_llama.sh scripts/build_sd_android.sh scripts/build_yue2_android.sh scripts/build_hexagon_android.sh scripts/push_models.sh scripts/push_llm_models.sh scripts/push_moss_models.sh scripts/push_music_models.sh scripts/push_video_models.sh scripts/push_h3_models.sh
 
       - name: Run Android unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon

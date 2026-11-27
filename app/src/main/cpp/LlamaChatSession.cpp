@@ -2,6 +2,9 @@
 
 #include "ggml-backend.h"
 #include "llama.h"
+#if defined(OMNI_LLAMA_HAS_HEXAGON)
+#include "ggml-hexagon.h"
+#endif
 #if defined(OMNI_LLAMA_HAS_MTMD)
 #include "mtmd.h"
 #include "mtmd-helper.h"
@@ -13,6 +16,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -41,6 +45,7 @@ void LlamaAndroidLog(ggml_log_level level, const char* text, void*) {
                (std::strstr(text, "ggml_opencl") != nullptr ||
                 std::strstr(text, "ggml_vulkan") != nullptr ||
                 std::strstr(text, "ggml_hexagon") != nullptr ||
+                std::strstr(text, "ggml-hex") != nullptr ||
                 std::strstr(text, "kleidiai") != nullptr)) {
         __android_log_print(ANDROID_LOG_INFO, kLogTag, "%s", text);
     }
@@ -168,7 +173,67 @@ void EnsureLlamaRuntimeInitialized() {
     std::call_once(backendOnce, [] {
         llama_log_set(LlamaAndroidLog, nullptr);
         ggml_backend_load_all();
+#if defined(OMNI_LLAMA_HEXAGON_PREBUILT)
+        try {
+            if (ggml_backend_reg_t hexReg = ggml_backend_hexagon_reg()) {
+                ggml_backend_register(hexReg);
+                __android_log_print(ANDROID_LOG_INFO, kLogTag, "Registered prebuilt Qualcomm Hexagon HTP backend");
+            }
+        } catch (const std::exception& e) {
+            __android_log_print(ANDROID_LOG_WARN, kLogTag, "Hexagon backend registration failed: %s", e.what());
+        } catch (...) {
+            __android_log_print(ANDROID_LOG_WARN, kLogTag, "Hexagon backend registration failed (unknown error)");
+        }
+#endif
     });
+}
+
+std::mutex gKvCacheDirMutex;
+std::string gKvCacheDir;
+
+std::string GetKvCacheDir() {
+    std::lock_guard<std::mutex> lock(gKvCacheDirMutex);
+    return gKvCacheDir;
+}
+
+std::string Fnv1aHex64(const std::string& input) {
+    uint64_t hash = 14695981039346656037ULL;
+    for (unsigned char c : input) {
+        hash ^= static_cast<uint64_t>(c);
+        hash *= 1099511628211ULL;
+    }
+    char buf[17];
+    std::snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(hash));
+    return std::string(buf);
+}
+
+void PruneKvCacheDir(const std::string& dir, size_t maxFiles = 2, uint64_t maxTotalBytes = 128ULL * 1024 * 1024) {
+    std::error_code ec;
+    if (dir.empty() || !std::filesystem::is_directory(dir, ec)) return;
+    struct Entry {
+        std::filesystem::path path;
+        std::filesystem::file_time_type mtime;
+        uint64_t size;
+    };
+    std::vector<Entry> entries;
+    uint64_t total = 0;
+    for (const auto& de : std::filesystem::directory_iterator(dir, ec)) {
+        if (!de.is_regular_file(ec)) continue;
+        if (de.path().extension() != ".kv") continue;
+        uint64_t sz = de.file_size(ec);
+        auto mt = de.last_write_time(ec);
+        entries.push_back({de.path(), mt, sz});
+        total += sz;
+    }
+    std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) {
+        return a.mtime > b.mtime;
+    });
+    while (entries.size() > maxFiles || (total > maxTotalBytes && entries.size() > 1)) {
+        const auto& victim = entries.back();
+        total = (total > victim.size) ? (total - victim.size) : 0;
+        std::filesystem::remove(victim.path, ec);
+        entries.pop_back();
+    }
 }
 
 struct BatchGuard {
@@ -339,6 +404,8 @@ struct LlamaChatSession::Impl {
     std::atomic<int> contextTokens{4096};
     std::atomic<int> trainContextTokens{0};
     int threadCount = 4;
+    int kvQuantMode = 0;
+    std::string loadedModelPath;
     std::string activeBackendLabel = "CPU";
     std::string conversationId;
     bool thinking = false;
@@ -514,6 +581,27 @@ void LlamaChatSession::SetKernelCacheDir(const std::string& cacheDir) {
     setenv("GGML_OPENCL_KERNEL_CACHE_DIR", cacheDir.c_str(), 1);
 }
 
+void LlamaChatSession::SetKvCacheDir(const std::string& cacheDir) {
+    if (cacheDir.empty()) return;
+    std::error_code ec;
+    std::filesystem::create_directories(cacheDir, ec);
+    std::lock_guard<std::mutex> lock(gKvCacheDirMutex);
+    gKvCacheDir = cacheDir;
+}
+
+void LlamaChatSession::ConfigureHexagon(const std::string& skelDir, const std::string& powerMode) {
+    if (!skelDir.empty()) {
+        std::error_code ec;
+        std::filesystem::create_directories(skelDir, ec);
+        const std::string adspPath = skelDir + ";/vendor/lib/rfsa/adsp;/vendor/dsp/cdsp;/system/lib/rfsa/adsp";
+        setenv("ADSP_LIBRARY_PATH", adspPath.c_str(), 1);
+        setenv("DSP_LIBRARY_PATH", adspPath.c_str(), 1);
+    }
+    if (!powerMode.empty()) {
+        setenv("GGML_HEXAGON_POWER_MODE", powerMode.c_str(), 1);
+    }
+}
+
 BackendCapabilities LlamaChatSession::ProbeBackends() {
     BackendCapabilities caps;
 #if defined(OMNI_LLAMA_HAS_KLEIDIAI)
@@ -687,6 +775,8 @@ bool LlamaChatSession::Load(const std::string& modelPath, int threadCount, int c
         llama_set_causal_attn(impl_->context, true);
         impl_->contextTokens = effectiveCtx;
         impl_->threadCount = threadCount;
+        impl_->kvQuantMode = kvQuantMode;
+        impl_->loadedModelPath = modelPath;
         impl_->activeBackendLabel = backendLabel;
 #if defined(OMNI_LLAMA_HAS_MTMD)
         if (!mmprojPath.empty()) {
@@ -931,6 +1021,12 @@ LlamaChatResult LlamaChatSession::Generate(
         result.promptTokens = static_cast<int>(promptTokens.size());
 
         size_t common = 0;
+        const std::string kvDir = GetKvCacheDir();
+        const std::string kvKey = Fnv1aHex64(
+            impl_->loadedModelPath + "|" + std::to_string(impl_->contextTokens.load()) + "|" +
+            std::to_string(impl_->kvQuantMode) + "|" + request.conversationId + "|" + (request.thinking ? "1" : "0"));
+        const std::string kvFilePath = kvDir.empty() ? std::string() : (kvDir + "/" + kvKey + ".kv");
+
         if (impl_->conversationId == request.conversationId && impl_->thinking == request.thinking) {
             while (common < impl_->kvTokens.size() &&
                    common + 1 < promptTokens.size() &&
@@ -940,6 +1036,33 @@ LlamaChatResult LlamaChatSession::Generate(
         } else {
             impl_->conversationId = request.conversationId;
             impl_->thinking = request.thinking;
+            impl_->kvTokens.clear();
+            // Try restoring persisted session KV cache snapshot on cold restart or conversation switch.
+            if (!kvFilePath.empty()) {
+                std::error_code fEc;
+                if (std::filesystem::is_regular_file(kvFilePath, fEc) && !fEc &&
+                    std::filesystem::file_size(kvFilePath, fEc) <= 96ULL * 1024 * 1024) {
+                    llama_memory_clear(memory, true);
+                    std::vector<llama_token> restored(static_cast<size_t>(impl_->contextTokens.load()));
+                    size_t nRestored = 0;
+                    const size_t readBytes = llama_state_seq_load_file(
+                        impl_->context, kvFilePath.c_str(), 0, restored.data(), restored.size(), &nRestored);
+                    if (readBytes > 0 && nRestored > 0 && nRestored <= restored.size()) {
+                        restored.resize(nRestored);
+                        impl_->kvTokens = std::move(restored);
+                        while (common < impl_->kvTokens.size() &&
+                               common + 1 < promptTokens.size() &&
+                               impl_->kvTokens[common] == promptTokens[common]) {
+                            ++common;
+                        }
+                        if (common > 0) {
+                            __android_log_print(ANDROID_LOG_INFO, kLogTag,
+                                                "Restored disk KV cache: reused %zu/%zu prompt tokens",
+                                                common, promptTokens.size());
+                        }
+                    }
+                }
+            }
         }
 
         if (common == 0) {
@@ -1085,6 +1208,31 @@ LlamaChatResult LlamaChatSession::Generate(
         result.finish = LlamaChatFinish::Finished;
     } else {
         result.finish = LlamaChatFinish::MaxTokens;
+    }
+
+    // Persist bounded session KV snapshot after clean non-vision turns so switching chats or restarting
+    // skips re-prefilling the system prompt and prior turns.
+    if (!isVisionTurn &&
+        (result.finish == LlamaChatFinish::Finished || result.finish == LlamaChatFinish::MaxTokens) &&
+        impl_->kvTokens.size() >= 64 && impl_->kvTokens.size() <= static_cast<size_t>(impl_->contextTokens.load())) {
+        const std::string kvDir = GetKvCacheDir();
+        if (!kvDir.empty()) {
+            const std::string kvKey = Fnv1aHex64(
+                impl_->loadedModelPath + "|" + std::to_string(impl_->contextTokens.load()) + "|" +
+                std::to_string(impl_->kvQuantMode) + "|" + request.conversationId + "|" + (request.thinking ? "1" : "0"));
+            const std::string kvPath = kvDir + "/" + kvKey + ".kv";
+            const std::string tmpPath = kvPath + ".tmp";
+            const size_t written = llama_state_seq_save_file(
+                impl_->context, tmpPath.c_str(), 0, impl_->kvTokens.data(), impl_->kvTokens.size());
+            std::error_code ec;
+            if (written > 0 && written <= 96ULL * 1024 * 1024) {
+                std::filesystem::rename(tmpPath, kvPath, ec);
+                if (ec) std::filesystem::remove(tmpPath, ec);
+                PruneKvCacheDir(kvDir);
+            } else {
+                std::filesystem::remove(tmpPath, ec);
+            }
+        }
     }
     return result;
 }

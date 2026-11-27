@@ -72,6 +72,10 @@ public:
 
     // Configure writable kernel cache directory (used by ggml-opencl) before backend init.
     static void SetKernelCacheDir(const std::string& cacheDir);
+    // Configure writable directory for bounded LRU KV session cache snapshots.
+    static void SetKvCacheDir(const std::string& cacheDir);
+    // Configure Hexagon DSP skel directory (ADSP_LIBRARY_PATH) & HTP power mode before backend init.
+    static void ConfigureHexagon(const std::string& skelDir, const std::string& powerMode);
     static BackendCapabilities ProbeBackends();
     static bool HasRuntimeGpuDevice();
     static std::string RuntimeGpuDeviceName();

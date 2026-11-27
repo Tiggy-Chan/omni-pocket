@@ -133,6 +133,41 @@ class LocalLlamaChatEngine : AutoCloseable {
             }
         }
 
+        fun configureKvCacheDir(cacheDir: File) {
+            runCatching {
+                cacheDir.mkdirs()
+                nativeSetKvCacheDir(cacheDir.absolutePath)
+            }
+        }
+
+        /**
+         * Extracts bundled Qualcomm Hexagon DSP skels (`assets/hexagon/libggml-htp-v*.so`) to a
+         * private readable directory and sets `ADSP_LIBRARY_PATH` + `GGML_HEXAGON_POWER_MODE`
+         * before backend initialization. Safe no-op if no skels are packaged in the APK.
+         */
+        fun configureHexagonSkels(context: android.content.Context, powerMode: String = "balanced") {
+            runCatching {
+                val assetManager = context.assets
+                val skelFiles = assetManager.list("hexagon").orEmpty()
+                    .filter { it.startsWith("libggml-htp-") && it.endsWith(".so") }
+                if (skelFiles.isEmpty()) return
+                val outDir = File(context.filesDir, "hexagon-skels").apply { mkdirs() }
+                for (name in skelFiles) {
+                    val dest = File(outDir, name)
+                    assetManager.open("hexagon/$name").use { input ->
+                        val bytes = input.readBytes()
+                        if (!dest.isFile || dest.length() != bytes.size.toLong()) {
+                            val tmp = File(outDir, "$name.tmp")
+                            tmp.writeBytes(bytes)
+                            if (dest.exists()) dest.delete()
+                            tmp.renameTo(dest)
+                        }
+                    }
+                }
+                nativeConfigureHexagon(outDir.absolutePath, powerMode)
+            }
+        }
+
         fun probeBackends(): GgufBackendCapabilities =
             runCatching { nativeProbeBackends() }.getOrNull() ?: GgufBackendCapabilities()
 
@@ -141,6 +176,8 @@ class LocalLlamaChatEngine : AutoCloseable {
         fun gpuDeviceName(): String = runCatching { nativeGpuDeviceName().orEmpty() }.getOrDefault("")
 
         @JvmStatic private external fun nativeSetCacheDir(cacheDir: String)
+        @JvmStatic private external fun nativeSetKvCacheDir(cacheDir: String)
+        @JvmStatic private external fun nativeConfigureHexagon(skelDir: String, powerMode: String)
         @JvmStatic private external fun nativeProbeBackends(): GgufBackendCapabilities?
         @JvmStatic private external fun nativeHasGpuBackend(): Boolean
         @JvmStatic private external fun nativeGpuDeviceName(): String?

@@ -206,8 +206,13 @@ class VideoEngine(
                 scheduler = null
                 extraSampleArgs = null
             }
-            val useDiskStreaming = isMiniMaxH3 && settings.diskStreaming
+            val hwRamGb = runCatching { DeviceHardwareProbe.read(context).totalRamGb }.getOrDefault(0.0)
+            // On >=20 GB flagship phones running short 5-frame H3 previews, keeping weights in RAM avoids
+            // disk-streaming slowdowns on the 2.6 GB 3D Conv Video VAE.
+            val useDiskStreaming = isMiniMaxH3 && settings.diskStreaming && !(hwRamGb >= 20.0 && settings.numFrames <= 5)
             val maxVramGb = if (useDiskStreaming) computeDiskStreamBudgetGb() else null
+            // On >=16 GB phones, disable H3 256x256 4-tile overlap to cut VAE decode latency nearly in half.
+            val effectiveVaeTiling = if (isMiniMaxH3 && hwRamGb >= 16.0 && !settings.vaeTiling) false else settings.vaeTiling
 
             val options = SdCliVideoOptions(
                 diffusionModel = weights.dit,
@@ -227,7 +232,7 @@ class VideoEngine(
                 negativePrompt = settings.negativePrompt,
                 cfgScale = settings.cfgScale,
                 useOpenCl = settings.useOpenCl,
-                vaeTiling = settings.vaeTiling,
+                vaeTiling = effectiveVaeTiling,
                 arch = weights.arch,
                 audioVae = weights.audioVae,
                 piH3Adapter = piH3Adapter,
