@@ -728,15 +728,44 @@ class LlmViewModel(
                 }
 
                 val hubModel = withContext(Dispatchers.IO) { hubRepository.find(modelId) }
-                if (hubModel != null) {
-                    check(hubRepository.isPresent(hubModel)) { "模型文件缺失，请重新下载" }
-                    val entry = hubRepository.entryFile(hubModel)
-                    when (hubModel.type) {
-                        HubModelType.GgufChat -> {
+                val builtInGgufTarget: Triple<File, String, File?>? = if (hubModel == null) {
+                    val spec = runCatching { repository.model(modelId) }.getOrNull()
+                    if (spec?.isGgufChat == true) {
+                        val status = withContext(Dispatchers.IO) {
+                            var current = repository.status(modelId)
+                            if (!current.ready && current.present == current.spec.artifacts.size) {
+                                runCatching { repository.verify(modelId) }
+                                current = repository.status(modelId)
+                            }
+                            current
+                        }
+                        check(status.ready) { "模型未通过校验：${status.message}" }
+                        val entryName = checkNotNull(status.spec.ggufEntryFile) { "内置 GGUF 模型缺少主权重文件" }
+                        val entryFile = File(status.directory, entryName)
+                        val mmprojFile = status.spec.ggufMmprojFile
+                            ?.let { File(status.directory, it) }
+                            ?.takeIf { it.isFile }
+                        Triple(entryFile, status.spec.revision, mmprojFile)
+                    } else null
+                } else null
+
+                if (hubModel != null || builtInGgufTarget != null) {
+                    val ggufTarget: Triple<File, String, File?>? = when {
+                        builtInGgufTarget != null -> builtInGgufTarget
+                        hubModel != null && hubModel.type == HubModelType.GgufChat -> {
+                            check(hubRepository.isPresent(hubModel)) { "模型文件缺失，请重新下载" }
+                            val entry = hubRepository.entryFile(hubModel)
+                            val mmprojFile = withContext(Dispatchers.IO) { hubRepository.mmprojFile(hubModel) }
+                            Triple(entry, "${hubModel.id}:${hubModel.installedAt}", mmprojFile)
+                        }
+                        else -> null
+                    }
+                    when {
+                        ggufTarget != null -> {
+                            val (entry, modelKey, mmprojFile) = ggufTarget
                             mnnEngine.unload()
                             activeBackend = ChatEngineBackend.LlamaGguf
                             if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
-                            val mmprojFile = withContext(Dispatchers.IO) { hubRepository.mmprojFile(hubModel) }
                             val turnImagePaths = listOfNotNull(
                                 conversation.messages.lastOrNull { it.role == "user" }?.imagePath
                                     ?.takeIf { File(it).isFile }
@@ -746,7 +775,7 @@ class LlmViewModel(
                             var fellBackToCpu = false
                             var error = llamaEngine.load(
                                 modelFile = entry,
-                                modelKey = "${hubModel.id}:${hubModel.installedAt}",
+                                modelKey = modelKey,
                                 threads = threads,
                                 contextTokens = contextTokens,
                                 kvPrecision = snapshot.ggufKvPrecision,
@@ -759,7 +788,7 @@ class LlmViewModel(
                                 fellBackToCpu = true
                                 error = llamaEngine.load(
                                     modelFile = entry,
-                                    modelKey = "${hubModel.id}:${hubModel.installedAt}",
+                                    modelKey = modelKey,
                                     threads = threads,
                                     contextTokens = contextTokens,
                                     kvPrecision = snapshot.ggufKvPrecision,
@@ -804,7 +833,7 @@ class LlmViewModel(
                                 llamaEngine.unload()
                                 val cpuErr = llamaEngine.load(
                                     modelFile = entry,
-                                    modelKey = "${hubModel.id}:${hubModel.installedAt}",
+                                    modelKey = modelKey,
                                     threads = threads,
                                     contextTokens = contextTokens,
                                     kvPrecision = snapshot.ggufKvPrecision,
@@ -840,7 +869,9 @@ class LlmViewModel(
                             }
                             nativeResult
                         }
-                        HubModelType.MnnChat -> {
+                        hubModel?.type == HubModelType.MnnChat -> {
+                            check(hubRepository.isPresent(hubModel)) { "模型文件缺失，请重新下载" }
+                            val entry = hubRepository.entryFile(hubModel)
                             llamaEngine.unload()
                             activeBackend = ChatEngineBackend.Mnn
                             if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
@@ -872,11 +903,7 @@ class LlmViewModel(
                                 } else false
                             }
                         }
-                        HubModelType.DecisionGguf -> error("Selected model is a decision model and cannot be used for chat")
-                        HubModelType.SdImage -> error("Selected model is an image model and cannot be used for chat")
-                        HubModelType.VideoWan -> error("Selected model is a video model and cannot be used for chat")
-                        HubModelType.MusicAudio -> error("Selected model is a music model and cannot be used for chat")
-                        HubModelType.Embedding -> error("Selected model is an embedding model and cannot be used for chat")
+                        else -> error("Selected model type cannot be used for chat")
                     }
                 } else {
                     llamaEngine.unload()
@@ -972,16 +999,41 @@ class LlmViewModel(
                 val effectiveCtx: Int
                 val runner: suspend (String, Int, Boolean) -> NativeLlmResult
 
-                if (hubModel != null && hubModel.type == HubModelType.GgufChat) {
-                    check(hubRepository.isPresent(hubModel)) { "模型文件缺失，请重新下载" }
-                    val entry = hubRepository.entryFile(hubModel)
+                val builtInDocGguf: Pair<File, String>? = if (hubModel == null) {
+                    val spec = runCatching { repository.model(modelId) }.getOrNull()
+                    if (spec?.isGgufChat == true) {
+                        val status = withContext(Dispatchers.IO) {
+                            var current = repository.status(modelId)
+                            if (!current.ready && current.present == current.spec.artifacts.size) {
+                                runCatching { repository.verify(modelId) }
+                                current = repository.status(modelId)
+                            }
+                            current
+                        }
+                        check(status.ready) { "模型未通过校验：${status.message}" }
+                        val entryName = checkNotNull(status.spec.ggufEntryFile) { "内置 GGUF 模型缺少主权重文件" }
+                        File(status.directory, entryName) to status.spec.revision
+                    } else null
+                } else null
+
+                val docGguf: Pair<File, String>? = when {
+                    builtInDocGguf != null -> builtInDocGguf
+                    hubModel != null && hubModel.type == HubModelType.GgufChat -> {
+                        check(hubRepository.isPresent(hubModel)) { "模型文件缺失，请重新下载" }
+                        hubRepository.entryFile(hubModel) to "${hubModel.id}:${hubModel.installedAt}"
+                    }
+                    else -> null
+                }
+
+                if (docGguf != null) {
+                    val (entry, modelKey) = docGguf
                     mnnEngine.unload()
                     activeBackend = ChatEngineBackend.LlamaGguf
                     if (cancelRequested) return@withInference NativeLlmResult(1, "", "", 0, 0, 0, 0, 0)
                     var activeBackendPref = snapshot.ggufBackend
                     var error = llamaEngine.load(
                         modelFile = entry,
-                        modelKey = "${hubModel.id}:${hubModel.installedAt}",
+                        modelKey = modelKey,
                         threads = threads,
                         contextTokens = contextTokens,
                         kvPrecision = snapshot.ggufKvPrecision,
@@ -992,7 +1044,7 @@ class LlmViewModel(
                         activeBackendPref = GgufComputeBackend.Cpu
                         error = llamaEngine.load(
                             modelFile = entry,
-                            modelKey = "${hubModel.id}:${hubModel.installedAt}",
+                            modelKey = modelKey,
                             threads = threads,
                             contextTokens = contextTokens,
                             kvPrecision = snapshot.ggufKvPrecision,
@@ -1289,16 +1341,21 @@ class LlmViewModel(
         }
         val choices = buildList {
             builtIn.forEach { status ->
+                val isGguf = status.spec.isGgufChat
+                val backend = if (isGguf) ChatEngineBackend.LlamaGguf else ChatEngineBackend.Mnn
+                val hasVision = isGguf && status.ready && status.spec.ggufMmprojFile != null
+                val visionTag = if (hasVision) " · 识图" else ""
                 add(
                     ChatModelChoice(
                         id = status.spec.id,
                         name = status.spec.name,
-                        backend = ChatEngineBackend.Mnn,
+                        backend = backend,
                         totalBytes = status.spec.totalBytes,
                         ready = status.ready,
-                        detail = if (status.ready) "已就绪 · MNN · ${formatBytesCompact(status.spec.totalBytes)}"
+                        detail = if (status.ready) "已就绪 · ${backend.label}$visionTag · ${formatBytesCompact(status.spec.totalBytes)}"
                         else "${status.message} · ${formatBytesCompact(status.spec.totalBytes)}",
-                        builtIn = true
+                        builtIn = true,
+                        supportsVision = hasVision
                     )
                 )
             }

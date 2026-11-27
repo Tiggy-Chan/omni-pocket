@@ -358,6 +358,67 @@ private:
     std::function<bool(const std::string&)> callback_;
 };
 
+bool IsInklingTemplate(const std::string& tmplHint) {
+    return tmplHint.find("<|message_user|>") != std::string::npos &&
+           tmplHint.find("<|content_text|>") != std::string::npos;
+}
+
+std::string FormatInklingMessages(const LlamaChatMessages& messages, bool enableThinking, const std::string& mediaMarker) {
+    std::ostringstream out;
+    bool effortEmitted = false;
+    auto emitEffort = [&]() {
+        out << "<|message_system|><|content_text|>Thinking effort level: "
+            << (enableThinking ? "0.9" : "0")
+            << "<|end_message|>";
+        effortEmitted = true;
+    };
+    for (const auto& [role, content] : messages) {
+        if (!effortEmitted && role != "system") {
+            emitEffort();
+        }
+        if (role == "system") {
+            out << "<|message_system|><|content_text|>" << content << "<|end_message|>";
+        } else if (role == "assistant") {
+            out << "<|message_model|><|content_text|>" << content
+                << "<|end_message|><|content_model_end_sampling|>";
+        } else {
+            const std::string header = (role == "tool") ? "<|message_tool|>" : "<|message_user|>";
+            if (!mediaMarker.empty() && content.find(mediaMarker) != std::string::npos) {
+                size_t pos = 0;
+                while (pos < content.size()) {
+                    const size_t hit = content.find(mediaMarker, pos);
+                    if (hit == std::string::npos) {
+                        std::string tail = content.substr(pos);
+                        while (!tail.empty() && (tail.front() == '\n' || tail.front() == '\r')) tail.erase(0, 1);
+                        if (!tail.empty()) {
+                            out << header << "<|content_text|>" << tail << "<|end_message|>";
+                        }
+                        break;
+                    }
+                    if (hit > pos) {
+                        std::string seg = content.substr(pos, hit - pos);
+                        while (!seg.empty() && (seg.back() == '\n' || seg.back() == '\r')) seg.pop_back();
+                        if (!seg.empty()) {
+                            out << header << "<|content_text|>" << seg << "<|end_message|>";
+                        }
+                    }
+                    // mtmd expands <__media__> with img_beg = "<|content_image|>" for PROJECTOR_TYPE_INKLING2V.
+                    out << header << mediaMarker << "<|end_message|>";
+                    pos = hit + mediaMarker.size();
+                    while (pos < content.size() && (content[pos] == '\n' || content[pos] == '\r')) ++pos;
+                }
+            } else {
+                out << header << "<|content_text|>" << content << "<|end_message|>";
+            }
+        }
+    }
+    if (!effortEmitted) {
+        emitEffort();
+    }
+    out << "<|message_model|>";
+    return out.str();
+}
+
 std::string FallbackFormatMessages(const LlamaChatMessages& messages, const std::string& tmplHint) {
     std::ostringstream out;
     if (tmplHint.find("<start_of_turn>") != std::string::npos) {
@@ -436,9 +497,23 @@ struct LlamaChatSession::Impl {
         kvTokens.clear();
     }
 
+    bool IsInklingModel() const {
+        if (model == nullptr) return false;
+        const char* rawTemplate = llama_model_chat_template(model, nullptr);
+        return rawTemplate != nullptr && IsInklingTemplate(std::string(rawTemplate));
+    }
+
     std::pair<std::string, bool> RenderPrompt(const LlamaChatMessages& messages, bool enableThinking) const {
         const char* rawTemplate = llama_model_chat_template(model, nullptr);
         std::string tmplHint = rawTemplate ? std::string(rawTemplate) : std::string();
+
+        if (IsInklingTemplate(tmplHint)) {
+            std::string mediaMarker;
+#if defined(OMNI_LLAMA_HAS_MTMD)
+            mediaMarker = mtmd_default_marker();
+#endif
+            return {FormatInklingMessages(messages, enableThinking, mediaMarker), false};
+        }
 
         std::vector<llama_chat_message> chat;
         chat.reserve(messages.size());
@@ -1136,8 +1211,11 @@ LlamaChatResult LlamaChatSession::Generate(
     std::string decodeError;
 
     constexpr const char* kStopMarkers[] = {
-        "<|im_end|>", "<|eot_id|>", "<end_of_turn>", "<|endoftext|>", "<|end|>", "</s>"
+        "<|im_end|>", "<|eot_id|>", "<end_of_turn>", "<|endoftext|>", "<|end|>", "</s>",
+        "<|content_model_end_sampling|>"
     };
+    const bool isInklingModel = impl_->IsInklingModel();
+    bool inInklingThink = false;
 
     try {
         while (!impl_->cancelled.load() && generated < request.maxNewTokens && currentPos < impl_->contextTokens) {
@@ -1158,9 +1236,28 @@ LlamaChatResult LlamaChatSession::Generate(
                 hitEog = true;
                 break;
             }
-            const std::string piece = (specialPiece == "<think>" || specialPiece == "</think>")
-                ? specialPiece
-                : impl_->TokenToPiece(nextToken, /*special=*/false);
+            std::string piece;
+            if (isInklingModel) {
+                if (specialPiece == "<|content_thinking|>") {
+                    if (!inInklingThink) {
+                        inInklingThink = true;
+                        piece = "<think>\n";
+                    }
+                } else if (specialPiece == "<|end_message|>") {
+                    if (inInklingThink) {
+                        inInklingThink = false;
+                        piece = "\n</think>\n\n";
+                    }
+                } else if (specialPiece == "<|message_model|>" || specialPiece == "<|content_text|>") {
+                    // Structural Inkling block header; suppress from visible output.
+                } else {
+                    piece = impl_->TokenToPiece(nextToken, /*special=*/false);
+                }
+            } else {
+                piece = (specialPiece == "<think>" || specialPiece == "</think>")
+                    ? specialPiece
+                    : impl_->TokenToPiece(nextToken, /*special=*/false);
+            }
             if (!piece.empty()) {
                 if (!emitter.Feed(piece.data(), piece.size())) {
                     stoppedByCallback = true;

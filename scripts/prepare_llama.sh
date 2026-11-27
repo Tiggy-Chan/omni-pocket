@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE="$ROOT/third_party/llama.cpp"
 PATCH="$ROOT/patches/llama-elephant-decision.patch"
-EXPECTED="2280f0fd163b03d4331d49e08460f66502e35854"
+EXPECTED="6d8a8886fa44a4a404c58ace93052ea680193981"
 [[ "$(git -C "$SOURCE" rev-parse HEAD)" == "$EXPECTED" ]] || {
     echo "llama.cpp must be at $EXPECTED" >&2
     exit 1

@@ -15,7 +15,7 @@ SKEL_ASSETS="$ROOT/app/src/main/assets/hexagon"
 IMAGE="${SNAPDRAGON_TOOLCHAIN_IMAGE:-ghcr.io/snapdragon-toolchain/arm64-android:v0.8}"
 JOBS="${JOBS:-4}"
 
-EXPECTED="2280f0fd163b03d4331d49e08460f66502e35854"
+EXPECTED="6d8a8886fa44a4a404c58ace93052ea680193981"
 [[ "$(git -C "$LLAMA_SRC" rev-parse HEAD)" == "$EXPECTED" ]] || {
     echo "llama.cpp must be at $EXPECTED" >&2
     exit 1

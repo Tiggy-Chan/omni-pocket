@@ -160,6 +160,22 @@ object ModelBenchmarkCatalog {
             aliases = listOf("qwen3.5-9b", "qwen3.5 9b", "qwen3_5-9b", "qwen3-5-9b", "qwen35-9b")
         ),
         ModelBenchmarkEntry(
+            id = "inkling-2-mini",
+            familyName = "Inkling-2-Mini (MoE)",
+            modality = BenchmarkModality.Chat,
+            paramScale = "26B Total / ~4B Active (Looped MoE)",
+            evidenceTier = EvidenceTier.PublicLeaderboard,
+            source = "Artificial Analysis / Thinking Machines (2026)",
+            primaryScoreLabel = "AA Intelligence ~20",
+            secondaryScoreLabel = "1M ctx · Vision · 48 logical layers",
+            strengths = "26B-A4B 循环 MoE 旗舰端侧推理与编程能力，智力水平逼近 27B 稠密模型，支持深度思考与识图",
+            recommendedQuant = "UD-Q2_K_XL (~9.1 GB) / UD-Q3_K_XL (~13.6 GB)",
+            minRamGb = 16,
+            recommendedRepo = "unsloth/Inkling-2-Mini-GGUF",
+            searchCategory = HubSearchCategory.GgufChat,
+            aliases = listOf("inkling-2-mini", "inkling2-mini", "inkling-2-mini-uncensored", "inkling 2 mini")
+        ),
+        ModelBenchmarkEntry(
             id = "gemma-4-e4b",
             familyName = "Gemma 4 E4B IT",
             modality = BenchmarkModality.Chat,

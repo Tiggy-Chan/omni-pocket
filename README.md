@@ -166,7 +166,7 @@ bash scripts/test_decision_host.sh
 - [Qwen-Image runtime](https://github.com/scsonic/libQwenImage21) — Apache-2.0
 - [MOSS-Image](https://github.com/OpenMOSS/MOSS-Image) — Apache-2.0
 - [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) & [ggml](https://github.com/leejet/ggml) — MIT (`95ff7623` + `patches/sd-opencl-conv3d-bias.patch` + `patches/sd-piflow-h3.patch` for [pi-Flow / pi-H3](https://github.com/Lakonik/ComfyUI-piFlow))
-- [llama.cpp](https://github.com/ggml-org/llama.cpp) — MIT (`2280f0fd` + `patches/llama-elephant-decision.patch`) & [Arm KleidiAI](https://github.com/ARM-software/kleidiai) — Apache-2.0 (`v1.32.0`)
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) — MIT (`6d8a8886` + `patches/llama-elephant-decision.patch`) & [Arm KleidiAI](https://github.com/ARM-software/kleidiai) — Apache-2.0 (`v1.32.0`)
 - [audio.cpp](https://github.com/0xShug0/audio.cpp) — Apache-2.0 (`3a0dd44`); [YuE2](https://github.com/multimodal-art-projection/YuE) weights — CC-BY-NC-4.0
 - [Elephant-1](https://huggingface.co/baselabs/elephant-1) — MIT; [OneJev](https://github.com/OmniJev/OneJev) protocol — Apache-2.0
 - [Haze](https://github.com/chrisbanes/haze) — Apache-2.0

@@ -155,6 +155,29 @@
       ]
     },
     {
+      "id": "inkling2-mini",
+      "name": "Inkling-2-Mini (MoE · 识图)",
+      "family": "inkling2",
+      "engine": "llama_gguf",
+      "kind": "chat",
+      "repo": "unsloth/Inkling-2-Mini-GGUF",
+      "revision": "8078d149286eec7193795413b9e0643da6d11fa1",
+      "files": [
+        {
+          "path": "Inkling-2-Mini-UD-Q2_K_XL.gguf",
+          "size": 9138716608,
+          "sha256": "b42841608ea380ddde5a3f1125081357128a3c71b80d006246de4e31292fc6c1",
+          "url": "https://huggingface.co/unsloth/Inkling-2-Mini-GGUF/resolve/8078d149286eec7193795413b9e0643da6d11fa1/Inkling-2-Mini-UD-Q2_K_XL.gguf"
+        },
+        {
+          "path": "mmproj-F16.gguf",
+          "size": 639348160,
+          "sha256": "3bff75ffeb2d6e0371ba7bd42e30d26a7d98aea681fa44b03b5a20891cfa2c5f",
+          "url": "https://huggingface.co/unsloth/Inkling-2-Mini-GGUF/resolve/8078d149286eec7193795413b9e0643da6d11fa1/mmproj-F16.gguf"
+        }
+      ]
+    },
+    {
       "id": "elephant-1",
       "name": "Elephant-1 9B",
       "family": "qwen3_5",

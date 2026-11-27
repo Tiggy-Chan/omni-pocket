@@ -370,7 +370,14 @@ object HuggingFaceHubClient {
     ): List<HfRepoOption> {
         val ggufs = files.filter { file ->
             val lower = file.path.lowercase(Locale.ROOT)
-            lower.endsWith(".gguf") && !lower.contains("mmproj") && !lower.contains("imatrix")
+            val fileName = lower.substringAfterLast('/')
+            lower.endsWith(".gguf") &&
+                !lower.contains("mmproj") &&
+                !lower.contains("imatrix") &&
+                !fileName.startsWith("dspark") &&
+                !fileName.endsWith("-lora.gguf") &&
+                !lower.startsWith("experimental/") &&
+                !lower.startsWith("research/")
         }
         return ggufs.map { file ->
             val fileName = file.path.substringAfterLast('/')
@@ -400,7 +407,14 @@ object HuggingFaceHubClient {
     ): List<HfRepoOption> {
         val ggufs = files.filter { file ->
             val lower = file.path.lowercase(Locale.ROOT)
-            lower.endsWith(".gguf") && !lower.contains("mmproj") && !lower.contains("imatrix")
+            val fileName = lower.substringAfterLast('/')
+            lower.endsWith(".gguf") &&
+                !lower.contains("mmproj") &&
+                !lower.contains("imatrix") &&
+                !fileName.startsWith("dspark") &&
+                !fileName.endsWith("-lora.gguf") &&
+                !lower.startsWith("experimental/") &&
+                !lower.startsWith("research/")
         }
         val mmprojs = files.filter { file ->
             val lower = file.path.lowercase(Locale.ROOT)
@@ -462,7 +476,14 @@ object HuggingFaceHubClient {
     ): List<HfRepoOption> {
         val ggufs = files.filter { file ->
             val lower = file.path.lowercase(Locale.ROOT)
-            lower.endsWith(".gguf") && !lower.contains("mmproj") && !lower.contains("imatrix")
+            val fileName = lower.substringAfterLast('/')
+            lower.endsWith(".gguf") &&
+                !lower.contains("mmproj") &&
+                !lower.contains("imatrix") &&
+                !fileName.startsWith("dspark") &&
+                !fileName.endsWith("-lora.gguf") &&
+                !lower.startsWith("experimental/") &&
+                !lower.startsWith("research/")
         }
         val repoLower = repo.lowercase(Locale.ROOT)
         return ggufs.map { file ->
@@ -932,7 +953,7 @@ object HuggingFaceHubClient {
     }
 
     fun quickSearchKeywords(category: HubSearchCategory): List<String> = when (category) {
-        HubSearchCategory.GgufChat -> listOf("Qwen3.5", "Gemma 4", "Qwen3", "DeepSeek-R1", "Llama-3.2", "Phi-4")
+        HubSearchCategory.GgufChat -> listOf("Inkling-2", "Qwen3.5", "Gemma 4", "Qwen3", "DeepSeek-R1", "Llama-3.2")
         HubSearchCategory.MnnChat -> listOf("Qwen3.5", "Qwen3", "DeepSeek", "Qwen2.5", "Gemma")
         HubSearchCategory.DecisionGguf -> listOf("OneJev1.6", "elephant-1", "System-One")
         HubSearchCategory.SdImage -> listOf("FLUX.3", "ERNIE-Image", "Z-Image", "FLUX.2-klein", "SDXL-Turbo")
@@ -943,6 +964,8 @@ object HuggingFaceHubClient {
 
     fun curatedRecommendations(category: HubSearchCategory): List<HfRepoSummary> = when (category) {
         HubSearchCategory.GgufChat -> listOf(
+            HfRepoSummary("unsloth/Inkling-2-Mini-GGUF", "unsloth", "Inkling-2-Mini-GGUF", 0, 0, "image-text-to-text", listOf("gguf", "inkling2", "moe"), false, "Thinking Machines 26B-A4B 循环 MoE，1M 上下文 + 识图（建议 16 GB+ 内存）", "curated_inkling2_mini"),
+            HfRepoSummary("AtomicChat/Inkling-2-Mini-Uncensored-GGUF", "AtomicChat", "Inkling-2-Mini-Uncensored-GGUF", 0, 0, "image-text-to-text", listOf("gguf", "inkling2", "moe"), false, "Inkling-2-Mini 26B-A4B MoE 社区去限制微调版，支持识图（建议 16 GB+ 内存）", "curated_inkling2_mini_uncensored"),
             HfRepoSummary("unsloth/Qwen3.5-4B-GGUF", "unsloth", "Qwen3.5-4B-GGUF", 0, 0, "text-generation", listOf("gguf", "qwen3.5"), false, "Qwen3.5 4B 混合线性注意力架构，长上下文内存增长平缓", "curated_qwen35_4b"),
             HfRepoSummary("unsloth/gemma-4-E4B-it-GGUF", "unsloth", "gemma-4-E4B-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma4"), false, "Google Gemma 4 E4B 新一代端侧主力（4B 有效参数，多语种强）", "curated_gemma4_e4b"),
             HfRepoSummary("unsloth/gemma-4-E2B-it-GGUF", "unsloth", "gemma-4-E2B-it-GGUF", 0, 0, "text-generation", listOf("gguf", "gemma4"), false, "Google Gemma 4 E2B 轻量端侧模型，低内存手机运行快", "curated_gemma4_e2b"),

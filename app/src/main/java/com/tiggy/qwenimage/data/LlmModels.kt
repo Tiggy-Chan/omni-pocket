@@ -11,6 +11,11 @@ enum class LlmModelKind(val json: String) {
     Decision("decision")
 }
 
+enum class LlmModelEngine(val json: String) {
+    Mnn("mnn"),
+    LlamaGguf("llama_gguf")
+}
+
 data class LlmModelSpec(
     val id: String,
     val name: String,
@@ -18,14 +23,26 @@ data class LlmModelSpec(
     val revision: String,
     val artifacts: List<LlmModelArtifact>,
     val kind: LlmModelKind = LlmModelKind.Chat,
-    val localOnly: Boolean = kind == LlmModelKind.Decision
+    val localOnly: Boolean = kind == LlmModelKind.Decision,
+    val family: String = "qwen3_5",
+    val engine: LlmModelEngine = LlmModelEngine.Mnn
 ) {
     val totalBytes: Long get() = artifacts.sumOf { it.size }
+    val isGgufChat: Boolean get() = kind == LlmModelKind.Chat && engine == LlmModelEngine.LlamaGguf
+    val ggufEntryFile: String?
+        get() = artifacts.firstOrNull {
+            it.path.endsWith(".gguf", ignoreCase = true) && !it.path.startsWith("mmproj", ignoreCase = true)
+        }?.path
+    val ggufMmprojFile: String?
+        get() = artifacts.firstOrNull {
+            it.path.endsWith(".gguf", ignoreCase = true) && it.path.startsWith("mmproj", ignoreCase = true)
+        }?.path
 
     fun toJson() = JSONObject().apply {
         put("id", id)
         put("name", name)
-        put("family", "qwen3_5")
+        put("family", family)
+        if (engine != LlmModelEngine.Mnn) put("engine", engine.json)
         put("kind", kind.json)
         put("repo", repo)
         put("revision", revision)
@@ -47,6 +64,7 @@ data class LlmModelSpec(
         val DECISION_REQUIRED_FILES = listOf(
             "config.json", "llm_config.json", "decision.json", "provenance.json", DECISION_WEIGHTS
         )
+        private val SUPPORTED_FAMILIES = setOf("qwen3_5", "inkling2")
 
         fun fromJson(json: JSONObject): LlmModelSpec {
             val kind = when (json.optString("kind", LlmModelKind.Chat.json)) {
@@ -54,13 +72,22 @@ data class LlmModelSpec(
                 LlmModelKind.Decision.json -> LlmModelKind.Decision
                 else -> throw IllegalArgumentException("不支持的模型类型")
             }
+            val engine = when (json.optString("engine", LlmModelEngine.Mnn.json)) {
+                LlmModelEngine.Mnn.json -> LlmModelEngine.Mnn
+                LlmModelEngine.LlamaGguf.json -> LlmModelEngine.LlamaGguf
+                else -> throw IllegalArgumentException("不支持的模型引擎")
+            }
             val id = json.getString("id")
             val idValid = when (kind) {
-                LlmModelKind.Chat -> id.matches(Regex("qwen35-(0\\.8b|2b|4b)"))
+                LlmModelKind.Chat -> when (engine) {
+                    LlmModelEngine.Mnn -> id.matches(Regex("qwen35-(0\\.8b|2b|4b)"))
+                    LlmModelEngine.LlamaGguf -> id.matches(Regex("inkling2-mini"))
+                }
                 LlmModelKind.Decision -> id == "elephant-1"
             }
             require(idValid) { "模型 ID 与类型不匹配" }
-            require(json.optString("family", "qwen3_5") == "qwen3_5") { "模型架构不是 qwen3_5" }
+            val family = json.optString("family", "qwen3_5")
+            require(family in SUPPORTED_FAMILIES) { "不支持的模型架构：$family" }
             val name = json.getString("name")
             val repo = json.getString("repo")
             val revision = json.getString("revision")
@@ -69,15 +96,26 @@ data class LlmModelSpec(
             require(name.isNotBlank() && name.length <= 80) { "模型名称无效" }
             require(repo.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"))) { "模型来源无效" }
             require(revision.matches(Regex("[0-9a-f]{40}"))) { "模型必须固定到完整提交哈希" }
-            val requiredFiles = if (kind == LlmModelKind.Decision) DECISION_REQUIRED_FILES else REQUIRED_FILES
             val files = json.getJSONArray("files")
-            require(files.length() == requiredFiles.size) { "LLM 清单文件数量错误" }
+            val isGgufBuiltInChat = kind == LlmModelKind.Chat && engine == LlmModelEngine.LlamaGguf
+            val requiredFiles = if (kind == LlmModelKind.Decision) DECISION_REQUIRED_FILES else REQUIRED_FILES
+            if (isGgufBuiltInChat) {
+                require(files.length() in 1..2) { "内置 GGUF 模型文件数量错误" }
+            } else {
+                require(files.length() == requiredFiles.size) { "LLM 清单文件数量错误" }
+            }
             val artifacts = (0 until files.length()).map { index ->
                 val file = files.getJSONObject(index)
                 val path = file.getString("path")
                 val sha256 = file.getString("sha256").lowercase()
                 val url = file.getString("url")
-                require(path in requiredFiles) { "未知 LLM 文件：$path" }
+                if (isGgufBuiltInChat) {
+                    require(path.matches(Regex("[A-Za-z0-9._-]+\\.gguf")) && !path.contains("..")) {
+                        "未知 GGUF 模型文件：$path"
+                    }
+                } else {
+                    require(path in requiredFiles) { "未知 LLM 文件：$path" }
+                }
                 require(file.getLong("size") > 0 && sha256.matches(Regex("[0-9a-f]{64}"))) {
                     "模型文件缺少有效大小或 SHA-256"
                 }
@@ -85,8 +123,14 @@ data class LlmModelSpec(
                 require(url == expectedUrl) { "模型 URL 与固定来源不一致" }
                 LlmModelArtifact(path, file.getLong("size"), sha256, url)
             }
-            require(artifacts.map { it.path }.toSet() == requiredFiles.toSet()) { "LLM 文件不完整" }
-            return LlmModelSpec(id, name, repo, revision, artifacts, kind, localOnly)
+            if (isGgufBuiltInChat) {
+                val weights = artifacts.count { !it.path.startsWith("mmproj", ignoreCase = true) }
+                require(weights == 1) { "内置 GGUF 模型必须包含单个主权重文件" }
+                require(artifacts.map { it.path }.distinct().size == artifacts.size) { "GGUF 文件重复" }
+            } else {
+                require(artifacts.map { it.path }.toSet() == requiredFiles.toSet()) { "LLM 文件不完整" }
+            }
+            return LlmModelSpec(id, name, repo, revision, artifacts, kind, localOnly, family, engine)
         }
     }
 }
@@ -104,7 +148,7 @@ object LlmCatalog {
         val json = JSONObject(text)
         require(json.getInt("schemaVersion") == 1) { "不支持的 LLM 清单版本" }
         val models = json.getJSONArray("models")
-        require(models.length() in 1..4) { "LLM 清单数量异常" }
+        require(models.length() in 1..8) { "LLM 清单数量异常" }
         return (0 until models.length()).map { LlmModelSpec.fromJson(models.getJSONObject(it)) }.also {
             require(it.map(LlmModelSpec::id).distinct().size == it.size) { "LLM 清单出现重复模型" }
         }

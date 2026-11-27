@@ -9,14 +9,23 @@ import java.io.File
 
 class LlmModelsTest {
     @Test
-    fun bundledCatalogHasThreeChatModelsAndOneLocalDecisionModel() {
+    fun bundledCatalogHasFourChatModelsAndOneLocalDecisionModel() {
         val models = LlmCatalog.parse(File("src/main/assets/llm_models.json").readText())
         val chat = models.filter { it.kind == LlmModelKind.Chat }
+        val mnnChat = chat.filter { it.engine == LlmModelEngine.Mnn }
+        val ggufChat = chat.filter { it.engine == LlmModelEngine.LlamaGguf }
         val decision = models.single { it.kind == LlmModelKind.Decision }
 
-        assertEquals(listOf("qwen35-0.8b", "qwen35-2b", "qwen35-4b"), chat.map { it.id })
+        assertEquals(listOf("qwen35-0.8b", "qwen35-2b", "qwen35-4b", "inkling2-mini"), chat.map { it.id })
         assertTrue(models.all { it.revision.matches(Regex("[0-9a-f]{40}")) })
-        assertTrue(chat.all { it.artifacts.map(LlmModelArtifact::path).toSet() == LlmModelSpec.REQUIRED_FILES.toSet() })
+        assertTrue(mnnChat.all { it.artifacts.map(LlmModelArtifact::path).toSet() == LlmModelSpec.REQUIRED_FILES.toSet() })
+        val inkling = ggufChat.single()
+        assertEquals("inkling2-mini", inkling.id)
+        assertEquals("inkling2", inkling.family)
+        assertEquals("unsloth/Inkling-2-Mini-GGUF", inkling.repo)
+        assertEquals("Inkling-2-Mini-UD-Q2_K_XL.gguf", inkling.ggufEntryFile)
+        assertEquals("mmproj-F16.gguf", inkling.ggufMmprojFile)
+        assertEquals(inkling, LlmCatalog.parse(LlmCatalog.manifest(inkling)).single())
         assertEquals("elephant-1", decision.id)
         assertEquals("baselabs/elephant-1", decision.repo)
         assertTrue(decision.localOnly)
