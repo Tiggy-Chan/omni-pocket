@@ -660,11 +660,6 @@
     <string name="settings_thermal_eco_desc">CPU 3스레드로 제한해 발열과 배터리 소모를 줄입니다.</string>
     <string name="settings_thermal_balanced_desc">성능 코어만 사용해 속도와 발열 균형을 최적화합니다.</string>
     <string name="settings_thermal_performance_desc">스레드를 높여 긴 프롬프트 처리를 가속합니다(발열이 늘어날 수 있음).</string>
-    <string name="about_section_community">커뮤니티 그룹</string>
-    <string name="about_group_desc">Omni Pocket QQ 그룹(%1$s)에서 모델 추천과 피드백을 나눌 수 있습니다.</string>
-    <string name="about_copy_group_id">그룹 번호 복사</string>
-    <string name="about_save_group_qr">그룹 QR 저장</string>
-    <string name="about_group_qr_saved">사진에 저장되었습니다 — QQ 스캔으로 참여하세요</string>
     <string name="about_section_sponsor">개발자 후원</string>
     <string name="about_sponsor_desc">Omni Pocket은 무료 오픈소스 오프라인 앱입니다. WeChat Pay 또는 Alipay로 지속적인 개발을 후원할 수 있습니다.</string>
     <string name="about_wechat_pay">WeChat Pay</string>

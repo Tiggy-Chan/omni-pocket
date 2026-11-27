@@ -660,11 +660,6 @@
     <string name="settings_thermal_eco_desc">限制 3 线程运行，显著降低发热与耗电，适合长时间日常对话。</string>
     <string name="settings_thermal_balanced_desc">仅调度大中核，避开小核拖尾，兼顾速度与机身温控。</string>
     <string name="settings_thermal_performance_desc">提高线程并发以加快长文预填充，持续生成时机身可能偏热。</string>
-    <string name="about_section_community">用户交流群</string>
-    <string name="about_group_desc">欢迎加入 omni-pocket QQ 交流群（群号：%1$s），交流端侧模型、实机速度与使用反馈。</string>
-    <string name="about_copy_group_id">复制群号</string>
-    <string name="about_save_group_qr">保存群二维码</string>
-    <string name="about_group_qr_saved">已保存到相册，可在 QQ「扫一扫 → 相册」加入交流群</string>
     <string name="about_section_sponsor">赞助支持</string>
     <string name="about_sponsor_desc">Omni Pocket 免费开源、全端本地运行。如果这个项目帮到了你，可以通过微信支付或支付宝赞助支持作者继续维护。</string>
     <string name="about_wechat_pay">微信支付</string>

@@ -204,7 +204,10 @@ fun VideoWorkspace(
                         selected = firstFrame != null,
                         contentDescription = if (firstFrame == null) tr(R.string.video_select_first_frame) else tr(R.string.video_change_first_frame)
                     )
-                    ComposerChip(modelLabel.take(14), onClick = { showModelSheet = true })
+                    val chipLabel = modelLabel.substringBefore(" · ").let {
+                        if (it.length > 18) it.take(17) + "…" else it
+                    }
+                    ComposerChip(chipLabel, onClick = { showModelSheet = true })
                     ComposerChip("", onClick = { showParams = true }, icon = Icons.Outlined.Tune, contentDescription = tr(R.string.common_parameters))
                 }
             )

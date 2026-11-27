@@ -79,12 +79,10 @@ import kotlinx.coroutines.withContext
 private const val AUTHOR_NAME = "Tiggy-Chan"
 private const val AUTHOR_GITHUB_URL = "https://github.com/Tiggy-Chan"
 private const val OMNI_REPO_URL = "https://github.com/Tiggy-Chan/omni-pocket"
-private const val QQ_GROUP_NUMBER = "1128661823"
 
 private enum class AboutQrAsset(@DrawableRes val qrRes: Int, val fileName: String) {
     WeChat(R.drawable.donate_wechat, "omni-pocket-wechat-pay.png"),
-    Alipay(R.drawable.donate_alipay, "omni-pocket-alipay.jpg"),
-    CommunityQq(R.drawable.community_qq_qr, "omni-pocket-qq-group.jpg")
+    Alipay(R.drawable.donate_alipay, "omni-pocket-alipay.jpg")
 }
 
 private enum class SponsorChannel(val asset: AboutQrAsset) {
@@ -102,9 +100,7 @@ fun AboutPage(onMenu: (() -> Unit)?) {
     var sponsorChannel by rememberSaveable { mutableStateOf(SponsorChannel.WeChat) }
     var zoomedQr by remember { mutableStateOf<AboutQrAsset?>(null) }
     var sponsorFeedback by remember { mutableStateOf<String?>(null) }
-    var groupFeedback by remember { mutableStateOf<String?>(null) }
     var copiedRepo by remember { mutableStateOf(false) }
-    var copiedGroup by remember { mutableStateOf(false) }
 
     val version = remember(context) { AppUpdateManager.currentAppVersion(context) }
 
@@ -116,7 +112,6 @@ fun AboutPage(onMenu: (() -> Unit)?) {
     }
 
     val sponsorSavedMsg = tr(R.string.about_qr_saved)
-    val groupSavedMsg = tr(R.string.about_group_qr_saved)
     val saveFailedMsg = tr(R.string.about_qr_save_failed)
 
     WorkspaceScaffold(title = tr(R.string.nav_about), onMenu = onMenu) { padding ->
@@ -280,96 +275,6 @@ fun AboutPage(onMenu: (() -> Unit)?) {
                     }
                 }
 
-                // Community QQ Group QR
-                item(key = "community") {
-                    SectionLabel(tr(R.string.about_section_community))
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = OmniColors.Surface,
-                        border = BorderStroke(0.5.dp, OmniColors.Line),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = tr(R.string.about_group_desc, QQ_GROUP_NUMBER),
-                                color = OmniColors.Muted,
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = Color(0xFF161618),
-                                border = BorderStroke(0.5.dp, OmniColors.Line),
-                                modifier = Modifier
-                                    .widthIn(max = 220.dp)
-                                    .fillMaxWidth()
-                                    .clickable { zoomedQr = AboutQrAsset.CommunityQq }
-                            ) {
-                                Image(
-                                    painter = painterResource(AboutQrAsset.CommunityQq.qrRes),
-                                    contentDescription = tr(R.string.about_section_community),
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxWidth().aspectRatio(0.68f).padding(6.dp)
-                                )
-                            }
-                            Text(
-                                text = tr(R.string.about_tap_zoom),
-                                color = OmniColors.Dim,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = {
-                                        clipboard.setText(AnnotatedString(QQ_GROUP_NUMBER))
-                                        copiedGroup = true
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(0.5.dp, OmniColors.Line),
-                                    modifier = Modifier.weight(1f).heightIn(min = 42.dp)
-                                ) {
-                                    Icon(Icons.Outlined.ContentCopy, null, tint = OmniColors.Muted, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(
-                                        if (copiedGroup) tr(R.string.common_copied) else tr(R.string.about_copy_group_id),
-                                        color = OmniColors.Ink,
-                                        maxLines = 1
-                                    )
-                                }
-                                OutlinedButton(
-                                    onClick = {
-                                        scope.launch {
-                                            val ok = saveQrToGallery(context, AboutQrAsset.CommunityQq)
-                                            groupFeedback = if (ok) groupSavedMsg else saveFailedMsg
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(0.5.dp, OmniColors.Line),
-                                    modifier = Modifier.weight(1f).heightIn(min = 42.dp)
-                                ) {
-                                    Icon(Icons.Outlined.Download, null, tint = OmniColors.Accent, modifier = Modifier.size(17.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(tr(R.string.about_save_group_qr), color = OmniColors.Accent, maxLines = 1)
-                                }
-                            }
-                            groupFeedback?.let { feedback ->
-                                Text(
-                                    text = feedback,
-                                    color = if (feedback == groupSavedMsg) OmniColors.Success else OmniColors.Danger,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    textAlign = TextAlign.Center
-                                )
-                            }
-                        }
-                    }
-                }
-
                 // Sponsor QR codes (WeChat Pay / Alipay)
                 item(key = "sponsor") {
                     val wechatLabel = tr(R.string.about_wechat_pay)
@@ -486,7 +391,7 @@ fun AboutPage(onMenu: (() -> Unit)?) {
                 ) {
                     Surface(
                         shape = RoundedCornerShape(16.dp),
-                        color = if (qr == AboutQrAsset.CommunityQq) Color(0xFF161618) else Color.White,
+                        color = Color.White,
                         modifier = Modifier.widthIn(max = 320.dp).fillMaxWidth()
                     ) {
                         Image(
@@ -500,16 +405,10 @@ fun AboutPage(onMenu: (() -> Unit)?) {
                         TextButton(onClick = {
                             scope.launch {
                                 val ok = saveQrToGallery(context, qr)
-                                val msg = if (ok) {
-                                    if (qr == AboutQrAsset.CommunityQq) groupSavedMsg else sponsorSavedMsg
-                                } else saveFailedMsg
-                                if (qr == AboutQrAsset.CommunityQq) groupFeedback = msg else sponsorFeedback = msg
+                                sponsorFeedback = if (ok) sponsorSavedMsg else saveFailedMsg
                             }
                         }) {
-                            Text(
-                                if (qr == AboutQrAsset.CommunityQq) tr(R.string.about_save_group_qr) else tr(R.string.about_save_qr),
-                                color = Color.White
-                            )
+                            Text(tr(R.string.about_save_qr), color = Color.White)
                         }
                         IconButton(onClick = { zoomedQr = null }) {
                             Icon(Icons.Outlined.Close, tr(R.string.common_close_preview), tint = Color.White)

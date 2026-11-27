@@ -660,11 +660,6 @@
     <string name="settings_thermal_eco_desc">3 wątki CPU — chłodniej i oszczędniej na co dzień.</string>
     <string name="settings_thermal_balanced_desc">Tylko rdzenie wydajnościowe — najlepszy balans prędkości i ciepła.</string>
     <string name="settings_thermal_performance_desc">Więcej wątków dla szybszego prefill; może mocniej grzać urządzenie.</string>
-    <string name="about_section_community">Grupa społeczności</string>
-    <string name="about_group_desc">Dołącz do grupy QQ Omni Pocket (%1$s), aby wymieniać wskazówki i opinie.</string>
-    <string name="about_copy_group_id">Kopiuj numer</string>
-    <string name="about_save_group_qr">Zapisz QR grupy</string>
-    <string name="about_group_qr_saved">Zapisano w Zdjęciach — zeskanuj w QQ</string>
     <string name="about_section_sponsor">Wesprzyj autora</string>
     <string name="about_sponsor_desc">Omni Pocket jest darmowy, otwarty i działa offline. Możesz wesprzeć rozwój przez WeChat Pay lub Alipay.</string>
     <string name="about_wechat_pay">WeChat Pay</string>

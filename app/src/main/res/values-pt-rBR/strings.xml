@@ -660,11 +660,6 @@
     <string name="settings_thermal_eco_desc">3 threads de CPU — menos aquecimento e consumo.</string>
     <string name="settings_thermal_balanced_desc">Usa apenas núcleos de desempenho para melhor equilíbrio.</string>
     <string name="settings_thermal_performance_desc">Mais threads para prefill rápido; pode aquecer mais.</string>
-    <string name="about_section_community">Grupo da comunidade</string>
-    <string name="about_group_desc">Entre no grupo QQ do Omni Pocket (%1$s) para dicas de modelos e feedback.</string>
-    <string name="about_copy_group_id">Copiar ID</string>
-    <string name="about_save_group_qr">Salvar QR</string>
-    <string name="about_group_qr_saved">Salvo em Fotos — escaneie no QQ para entrar</string>
     <string name="about_section_sponsor">Apoiar o autor</string>
     <string name="about_sponsor_desc">Omni Pocket é gratuito, open-source e offline. Você pode apoiar a manutenção via WeChat Pay ou Alipay.</string>
     <string name="about_wechat_pay">WeChat Pay</string>

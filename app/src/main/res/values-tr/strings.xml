@@ -660,11 +660,6 @@
     <string name="settings_thermal_eco_desc">3 CPU iş parçacığı — günlük sohbette daha serin ve az pil tüketimi.</string>
     <string name="settings_thermal_balanced_desc">Yalnızca performans çekirdeklerini kullanır — hız ve ısı dengesi.</string>
     <string name="settings_thermal_performance_desc">Daha hızlı prefill için yüksek iş parçacığı; cihaz daha fazla ısınabilir.</string>
-    <string name="about_section_community">Topluluk Grubu</string>
-    <string name="about_group_desc">Model ipuçları ve geri bildirim için Omni Pocket QQ grubuna (%1$s) katılın.</string>
-    <string name="about_copy_group_id">Grup No Kopyala</string>
-    <string name="about_save_group_qr">Grup QR Kaydet</string>
-    <string name="about_group_qr_saved">Fotoğraflara kaydedildi — katılmak için QQ ile tarayın</string>
     <string name="about_section_sponsor">Geliştiriciyi Destekle</string>
     <string name="about_sponsor_desc">Omni Pocket ücretsiz, açık kaynaklı ve çevrimdışıdır. WeChat Pay veya Alipay ile destek olabilirsiniz.</string>
     <string name="about_wechat_pay">WeChat Pay</string>

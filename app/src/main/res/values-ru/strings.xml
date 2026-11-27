@@ -660,11 +660,6 @@
     <string name="settings_thermal_eco_desc">3 потока CPU — меньше нагрев и расход батареи.</string>
     <string name="settings_thermal_balanced_desc">Только производительные ядра — лучший баланс скорости и нагрева.</string>
     <string name="settings_thermal_performance_desc">Больше потоков для быстрого prefill; возможен заметный нагрев.</string>
-    <string name="about_section_community">Группа сообщества</string>
-    <string name="about_group_desc">Присоединяйтесь к QQ-группе Omni Pocket (%1$s) для обсуждения моделей и отзывов.</string>
-    <string name="about_copy_group_id">Копировать номер</string>
-    <string name="about_save_group_qr">Сохранить QR</string>
-    <string name="about_group_qr_saved">Сохранено в Фото — отсканируйте в QQ</string>
     <string name="about_section_sponsor">Поддержать автора</string>
     <string name="about_sponsor_desc">Omni Pocket бесплатен, с открытым исходным кодом и работает офлайн. Поддержать проект можно через WeChat Pay или Alipay.</string>
     <string name="about_wechat_pay">WeChat Pay</string>

@@ -660,11 +660,6 @@
     <string name="settings_thermal_eco_desc">3 hilos de CPU — menos calor y menor consumo diario.</string>
     <string name="settings_thermal_balanced_desc">Solo núcleos de rendimiento para el mejor equilibrio.</string>
     <string name="settings_thermal_performance_desc">Más hilos para prefill más rápido; puede calentarse más.</string>
-    <string name="about_section_community">Grupo de comunidad</string>
-    <string name="about_group_desc">Únete al grupo QQ de Omni Pocket (%1$s) para compartir modelos y comentarios.</string>
-    <string name="about_copy_group_id">Copiar ID</string>
-    <string name="about_save_group_qr">Guardar QR</string>
-    <string name="about_group_qr_saved">Guardado en Fotos — escanea en QQ para unirte</string>
     <string name="about_section_sponsor">Apoyar al autor</string>
     <string name="about_sponsor_desc">Omni Pocket es gratuito, de código abierto y sin conexión. Puedes apoyar su mantenimiento mediante WeChat Pay o Alipay.</string>
     <string name="about_wechat_pay">WeChat Pay</string>

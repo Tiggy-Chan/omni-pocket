@@ -660,11 +660,6 @@
     <string name="settings_thermal_eco_desc">3 CPU threads — cooler thermals and lower battery drain for everyday chat.</string>
     <string name="settings_thermal_balanced_desc">Uses performance cores only — best speed-to-heat ratio on mobile SoCs.</string>
     <string name="settings_thermal_performance_desc">Higher thread count for faster prompt prefill; may run warmer under sustained load.</string>
-    <string name="about_section_community">Community Group</string>
-    <string name="about_group_desc">Join the Omni Pocket QQ group (%1$s) for model tips, device benchmarks, and feedback.</string>
-    <string name="about_copy_group_id">Copy Group ID</string>
-    <string name="about_save_group_qr">Save Group QR</string>
-    <string name="about_group_qr_saved">Saved to Photos — scan in QQ to join the group</string>
     <string name="about_section_sponsor">Sponsor the Author</string>
     <string name="about_sponsor_desc">Omni Pocket is free, open-source, and runs offline on your device. If you enjoy it, you can support ongoing maintenance via WeChat Pay or Alipay.</string>
     <string name="about_wechat_pay">WeChat Pay</string>
