@@ -660,4 +660,25 @@
     <string name="settings_thermal_eco_desc">3 CPU iş parçacığı — günlük sohbette daha serin ve az pil tüketimi.</string>
     <string name="settings_thermal_balanced_desc">Yalnızca performans çekirdeklerini kullanır — hız ve ısı dengesi.</string>
     <string name="settings_thermal_performance_desc">Daha hızlı prefill için yüksek iş parçacığı; cihaz daha fazla ısınabilir.</string>
+    <string name="about_section_community">Topluluk Grubu</string>
+    <string name="about_group_desc">Model ipuçları ve geri bildirim için Omni Pocket QQ grubuna (%1$s) katılın.</string>
+    <string name="about_copy_group_id">Grup No Kopyala</string>
+    <string name="about_save_group_qr">Grup QR Kaydet</string>
+    <string name="about_group_qr_saved">Fotoğraflara kaydedildi — katılmak için QQ ile tarayın</string>
+    <string name="about_section_sponsor">Geliştiriciyi Destekle</string>
+    <string name="about_sponsor_desc">Omni Pocket ücretsiz, açık kaynaklı ve çevrimdışıdır. WeChat Pay veya Alipay ile destek olabilirsiniz.</string>
+    <string name="about_wechat_pay">WeChat Pay</string>
+    <string name="about_alipay">Alipay</string>
+    <string name="about_save_qr">QR’yi Fotoğraflara Kaydet</string>
+    <string name="about_qr_saved">Fotoğraflara kaydedildi — WeChat veya Alipay albümden tarayın</string>
+    <string name="about_qr_save_failed">QR görseli kaydedilemedi</string>
+    <string name="about_tap_zoom">Büyütmek için QR koda dokunun</string>
+    <string name="update_dialog_title">Yeni sürüm v%1$s</string>
+    <string name="update_download_now">Şimdi güncelle</string>
+    <string name="update_install_now">Yükle</string>
+    <string name="update_later">Sonra</string>
+    <string name="update_ignore_version">Bu sürümü atla</string>
+    <string name="update_already_latest">En güncel sürümü kullanıyorsunuz</string>
+    <string name="update_downloading_fmt">Güncelleme indiriliyor… %%%1$d (%2$s / %3$s)</string>
+    <string name="update_downloading_preparing">Güncelleme hazırlanıyor…</string>
 </resources>

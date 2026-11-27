@@ -660,4 +660,25 @@
     <string name="settings_thermal_eco_desc">3 スレッドに抑え、発熱とバッテリー消費を軽減します。</string>
     <string name="settings_thermal_balanced_desc">高性能コアのみを使用し、速度と発熱のバランスを最適化します。</string>
     <string name="settings_thermal_performance_desc">スレッド数を増やして長文処理を高速化します（発熱が増える場合があります）。</string>
+    <string name="about_section_community">コミュニティグループ</string>
+    <string name="about_group_desc">QQ グループ（%1$s）に参加して、モデルや最適化について情報交換できます。</string>
+    <string name="about_copy_group_id">グループ番号コピー</string>
+    <string name="about_save_group_qr">QR を保存</string>
+    <string name="about_group_qr_saved">写真に保存しました。QQ のスキャンから参加できます</string>
+    <string name="about_section_sponsor">開発者を支援</string>
+    <string name="about_sponsor_desc">Omni Pocket は無料のオープンソース・オフライン AI アプリです。WeChat Pay または Alipay で継続開発を支援できます。</string>
+    <string name="about_wechat_pay">WeChat Pay</string>
+    <string name="about_alipay">Alipay</string>
+    <string name="about_save_qr">QR を写真に保存</string>
+    <string name="about_qr_saved">写真に保存しました。WeChat / Alipay のアルバムスキャンで読み取れます</string>
+    <string name="about_qr_save_failed">QR 画像を保存できませんでした</string>
+    <string name="about_tap_zoom">タップして拡大</string>
+    <string name="update_dialog_title">新しいバージョン v%1$s</string>
+    <string name="update_download_now">今すぐ更新</string>
+    <string name="update_install_now">インストール</string>
+    <string name="update_later">あとで</string>
+    <string name="update_ignore_version">この版をスキップ</string>
+    <string name="update_already_latest">最新バージョンです</string>
+    <string name="update_downloading_fmt">更新をダウンロード中… %1$d%% (%2$s / %3$s)</string>
+    <string name="update_downloading_preparing">更新を準備しています…</string>
 </resources>

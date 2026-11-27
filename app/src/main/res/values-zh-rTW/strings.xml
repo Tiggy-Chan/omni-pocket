@@ -660,4 +660,25 @@
     <string name="settings_thermal_eco_desc">限制 3 執行緒，顯著降低發熱與耗電，適合日常對話。</string>
     <string name="settings_thermal_balanced_desc">僅排程大中核心，兼顧推理速度與機身溫控。</string>
     <string name="settings_thermal_performance_desc">提高執行緒並行度以加快長文處理，持續生成時機身可能較熱。</string>
+    <string name="about_section_community">使用者交流群</string>
+    <string name="about_group_desc">歡迎加入 omni-pocket QQ 交流群（群號：%1$s），交流端側模型與使用回饋。</string>
+    <string name="about_copy_group_id">複製群號</string>
+    <string name="about_save_group_qr">儲存群二維碼</string>
+    <string name="about_group_qr_saved">已儲存至相簿，可在 QQ「掃一掃 → 相簿」加入交流群</string>
+    <string name="about_section_sponsor">贊助支持</string>
+    <string name="about_sponsor_desc">Omni Pocket 免費開源、全端本機執行。如果這個專案幫到了你，可以透過微信支付或支付寶贊助支持作者持續維護。</string>
+    <string name="about_wechat_pay">微信支付</string>
+    <string name="about_alipay">支付寶</string>
+    <string name="about_save_qr">儲存收款碼到相簿</string>
+    <string name="about_qr_saved">已儲存至相簿，可在微信或支付寶「掃一掃 → 相簿」識別贊助</string>
+    <string name="about_qr_save_failed">儲存二維碼失敗</string>
+    <string name="about_tap_zoom">點擊二維碼可放大檢視</string>
+    <string name="update_dialog_title">發現新版本 v%1$s</string>
+    <string name="update_download_now">立即更新</string>
+    <string name="update_install_now">立即安裝</string>
+    <string name="update_later">稍後提醒</string>
+    <string name="update_ignore_version">忽略此版本</string>
+    <string name="update_already_latest">目前已是最新版本</string>
+    <string name="update_downloading_fmt">正在下載更新… %1$d%%（%2$s / %3$s）</string>
+    <string name="update_downloading_preparing">正在準備下載更新…</string>
 </resources>

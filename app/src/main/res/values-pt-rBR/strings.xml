@@ -660,4 +660,25 @@
     <string name="settings_thermal_eco_desc">3 threads de CPU — menos aquecimento e consumo.</string>
     <string name="settings_thermal_balanced_desc">Usa apenas núcleos de desempenho para melhor equilíbrio.</string>
     <string name="settings_thermal_performance_desc">Mais threads para prefill rápido; pode aquecer mais.</string>
+    <string name="about_section_community">Grupo da comunidade</string>
+    <string name="about_group_desc">Entre no grupo QQ do Omni Pocket (%1$s) para dicas de modelos e feedback.</string>
+    <string name="about_copy_group_id">Copiar ID</string>
+    <string name="about_save_group_qr">Salvar QR</string>
+    <string name="about_group_qr_saved">Salvo em Fotos — escaneie no QQ para entrar</string>
+    <string name="about_section_sponsor">Apoiar o autor</string>
+    <string name="about_sponsor_desc">Omni Pocket é gratuito, open-source e offline. Você pode apoiar a manutenção via WeChat Pay ou Alipay.</string>
+    <string name="about_wechat_pay">WeChat Pay</string>
+    <string name="about_alipay">Alipay</string>
+    <string name="about_save_qr">Salvar QR em Fotos</string>
+    <string name="about_qr_saved">Salvo em Fotos — escaneie pelo álbum no WeChat ou Alipay</string>
+    <string name="about_qr_save_failed">Não foi possível salvar o QR</string>
+    <string name="about_tap_zoom">Toque no QR para ampliar</string>
+    <string name="update_dialog_title">Nova versão v%1$s</string>
+    <string name="update_download_now">Atualizar agora</string>
+    <string name="update_install_now">Instalar</string>
+    <string name="update_later">Depois</string>
+    <string name="update_ignore_version">Ignorar versão</string>
+    <string name="update_already_latest">Você já está na versão mais recente</string>
+    <string name="update_downloading_fmt">Baixando… %1$d%% (%2$s / %3$s)</string>
+    <string name="update_downloading_preparing">Preparando download…</string>
 </resources>

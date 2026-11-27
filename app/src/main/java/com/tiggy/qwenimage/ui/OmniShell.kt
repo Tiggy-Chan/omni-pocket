@@ -97,6 +97,9 @@ fun OmniSidebar(
     onDomain: (AppDomain) -> Unit,
     onPage: (AppPage) -> Unit,
     onNavigated: () -> Unit,
+    appVersion: String = "",
+    hasAppUpdate: Boolean = false,
+    onVersionClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var menuFor by remember { mutableStateOf<String?>(null) }
@@ -110,7 +113,35 @@ fun OmniSidebar(
         Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             OmniBrandMark(modifier = Modifier.size(28.dp))
             Spacer(Modifier.width(10.dp))
-            Text("Omni Pocket", color = OmniColors.Ink, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Omni Pocket",
+                color = OmniColors.Ink,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
+            )
+            if (appVersion.isNotBlank()) {
+                Surface(
+                    onClick = { onVersionClick(); onNavigated() },
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (hasAppUpdate) OmniColors.AccentSoft else androidx.compose.ui.graphics.Color.Transparent
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            "v$appVersion",
+                            color = if (hasAppUpdate) OmniColors.Accent else OmniColors.Dim,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                        if (hasAppUpdate) {
+                            UpdateNewBadge()
+                        }
+                    }
+                }
+            }
         }
         Surface(
             onClick = {
@@ -188,7 +219,7 @@ fun OmniSidebar(
         SidebarRow(tr(R.string.nav_library), Icons.Outlined.FolderOpen, page == AppPage.Library) { onPage(AppPage.Library); onNavigated() }
         SidebarRow(tr(R.string.nav_models), Icons.Outlined.Memory, page == AppPage.Models) { onPage(AppPage.Models); onNavigated() }
         SidebarRow(tr(R.string.nav_settings), Icons.Outlined.Settings, page == AppPage.Settings) { onPage(AppPage.Settings); onNavigated() }
-        SidebarRow(tr(R.string.nav_about), Icons.Outlined.Info, page == AppPage.About) { onPage(AppPage.About); onNavigated() }
+        SidebarRow(tr(R.string.nav_about), Icons.Outlined.Info, page == AppPage.About, showNewBadge = hasAppUpdate) { onPage(AppPage.About); onNavigated() }
         Spacer(Modifier.height(8.dp))
     }
     renameFor?.let { conversation ->
@@ -217,6 +248,7 @@ private fun SidebarRow(
     icon: ImageVector,
     selected: Boolean,
     running: Boolean = false,
+    showNewBadge: Boolean = false,
     onClick: () -> Unit
 ) {
     Surface(
@@ -231,8 +263,25 @@ private fun SidebarRow(
             Text(label, color = if (selected) OmniColors.Ink else OmniColors.Muted,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal, modifier = Modifier.weight(1f))
+            if (showNewBadge) UpdateNewBadge()
             if (running) RunningDot()
         }
+    }
+}
+
+@Composable
+internal fun UpdateNewBadge() {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = OmniColors.Danger
+    ) {
+        Text(
+            text = "NEW",
+            color = androidx.compose.ui.graphics.Color.White,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+        )
     }
 }
 

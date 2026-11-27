@@ -660,4 +660,25 @@
     <string name="settings_thermal_eco_desc">3 threads CPU — moins de chauffe et de batterie au quotidien.</string>
     <string name="settings_thermal_balanced_desc">Utilise uniquement les cœurs performants pour un bon équilibre.</string>
     <string name="settings_thermal_performance_desc">Plus de threads pour un pré-remplissage rapide ; peut chauffer davantage.</string>
+    <string name="about_section_community">Groupe communautaire</string>
+    <string name="about_group_desc">Rejoignez le groupe QQ Omni Pocket (%1$s) pour échanger sur les modèles et performances.</string>
+    <string name="about_copy_group_id">Copier l’ID</string>
+    <string name="about_save_group_qr">Enregistrer le QR</string>
+    <string name="about_group_qr_saved">Enregistré dans Photos — scannez dans QQ pour rejoindre</string>
+    <string name="about_section_sponsor">Soutenir l’auteur</string>
+    <string name="about_sponsor_desc">Omni Pocket est gratuit, open source et 100 % hors ligne. Vous pouvez soutenir sa maintenance via WeChat Pay ou Alipay.</string>
+    <string name="about_wechat_pay">WeChat Pay</string>
+    <string name="about_alipay">Alipay</string>
+    <string name="about_save_qr">Enregistrer le QR</string>
+    <string name="about_qr_saved">Enregistré dans Photos — scannez depuis l’album dans WeChat ou Alipay</string>
+    <string name="about_qr_save_failed">Impossible d’enregistrer le QR</string>
+    <string name="about_tap_zoom">Appuyez sur le QR pour agrandir</string>
+    <string name="update_dialog_title">Nouvelle version v%1$s</string>
+    <string name="update_download_now">Mettre à jour</string>
+    <string name="update_install_now">Installer</string>
+    <string name="update_later">Plus tard</string>
+    <string name="update_ignore_version">Ignorer cette version</string>
+    <string name="update_already_latest">Vous avez déjà la dernière version</string>
+    <string name="update_downloading_fmt">Téléchargement… %1$d%% (%2$s / %3$s)</string>
+    <string name="update_downloading_preparing">Préparation du téléchargement…</string>
 </resources>

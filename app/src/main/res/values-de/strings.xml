@@ -660,4 +660,25 @@
     <string name="settings_thermal_eco_desc">3 CPU-Threads — kühler und sparsamer im Alltag.</string>
     <string name="settings_thermal_balanced_desc">Nutzt nur Performance-Kerne für optimales Tempo/Wärme-Verhältnis.</string>
     <string name="settings_thermal_performance_desc">Mehr Threads für schnelleres Prefill; höhere Erwärmung möglich.</string>
+    <string name="about_section_community">Community-Gruppe</string>
+    <string name="about_group_desc">Tritt der Omni Pocket QQ-Gruppe (%1$s) für Modell-Tipps und Feedback bei.</string>
+    <string name="about_copy_group_id">Gruppen-ID kopieren</string>
+    <string name="about_save_group_qr">Gruppen-QR speichern</string>
+    <string name="about_group_qr_saved">In Fotos gespeichert — mit QQ scannen zum Beitreten</string>
+    <string name="about_section_sponsor">Autor unterstützen</string>
+    <string name="about_sponsor_desc">Omni Pocket ist kostenlos, Open Source und läuft lokal. Du kannst die Pflege über WeChat Pay oder Alipay unterstützen.</string>
+    <string name="about_wechat_pay">WeChat Pay</string>
+    <string name="about_alipay">Alipay</string>
+    <string name="about_save_qr">QR in Fotos speichern</string>
+    <string name="about_qr_saved">In Fotos gespeichert — in WeChat oder Alipay aus dem Album scannen</string>
+    <string name="about_qr_save_failed">QR-Bild konnte nicht gespeichert werden</string>
+    <string name="about_tap_zoom">QR-Code zum Vergrößern antippen</string>
+    <string name="update_dialog_title">Neue Version v%1$s</string>
+    <string name="update_download_now">Jetzt aktualisieren</string>
+    <string name="update_install_now">Installieren</string>
+    <string name="update_later">Später</string>
+    <string name="update_ignore_version">Version überspringen</string>
+    <string name="update_already_latest">Bereits auf dem neuesten Stand</string>
+    <string name="update_downloading_fmt">Update wird geladen… %1$d%% (%2$s / %3$s)</string>
+    <string name="update_downloading_preparing">Update-Download wird vorbereitet…</string>
 </resources>

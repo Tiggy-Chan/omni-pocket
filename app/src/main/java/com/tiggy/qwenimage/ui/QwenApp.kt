@@ -2,24 +2,31 @@ package com.tiggy.qwenimage.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -28,6 +35,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -50,9 +59,13 @@ import com.tiggy.qwenimage.QwenUiState
 import com.tiggy.qwenimage.QwenViewModel
 import com.tiggy.qwenimage.R
 import com.tiggy.qwenimage.data.AppDomain
+import com.tiggy.qwenimage.data.AppUpdateManager
+import com.tiggy.qwenimage.data.AppUpdateUiState
 import com.tiggy.qwenimage.data.HubModelType
 import com.tiggy.qwenimage.data.TaskDomain
+import com.tiggy.qwenimage.data.formatBytesCompact
 import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * App root. One sidebar (drawer on phones, permanent pane at 840dp and wider) switches between the
@@ -70,9 +83,17 @@ fun QwenApp(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val llmState by llmViewModel.state.collectAsStateWithLifecycle()
     val decisionState by decisionViewModel.state.collectAsStateWithLifecycle()
+    val updateState by AppUpdateManager.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val appVersion = remember(context) { AppUpdateManager.currentAppVersion(context) }
     var page by rememberSaveable { mutableStateOf(AppPage.Workspace) }
     var previewImagePath by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        AppUpdateManager.autoCheckOnce(context)
+    }
+
     val activity = WorkspaceActivity(buildSet {
         if (llmState.phase == LlmPhase.Generating || llmState.phase == LlmPhase.Loading) add(AppDomain.Conversation)
         if (decisionState.busy) add(AppDomain.Decision)
@@ -97,7 +118,13 @@ fun QwenApp(
                 llmViewModel = llmViewModel,
                 onDomain = viewModel::setDomain,
                 onPage = { page = it },
-                onNavigated = { if (!wide) scope.launch { drawer.close() } }
+                onNavigated = { if (!wide) scope.launch { drawer.close() } },
+                appVersion = appVersion,
+                hasAppUpdate = updateState.hasUpdate,
+                onVersionClick = {
+                    if (updateState.hasUpdate) AppUpdateManager.openUpdateDialog()
+                    else page = AppPage.About
+                }
             )
         }
         val destination = @Composable {
@@ -141,6 +168,127 @@ fun QwenApp(
     previewImagePath?.let { path ->
         ImagePreviewDialog(path, viewModel, onDismiss = { previewImagePath = null })
     }
+
+    if (updateState.showDialog && updateState.latest != null) {
+        AppUpdateDialog(
+            state = updateState,
+            onDownloadOrInstall = {
+                val ready = updateState.readyApkPath?.let(::File)?.takeIf { it.isFile }
+                if (ready != null) {
+                    AppUpdateManager.launchApkInstaller(context, ready)
+                } else {
+                    AppUpdateManager.startUpdateDownload(context)
+                }
+            },
+            onCancelDownload = AppUpdateManager::cancelDownload,
+            onIgnore = { AppUpdateManager.ignoreCurrentUpdate(context) },
+            onDismiss = AppUpdateManager::dismissDialog
+        )
+    }
+}
+
+@Composable
+private fun AppUpdateDialog(
+    state: AppUpdateUiState,
+    onDownloadOrInstall: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onIgnore: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val latest = state.latest ?: return
+    val localizedCtx = LocalLocalizedContext.current
+    val preferZh = remember(localizedCtx) {
+        localizedCtx.resources.configuration.locales[0]?.language?.startsWith("zh") == true
+    }
+    val notes = remember(latest, preferZh) { latest.localizedNotes(preferZh) }
+    val readyFile = state.readyApkPath?.let(::File)?.takeIf { it.isFile }
+
+    AlertDialog(
+        onDismissRequest = { if (!state.downloading) onDismiss() },
+        containerColor = OmniColors.Raised,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(tr(R.string.update_dialog_title, latest.versionName), color = OmniColors.Ink)
+                UpdateNewBadge()
+            }
+        },
+        text = {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                val meta = buildList {
+                    if (state.currentVersion.isNotBlank()) add("v${state.currentVersion} → v${latest.versionName}")
+                    if (latest.apkSizeBytes > 0L) add(formatBytesCompact(latest.apkSizeBytes))
+                }.joinToString(" · ")
+                if (meta.isNotBlank()) {
+                    Text(meta, color = OmniColors.Muted, style = MaterialTheme.typography.labelMedium)
+                }
+                if (notes.isNotBlank()) {
+                    Text(notes, color = OmniColors.Ink, style = MaterialTheme.typography.bodySmall)
+                }
+                if (state.downloading) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        val pct = (state.progress * 100f).toInt().coerceIn(0, 100)
+                        val progressText = if (state.totalBytes > 0L) {
+                            tr(
+                                R.string.update_downloading_fmt,
+                                pct,
+                                formatBytesCompact(state.downloadedBytes),
+                                formatBytesCompact(state.totalBytes)
+                            )
+                        } else {
+                            tr(R.string.update_downloading_preparing)
+                        }
+                        Text(progressText, color = OmniColors.Accent, style = MaterialTheme.typography.labelSmall)
+                        if (state.totalBytes > 0L) {
+                            LinearProgressIndicator(
+                                progress = { state.progress },
+                                modifier = Modifier.fillMaxWidth(),
+                                color = OmniColors.Accent,
+                                trackColor = OmniColors.Field
+                            )
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = OmniColors.Accent,
+                                trackColor = OmniColors.Field
+                            )
+                        }
+                    }
+                }
+                state.error?.let { err ->
+                    Text(err, color = OmniColors.Danger, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            if (state.downloading) {
+                TextButton(onClick = onCancelDownload) {
+                    Text(tr(R.string.common_cancel), color = OmniColors.Danger)
+                }
+            } else {
+                TextButton(onClick = onDownloadOrInstall) {
+                    Text(
+                        if (readyFile != null) tr(R.string.update_install_now) else tr(R.string.update_download_now),
+                        color = OmniColors.Accent
+                    )
+                }
+            }
+        },
+        dismissButton = {
+            if (!state.downloading) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = onIgnore) {
+                        Text(tr(R.string.update_ignore_version), color = OmniColors.Dim)
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text(tr(R.string.update_later), color = OmniColors.Muted)
+                    }
+                }
+            }
+        }
+    )
 }
 
 @Composable
